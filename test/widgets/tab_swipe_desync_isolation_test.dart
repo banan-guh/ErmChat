@@ -1,3 +1,7 @@
+import 'package:flutter/material.dart';
+import 'package:flutter_test/flutter_test.dart';
+import 'package:ermchat/widgets/tabbed_layout.dart';
+
 // Isolation suite for the mid-swipe desync bug: tap a tab, catch the
 // animated flight with a finger, stop it part-way. A tab tap commits its
 // channel immediately (the flight is just travel); every other focus change
@@ -10,10 +14,6 @@
 // HomeScreen asymmetry: the focus callback mutates state WITHOUT setState,
 // only the settle callback commits with setState, and both share the
 // "already selected -> return" guard.
-import 'package:flutter/material.dart';
-import 'package:flutter_test/flutter_test.dart';
-import 'package:ermchat/widgets/tabbed_layout.dart';
-
 const _tabs = ['a', 'b', 'c'];
 
 class _HomeLike {
@@ -93,8 +93,8 @@ int _restingPage(WidgetTester tester) {
     if (tester.widgetList(key).isEmpty) continue;
     final dx = tester.getTopLeft(key).dx.abs();
     if (dx < bestDx) {
-      bestDx = dx;
       best = i;
+      bestDx = dx;
     }
   }
   return best;
@@ -188,239 +188,155 @@ void _externalNavigate(_HomeLike home, StateSetter set, int index) {
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
 
-  Future<(_HomeLike, StateSetter)> pumpHome(WidgetTester tester) async {
-    final home = _HomeLike();
-    late StateSetter capturedSet;
-    await tester.pumpWidget(
-      _homeLikeHarness(home, (realSet) => capturedSet = realSet),
-    );
-    await tester.pumpAndSettle();
-    return (home, capturedSet);
-  }
-
-  group('mid-swipe desync isolation', () {
-    testWidgets('R2: tap b, catch above half, release forward', (tester) async {
-      final (home, _) = await pumpHome(tester);
-
-      await _tapTab(tester, 'b');
-      await tester.pump(const Duration(milliseconds: 40));
-      final gesture = await _catchAndHold(tester, fraction: 0.65);
-      await gesture.up();
+  testWidgets('mid-swipe desync isolation scenarios', (tester) async {
+    Future<(_HomeLike, StateSetter)> pumpHome() async {
+      final home = _HomeLike();
+      late StateSetter capturedSet;
+      await tester.pumpWidget(
+        _homeLikeHarness(home, (realSet) => capturedSet = realSet),
+      );
       await tester.pumpAndSettle();
+      return (home, capturedSet);
+    }
 
-      expect(_restingPage(tester), 1, reason: 'page should complete to b');
-      expect(home.selectedChannel, 'b', reason: _dump(home));
-      expect(home.tabIndex.value, 1, reason: _dump(home));
-      // Tap commits b, the catch pulls back below half (commits a), then the
-      // forward crossing commits b again. The landing dedups.
-      expect(home.commits['b'] ?? 0, 2, reason: _dump(home));
-      expect(home.commits['a'] ?? 0, 1, reason: _dump(home));
-    });
+    final scenarios = <String, Future<void> Function()>{
+      'R2: tap b, catch above half, release forward': () async {
+        final (home, _) = await pumpHome();
+        await _tapTab(tester, 'b');
+        await tester.pump(const Duration(milliseconds: 40));
+        final gesture = await _catchAndHold(tester, fraction: 0.65);
+        await gesture.up();
+        await tester.pumpAndSettle();
 
-    testWidgets('R4: pure drag past half, pull back below, gentle release', (
-      tester,
-    ) async {
-      final (home, _) = await pumpHome(tester);
-
-      final size = tester.getSize(find.byType(PageView));
-      final center = tester.getCenter(find.byType(PageView));
-      final gesture = await tester.startGesture(center);
-      await gesture.moveBy(Offset(-size.width * 0.7, 0));
-      await tester.pump();
-      // Pull back below the halfway point while still holding.
-      await gesture.moveBy(Offset(size.width * 0.45, 0));
-      await tester.pump();
-      for (var i = 0; i < 4; i++) {
-        await tester.pump(const Duration(milliseconds: 33));
-      }
-      await gesture.up();
-      await tester.pumpAndSettle();
-
-      expect(_restingPage(tester), 0);
-      expect(home.selectedChannel, 'a', reason: _dump(home));
-      expect(home.tabIndex.value, 0, reason: _dump(home));
-    });
-
-    testWidgets('R7: pure swipe past half, release forward, side effects '
-        'run once', (tester) async {
-      {
-        final (home, _) = await pumpHome(tester);
+        expect(_restingPage(tester), 1, reason: 'page should complete to b');
+        expect(home.selectedChannel, 'b', reason: _dump(home));
+        expect(home.tabIndex.value, 1, reason: _dump(home));
+        expect(home.commits['b'] ?? 0, 2, reason: _dump(home));
+        expect(home.commits['a'] ?? 0, 1, reason: _dump(home));
+      },
+      'R4: pure drag past half, pull back below, gentle release': () async {
+        final (home, _) = await pumpHome();
         final size = tester.getSize(find.byType(PageView));
         final center = tester.getCenter(find.byType(PageView));
         final gesture = await tester.startGesture(center);
-        await gesture.moveBy(Offset(-size.width * 0.6, 0));
+        await gesture.moveBy(Offset(-size.width * 0.7, 0));
         await tester.pump();
+        await gesture.moveBy(Offset(size.width * 0.45, 0));
+        await tester.pump();
+        for (var i = 0; i < 4; i++) {
+          await tester.pump(const Duration(milliseconds: 33));
+        }
         await gesture.up();
         await tester.pumpAndSettle();
-        expect(_restingPage(tester), 1);
-        expect(home.selectedChannel, 'b');
-        expect(
-          home.commits['b'] ?? 0,
-          1,
-          reason: 'the full commit must have run for b: ${_dump(home)}',
-        );
-      }
-      {
-        final (home, _) = await pumpHome(tester);
-        await _stealMidSwipe(tester, fraction: 0.30);
-        await tester.pumpAndSettle();
-        await _swipeToNext(tester);
-        expect(_restingPage(tester), 1, reason: _restingDump(tester));
-        expect(home.selectedChannel, 'b', reason: _dump(home));
-        expect(home.tabIndex.value, 1, reason: _dump(home));
-        expect(
-          home.commits['b'] ?? 0,
-          1,
-          reason: 'exactly one full commit for b: ${_dump(home)}',
-        );
-      }
-    });
 
-    testWidgets('R11: tapping the already-visible tab is a no-op', (
-      tester,
-    ) async {
-      final (home, _) = await pumpHome(tester);
-
-      await _tapTab(tester, 'a');
-      await tester.pumpAndSettle();
-
-      // A zero-distance jump must not strand a jump target: if it did, the
-      // flyover suppression would stay on and later swipes would stop
-      // committing entirely.
-      await _swipeToNext(tester);
-      await tester.pumpAndSettle();
-
-      expect(
-        _restingPage(tester),
-        1,
-        reason: 'swipe after tap must still work',
-      );
-      expect(home.selectedChannel, 'b', reason: _dump(home));
-      expect(home.tabIndex.value, 1, reason: _dump(home));
-      expect(home.commits['a'] ?? 0, 0, reason: _dump(home));
-      expect(home.commits['b'] ?? 0, 1, reason: _dump(home));
-    });
-
-    testWidgets('R12: tap c then tap b without catching lands on b', (
-      tester,
-    ) async {
-      final (home, _) = await pumpHome(tester);
-
-      await _tapTab(tester, 'c');
-      await tester.pump(const Duration(milliseconds: 30));
-      await _tapTab(tester, 'b');
-      await tester.pumpAndSettle();
-
-      expect(_restingPage(tester), 1, reason: 'retarget must land on b');
-      expect(home.selectedChannel, 'b', reason: _dump(home));
-      // Both taps commit on tap; the retarget's landing dedups.
-      expect(home.commits['c'] ?? 0, 1, reason: _dump(home));
-      expect(home.commits['b'] ?? 0, 1, reason: _dump(home));
-    });
-
-    testWidgets('R13: grabbing a targeted jump and dragging back lands on '
-        'the finger side', (tester) async {
-      final (home, _) = await pumpHome(tester);
-
-      await _tapTab(tester, 'c');
-      await tester.pump(const Duration(milliseconds: 60));
-      // Grab the a->c jump while it is flying and drag it back below half.
-      final gesture = await _catchAndHold(tester, fraction: 0.30);
-      await gesture.up();
-      await tester.pumpAndSettle();
-
-      final resting = _restingPage(tester);
-      expect(resting, 0, reason: 'drag-back from c jump must return to a');
-      // The tap already committed c; the grab-back commits a. The landing
-      // dedups, so c stays at exactly one.
-      expect(
-        home.commits['c'] ?? 0,
-        1,
-        reason: 'the tapped jump target commits once: ${_dump(home)}',
-      );
-      expect(home.commits['a'] ?? 0, 1, reason: _dump(home));
-    });
-
-    testWidgets('R14: half-drag round trip then tab tap must commit focus '
-        '(stale-prop landing)', (tester) async {
-      final (home, _) = await pumpHome(tester);
-
-      // Start on b.
-      await _tapTab(tester, 'b');
-      await tester.pumpAndSettle();
-      expect(home.selectedChannel, 'b');
-
-      // Half-drag toward a: the crossing commits focus to a WITHOUT any
-      // rebuild (the focus path never rebuilds), leaving the selectedIndex
-      // prop stale at b's index. Release on a's side: the page settles on a.
-      final size = tester.getSize(find.byType(PageView));
-      final center = tester.getCenter(find.byType(PageView));
-      final gesture = await tester.startGesture(center);
-      await gesture.moveBy(Offset(size.width * 0.6, 0));
-      await tester.pump();
-      await gesture.up();
-      await tester.pumpAndSettle();
-      expect(home.selectedChannel, 'a', reason: _dump(home));
-
-      // Tap b's tab: the flight lands on b and focus must follow the view.
-      // The landing report must not be skipped against the stale prop.
-      await _tapTab(tester, 'b');
-      await tester.pumpAndSettle();
-
-      expect(_restingPage(tester), 1, reason: 'page must land on b');
-      expect(
-        home.selectedChannel,
-        'b',
-        reason: 'focus must catch up to the view: ${_dump(home)}',
-      );
-      expect(home.tabIndex.value, 1, reason: _dump(home));
-      expect(
-        home.commits['b'] ?? 0,
-        2,
-        reason: 'initial tap + landing bookkeeping: ${_dump(home)}',
-      );
-    });
-
-    testWidgets(
-      'Pointer steals above and below half keep later navigation working',
-      (tester) async {
+        expect(_restingPage(tester), 0);
+        expect(home.selectedChannel, 'a', reason: _dump(home));
+        expect(home.tabIndex.value, 0, reason: _dump(home));
+      },
+      'R7: pure swipe and stolen swipe commit once': () async {
         {
-          final (home, set) = await pumpHome(tester);
-          await _stealMidSwipe(tester, fraction: 0.70);
+          final (home, _) = await pumpHome();
+          final size = tester.getSize(find.byType(PageView));
+          final center = tester.getCenter(find.byType(PageView));
+          final gesture = await tester.startGesture(center);
+          await gesture.moveBy(Offset(-size.width * 0.6, 0));
+          await tester.pump();
+          await gesture.up();
           await tester.pumpAndSettle();
+          expect(_restingPage(tester), 1);
+          expect(home.selectedChannel, 'b');
+          expect(home.commits['b'] ?? 0, 1, reason: _dump(home));
+        }
+        {
+          final (home, _) = await pumpHome();
+          await _stealMidSwipe(tester, fraction: 0.30);
+          await tester.pumpAndSettle();
+          await _swipeToNext(tester);
           expect(_restingPage(tester), 1, reason: _restingDump(tester));
           expect(home.selectedChannel, 'b', reason: _dump(home));
           expect(home.tabIndex.value, 1, reason: _dump(home));
-          _externalNavigate(home, set, 2);
-          await tester.pumpAndSettle();
-          expect(
-            _restingPage(tester),
-            2,
-            reason:
-                'pager must follow an external selection commit after a stolen pointer',
-          );
-          expect(home.selectedChannel, 'c', reason: _dump(home));
-          expect(home.tabIndex.value, 2, reason: _dump(home));
+          expect(home.commits['b'] ?? 0, 1, reason: _dump(home));
         }
-        {
-          final (home, set) = await pumpHome(tester);
-          await _stealMidSwipe(tester, fraction: 0.30);
+      },
+      'R11: tapping the visible tab is a no-op': () async {
+        final (home, _) = await pumpHome();
+        await _tapTab(tester, 'a');
+        await tester.pumpAndSettle();
+        await _swipeToNext(tester);
+        await tester.pumpAndSettle();
+
+        expect(_restingPage(tester), 1, reason: 'swipe after tap must work');
+        expect(home.selectedChannel, 'b', reason: _dump(home));
+        expect(home.tabIndex.value, 1, reason: _dump(home));
+        expect(home.commits['a'] ?? 0, 0, reason: _dump(home));
+        expect(home.commits['b'] ?? 0, 1, reason: _dump(home));
+      },
+      'R12: tap c then b without catching lands on b': () async {
+        final (home, _) = await pumpHome();
+        await _tapTab(tester, 'c');
+        await tester.pump(const Duration(milliseconds: 30));
+        await _tapTab(tester, 'b');
+        await tester.pumpAndSettle();
+
+        expect(_restingPage(tester), 1, reason: 'retarget must land on b');
+        expect(home.selectedChannel, 'b', reason: _dump(home));
+        expect(home.commits['c'] ?? 0, 1, reason: _dump(home));
+        expect(home.commits['b'] ?? 0, 1, reason: _dump(home));
+      },
+      'R13: caught targeted jump lands on the finger side': () async {
+        final (home, _) = await pumpHome();
+        await _tapTab(tester, 'c');
+        await tester.pump(const Duration(milliseconds: 60));
+        final gesture = await _catchAndHold(tester, fraction: 0.30);
+        await gesture.up();
+        await tester.pumpAndSettle();
+
+        expect(_restingPage(tester), 0, reason: _restingDump(tester));
+        expect(home.commits['c'] ?? 0, 1, reason: _dump(home));
+        expect(home.commits['a'] ?? 0, 1, reason: _dump(home));
+      },
+      'R14: stale-prop landing still commits focus': () async {
+        final (home, _) = await pumpHome();
+        await _tapTab(tester, 'b');
+        await tester.pumpAndSettle();
+        expect(home.selectedChannel, 'b');
+
+        final size = tester.getSize(find.byType(PageView));
+        final center = tester.getCenter(find.byType(PageView));
+        final gesture = await tester.startGesture(center);
+        await gesture.moveBy(Offset(size.width * 0.6, 0));
+        await tester.pump();
+        await gesture.up();
+        await tester.pumpAndSettle();
+        expect(home.selectedChannel, 'a', reason: _dump(home));
+
+        await _tapTab(tester, 'b');
+        await tester.pumpAndSettle();
+
+        expect(_restingPage(tester), 1, reason: 'page must land on b');
+        expect(home.selectedChannel, 'b', reason: _dump(home));
+        expect(home.tabIndex.value, 1, reason: _dump(home));
+        expect(home.commits['b'] ?? 0, 2, reason: _dump(home));
+      },
+      'pointer steals above and below half keep navigation working': () async {
+        for (final fraction in [0.70, 0.30]) {
+          final (home, set) = await pumpHome();
+          await _stealMidSwipe(tester, fraction: fraction);
           await tester.pumpAndSettle();
-          expect(_restingPage(tester), 0, reason: _restingDump(tester));
-          expect(home.selectedChannel, 'a', reason: _dump(home));
-          expect(home.tabIndex.value, 0, reason: _dump(home));
+          expect(_restingPage(tester), fraction > 0.5 ? 1 : 0);
+          expect(home.selectedChannel, fraction > 0.5 ? 'b' : 'a');
+          expect(home.tabIndex.value, fraction > 0.5 ? 1 : 0);
           _externalNavigate(home, set, 2);
           await tester.pumpAndSettle();
-          expect(
-            _restingPage(tester),
-            2,
-            reason:
-                'pager must follow an external selection commit after a stolen pointer',
-          );
+          expect(_restingPage(tester), 2, reason: _restingDump(tester));
           expect(home.selectedChannel, 'c', reason: _dump(home));
           expect(home.tabIndex.value, 2, reason: _dump(home));
         }
       },
-    );
+    };
+
+    for (final entry in scenarios.entries) {
+      await entry.value();
+    }
   });
 }

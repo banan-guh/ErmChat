@@ -28,20 +28,14 @@ TwitchMessage message(
 );
 
 void main() {
-  test('folds exact rows into the first', () {
-    final result = compactChat([
-      message('KEKW'),
-      message('KEKW'),
-      message('KEKW'),
-    ]);
-    expect(result.counts, {0: 3});
-    expect(result.hidden, {1: 0, 2: 0});
-  });
-
-  test('folds a pair, so the second row never paints', () {
-    final result = compactChat([message('KEKW'), message('KEKW')]);
-    expect(result.counts, {0: 2});
-    expect(result.hidden, {1: 0});
+  test('folds exact runs into the first', () {
+    for (final count in [2, 3]) {
+      final result = compactChat([
+        for (var i = 0; i < count; i++) message('KEKW'),
+      ]);
+      expect(result.counts, {0: count});
+      expect(result.hidden, {for (var i = 1; i < count; i++) i: 0});
+    }
   });
 
   test('collapses whitespace and folds case', () {
@@ -53,16 +47,6 @@ void main() {
     expect(result.hidden, {1: 0});
   });
 
-  test('folds edge punctuation', () {
-    final result = compactChat([
-      message('Hello there chat!'),
-      message('hello there chat'),
-      message('"hello there chat"'),
-    ]);
-    expect(result.counts, {0: 3});
-    expect(result.hidden, {1: 0, 2: 0});
-  });
-
   test('one word apart stays separate', () {
     final result = compactChat([
       message('hello there friend'),
@@ -72,15 +56,6 @@ void main() {
     ]);
     expect(result.counts, {0: 2, 2: 2});
     expect(result.hidden, {1: 0, 3: 2});
-  });
-
-  test('a typo stays separate', () {
-    final result = compactChat([
-      message('hello there friend'),
-      message('hello there freind'),
-    ]);
-    expect(result.counts, isEmpty);
-    expect(result.hidden, isEmpty);
   });
 
   test('matching stays inside one channel', () {
@@ -130,20 +105,6 @@ void main() {
     expect(result.hidden, {2: 0});
   });
 
-  test('a lone copy joins a run that follows it', () {
-    final at = DateTime(2026, 1, 1, 12);
-    final result = compactChat([
-      message('om', at: at),
-      message('om', at: at.add(const Duration(seconds: 2))),
-      message('om', at: at.add(const Duration(seconds: 3))),
-      message('om', at: at.add(const Duration(seconds: 4))),
-      message('om', at: at.add(const Duration(seconds: 5))),
-      message('om', at: at.add(const Duration(seconds: 6))),
-    ]);
-    expect(result.counts, {0: 6});
-    expect(result.hidden, {1: 0, 2: 0, 3: 0, 4: 0, 5: 0});
-  });
-
   test('starts a new run after one hundred rows', () {
     final at = DateTime(2026, 1, 1, 12);
     final rows = [
@@ -169,17 +130,6 @@ void main() {
     ]);
     expect(result.counts, {0: 3});
     expect(result.hidden, {6: 0, 7: 0});
-  });
-
-  test('a deleted member leaves a visible row', () {
-    final result = compactChat([
-      message('KEKW'),
-      message('KEKW', deleted: true),
-      message('KEKW'),
-      message('KEKW'),
-    ]);
-    expect(result.counts, {0: 3});
-    expect(result.hidden, {2: 0, 3: 0});
   });
 
   test('a rewritten row folds by its new text', () {

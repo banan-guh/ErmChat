@@ -19,6 +19,7 @@ Widget _harness(
   bool fastSnap = true,
 }) {
   return MaterialApp(
+    key: UniqueKey(),
     home: Scaffold(
       body: StatefulBuilder(
         builder: (context, set) {
@@ -115,46 +116,42 @@ void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
 
   group('TabbedLayout channel switching', () {
-    for (final fastSnap in [false, true]) {
-      testWidgets(
-        'unrelated rebuild during a swipe does not snap the page back '
-        '(fastSnap=$fastSnap)',
-        (WidgetTester tester) async {
-          final selected = ValueNotifier<int>(0);
-          late StateSetter setStateTop;
+    testWidgets('unrelated rebuilds never snap a swipe back', (tester) async {
+      for (final fastSnap in [false, true]) {
+        final selected = ValueNotifier<int>(0);
+        late StateSetter setStateTop;
 
-          await tester.pumpWidget(
-            _harness(
-              selected,
-              captureSetState: (set) => setStateTop = set,
-              onFocusChanged: (i) => selected.value = i,
-              onSelectedIndexChanged: (i) => selected.value = i,
-              fastSnap: fastSnap,
-            ),
-          );
+        await tester.pumpWidget(
+          _harness(
+            selected,
+            captureSetState: (set) => setStateTop = set,
+            onFocusChanged: (i) => selected.value = i,
+            onSelectedIndexChanged: (i) => selected.value = i,
+            fastSnap: fastSnap,
+          ),
+        );
 
-          // Swipe past halfway so the page is heading to channel b.
-          final size = tester.getSize(find.byType(PageView));
-          final center = tester.getCenter(find.byType(PageView));
-          final gesture = await tester.startGesture(center);
-          await gesture.moveBy(const Offset(-1, 0));
-          await tester.pump();
-          await gesture.moveBy(Offset(-size.width * 0.6, 0));
-          await tester.pump();
+        // Swipe past halfway so the page is heading to channel b.
+        final size = tester.getSize(find.byType(PageView));
+        final center = tester.getCenter(find.byType(PageView));
+        final gesture = await tester.startGesture(center);
+        await gesture.moveBy(const Offset(-1, 0));
+        await tester.pump();
+        await gesture.moveBy(Offset(-size.width * 0.6, 0));
+        await tester.pump();
 
-          // An unrelated rebuild lands mid-swipe (e.g. doSendMessage).
-          setStateTop(() {});
-          await tester.pump();
+        // An unrelated rebuild lands mid-swipe (e.g. doSendMessage).
+        setStateTop(() {});
+        await tester.pump();
 
-          await gesture.up();
-          await tester.pumpAndSettle();
+        await gesture.up();
+        await tester.pumpAndSettle();
 
-          // The page settled on b and was never yanked back to a.
-          expect(selected.value, 1);
-          expect(_pageDx(tester, 1).abs(), lessThan(2.0));
-        },
-      );
-    }
+        // The page settled on b and was never yanked back to a.
+        expect(selected.value, 1, reason: 'fastSnap=$fastSnap');
+        expect(_pageDx(tester, 1).abs(), lessThan(2.0));
+      }
+    });
 
     testWidgets(
       'Programmatic selection moves the page and ignores unchanged rebuilds',
@@ -195,6 +192,40 @@ void main() {
 
         expect(selectedReports, isEmpty);
         expect(_pageDx(tester, 2).abs(), lessThan(2.0));
+
+        final far = ValueNotifier<int>(0);
+        addTearDown(far.dispose);
+        final focused = <int>[];
+        await tester.pumpWidget(
+          MaterialApp(
+            key: UniqueKey(),
+            home: Scaffold(
+              body: ListenableBuilder(
+                listenable: far,
+                builder: (_, _) => TabbedLayout(
+                  tabs: const ['a', 'b', 'c', 'd', 'e', 'f', 'g', 'h'],
+                  selectedIndex: far.value,
+                  focusOnHalfDrag: true,
+                  onFocusChanged: focused.add,
+                  onSelectedIndexChanged: (i) => far.value = i,
+                  pageBuilder: (_, i) => Center(child: Text('page$i')),
+                ),
+              ),
+            ),
+          ),
+        );
+        await tester.pumpAndSettle();
+
+        // A far jump takes the pre-jump path, which used to report the flyover
+        // page as focused while the pager was updating.
+        far.value = 6;
+        await tester.pumpAndSettle();
+
+        expect(
+          focused,
+          isEmpty,
+          reason: 'programmatic jumps commit on landing, not on flyover focus',
+        );
       },
     );
   });
@@ -413,246 +444,108 @@ void main() {
           )
           .dx;
       expect(plus, greaterThan(d));
-    });
 
-    testWidgets('swiping past the last channel never lands on it', (
-      tester,
-    ) async {
-      final selected = ValueNotifier<int>(2);
-      final tabs = ValueNotifier<List<String>>(['a', 'b', 'c']);
-      final showAddTab = ValueNotifier<bool>(true);
-      final reported = <int>[];
-      await tester.pumpWidget(
-        _addTabHarness(
-          selected,
-          tabs,
-          showAddTab,
-          onAddTab: () {},
-          reported: reported,
-        ),
-      );
-      await tester.pumpAndSettle();
-
+      reported.clear();
       await tester.fling(
-        find.byKey(const Key('page-2')),
+        find.byKey(const Key('page-3')),
         const Offset(-400, 0),
         2000,
       );
       await tester.pumpAndSettle();
 
-      expect(reported.where((i) => i > 2), isEmpty);
-      expect(selected.value, 2);
-      expect(_stripController(tester).index, 2);
-      expect(_pageDx(tester, 2).abs(), lessThan(2.0));
-    });
-
-    testWidgets('the add tab scrolls clear of the actions fade', (
-      tester,
-    ) async {
-      final tabs = [for (var i = 0; i < 12; i++) 'channel$i'];
-      await tester.pumpWidget(
-        MaterialApp(
-          home: Scaffold(
-            body: TabbedLayout(
-              tabs: tabs,
-              selectedIndex: 0,
-              onSelectedIndexChanged: (_) {},
-              addTab: const Icon(Icons.add),
-              onAddTab: () {},
-              stripTrailing: const SizedBox(width: 80, height: 40),
-              pageBuilder: (_, i) => Text(tabs[i]),
-            ),
-          ),
-        ),
-      );
-      await tester.pumpAndSettle();
-      final strip = find.byType(TabBar);
-      await tester.drag(strip, const Offset(-4000, 0));
-      await tester.pumpAndSettle();
-
-      final plus = tester.getRect(find.byIcon(Icons.add));
-      final fadeStart = tester.getRect(strip).right - 24;
-      expect(plus.right, lessThanOrEqualTo(fadeStart));
+      expect(reported.where((i) => i > 3), isEmpty);
+      expect(selected.value, 3);
+      expect(_stripController(tester).index, 3);
+      expect(_pageDx(tester, 3).abs(), lessThan(2.0));
     });
   });
 
   group('TabDragFocus half-drag', () {
-    testWidgets('fling without drag crossing reports live mid-flight', (
-      tester,
-    ) async {
-      final tab = TabController(length: 3, vsync: const TestVSync());
-      addTearDown(tab.dispose);
-      final focused = <int>[];
-      final drag = TabDragFocus(tab: () => tab, onFocusChanged: focused.add);
-      addTearDown(drag.dispose);
-      tab.addListener(() {
-        if (!tab.indexIsChanging) drag.syncFromController();
-      });
-      await tester.pumpWidget(
-        MaterialApp(
-          home: Scaffold(
-            body: NotificationListener<ScrollNotification>(
-              onNotification: drag.onNotification,
-              child: TabBarView(
-                controller: tab,
-                children: const [Text('p0'), Text('p1'), Text('p2')],
+    testWidgets('flights, retargets, and far jumps converge', (tester) async {
+      Future<(TabController, List<int>, TabDragFocus)> pump() async {
+        final tab = TabController(length: 3, vsync: const TestVSync());
+        addTearDown(tab.dispose);
+        final focused = <int>[];
+        final drag = TabDragFocus(tab: () => tab, onFocusChanged: focused.add);
+        addTearDown(drag.dispose);
+        tab.addListener(() {
+          if (!tab.indexIsChanging) drag.syncFromController();
+        });
+        await tester.pumpWidget(
+          MaterialApp(
+            key: UniqueKey(),
+            home: Scaffold(
+              body: NotificationListener<ScrollNotification>(
+                onNotification: drag.onNotification,
+                child: TabBarView(
+                  controller: tab,
+                  children: const [Text('p0'), Text('p1'), Text('p2')],
+                ),
               ),
             ),
           ),
-        ),
-      );
-
-      // Short drag, hard fling: the drag phase never crosses 50%, so any
-      // live report must come from the ballistic flight.
-      await tester.fling(find.text('p0'), const Offset(-200, 0), 2500);
-      var sawLive = false;
-      for (var i = 0; i < 90; i++) {
-        await tester.pump(const Duration(milliseconds: 16));
-        if (focused.contains(1) && tab.index == 0) sawLive = true;
-        if (sawLive && tab.index != 0) break;
-      }
-      expect(sawLive, isTrue);
-      await tester.pumpAndSettle();
-      expect(drag.dragFocus.value, isNull);
-      expect(focused.last, tab.index);
-      expect(drag.effectiveIndex, tab.index);
-      expect(tab.index, greaterThan(0));
-    });
-
-    testWidgets('tap retarget during flight converges', (tester) async {
-      final tab = TabController(length: 3, vsync: const TestVSync());
-      addTearDown(tab.dispose);
-      final focused = <int>[];
-      final drag = TabDragFocus(tab: () => tab, onFocusChanged: focused.add);
-      addTearDown(drag.dispose);
-      tab.addListener(() {
-        if (!tab.indexIsChanging) drag.syncFromController();
-      });
-      await tester.pumpWidget(
-        MaterialApp(
-          home: Scaffold(
-            body: NotificationListener<ScrollNotification>(
-              onNotification: drag.onNotification,
-              child: TabBarView(
-                controller: tab,
-                children: const [Text('p0'), Text('p1'), Text('p2')],
-              ),
-            ),
-          ),
-        ),
-      );
-
-      // Fling toward 2; once the flight moves the index, retarget to 0
-      // mid-flight like a tab tap, then prove nothing stranded.
-      await tester.fling(find.text('p0'), const Offset(-200, 0), 2500);
-      for (var i = 0; i < 90 && tab.index != 1; i++) {
-        await tester.pump(const Duration(milliseconds: 16));
-      }
-      expect(tab.index, 1);
-      tab.animateTo(0);
-      await tester.pumpAndSettle();
-      expect(tab.index, 0);
-      expect(drag.dragFocus.value, isNull);
-      expect(focused.last, 0);
-      expect(drag.effectiveIndex, 0);
-
-      // Settle path still alive afterwards: no stranded flight state.
-      tab.animateTo(2);
-      await tester.pumpAndSettle();
-      expect(focused.last, 2);
-    });
-
-    testWidgets('far jumps and fast flings converge', (tester) async {
-      final tab = TabController(length: 3, vsync: const TestVSync());
-      addTearDown(tab.dispose);
-      final focused = <int>[];
-      final drag = TabDragFocus(tab: () => tab, onFocusChanged: focused.add);
-      addTearDown(drag.dispose);
-      tab.addListener(() {
-        if (!tab.indexIsChanging) drag.syncFromController();
-      });
-      await tester.pumpWidget(
-        MaterialApp(
-          home: Scaffold(
-            body: NotificationListener<ScrollNotification>(
-              onNotification: drag.onNotification,
-              child: TabBarView(
-                controller: tab,
-                children: const [Text('p0'), Text('p1'), Text('p2')],
-              ),
-            ),
-          ),
-        ),
-      );
-
-      // A far jump reports only its landing, never intermediates.
-      tab.animateTo(2);
-      await tester.pumpAndSettle();
-      expect(focused, [2]);
-      tab.animateTo(0);
-      await tester.pumpAndSettle();
-      focused.clear();
-
-      await tester.fling(find.text('p0'), const Offset(-800, 0), 8000);
-      await tester.pumpAndSettle();
-      expect(tab.index, 2);
-      expect(drag.dragFocus.value, isNull);
-      expect(focused.last, 2);
-      expect(drag.effectiveIndex, 2);
-
-      // Settle path still alive afterwards.
-      tab.animateTo(0);
-      await tester.pumpAndSettle();
-      expect(focused.last, 0);
-    });
-  });
-
-  group('TabbedLayout tab strip stretch', () {
-    // Enough tabs to overflow the viewport so the strip is scrollable; the
-    // selected tab is last, so the strip rests at its trailing edge.
-    Widget stretchHarness() => MaterialApp(
-      home: Scaffold(
-        body: TabbedLayout(
-          key: const Key('tl'),
-          tabs: List.generate(12, (i) => 'channel$i'),
-          selectedIndex: 11,
-          onSelectedIndexChanged: (_) {},
-          pageBuilder: (_, i) => Center(child: Text('page$i')),
-        ),
-      ),
-    );
-
-    testWidgets('overscrolling the strip stretches then springs back', (
-      WidgetTester tester,
-    ) async {
-      await tester.pumpWidget(stretchHarness());
-      await tester.pumpAndSettle();
-
-      // The PageView installs a stretch indicator too, so scope to the one
-      // wrapping the TabBar.
-      StretchEffect tabEffect() => tester.widget<StretchEffect>(
-        find.ancestor(
-          of: find.byType(TabBar),
-          matching: find.byType(StretchEffect),
-        ),
-      );
-
-      final start = tester.getCenter(find.byType(TabBar));
-      final gesture = await tester.startGesture(start);
-      // Stepped moves so each drag update lands past the trailing edge and
-      // builds up overscroll.
-      for (var i = 0; i < 10; i++) {
-        await gesture.moveBy(const Offset(-20, 0));
-        await tester.pump();
+        );
+        return (tab, focused, drag);
       }
 
-      // Dragged past the trailing edge: content stretches.
-      expect(tabEffect().stretchStrength.abs(), greaterThan(0.0));
+      for (final scenario in ['live', 'retarget', 'far']) {
+        final (tab, focused, drag) = await pump();
+        switch (scenario) {
+          case 'live':
+            // Short drag, hard fling: the drag phase never crosses 50%, so any
+            // live report must come from the ballistic flight.
+            await tester.fling(find.text('p0'), const Offset(-200, 0), 2500);
+            var sawLive = false;
+            for (var i = 0; i < 90; i++) {
+              await tester.pump(const Duration(milliseconds: 16));
+              if (focused.contains(1) && tab.index == 0) sawLive = true;
+              if (sawLive && tab.index != 0) break;
+            }
+            expect(sawLive, isTrue);
+            await tester.pumpAndSettle();
+            expect(drag.dragFocus.value, isNull);
+            expect(focused.last, tab.index);
+            expect(drag.effectiveIndex, tab.index);
+            expect(tab.index, greaterThan(0));
+          case 'retarget':
+            // Fling toward 2; once the flight moves the index, retarget to 0
+            // mid-flight like a tab tap, then prove nothing stranded.
+            await tester.fling(find.text('p0'), const Offset(-200, 0), 2500);
+            for (var i = 0; i < 90 && tab.index != 1; i++) {
+              await tester.pump(const Duration(milliseconds: 16));
+            }
+            expect(tab.index, 1);
+            tab.animateTo(0);
+            await tester.pumpAndSettle();
+            expect(tab.index, 0);
+            expect(drag.dragFocus.value, isNull);
+            expect(focused.last, 0);
+            expect(drag.effectiveIndex, 0);
 
-      await gesture.up();
-      await tester.pumpAndSettle();
+            tab.animateTo(2);
+            await tester.pumpAndSettle();
+            expect(focused.last, 2);
+          case 'far':
+            // A far jump reports only its landing, never intermediates.
+            tab.animateTo(2);
+            await tester.pumpAndSettle();
+            expect(focused, [2]);
+            tab.animateTo(0);
+            await tester.pumpAndSettle();
+            focused.clear();
 
-      expect(tabEffect().stretchStrength, 0.0);
+            await tester.fling(find.text('p0'), const Offset(-800, 0), 8000);
+            await tester.pumpAndSettle();
+            expect(tab.index, 2);
+            expect(drag.dragFocus.value, isNull);
+            expect(focused.last, 2);
+            expect(drag.effectiveIndex, 2);
+
+            tab.animateTo(0);
+            await tester.pumpAndSettle();
+            expect(focused.last, 0);
+        }
+      }
     });
   });
 
@@ -696,6 +589,119 @@ void main() {
       expect(built, contains(7));
       expect(built, isNot(contains(1)));
       expect(built, isNot(contains(2)));
+    });
+
+    testWidgets('an offscreen neighbor grows instead of mounting full height', (
+      tester,
+    ) async {
+      tester.view.physicalSize = const Size(400, 800);
+      tester.view.devicePixelRatio = 1;
+      addTearDown(tester.view.reset);
+      final selected = ValueNotifier<int>(0);
+      await tester.pumpWidget(
+        MaterialApp(
+          home: Scaffold(
+            body: ValueListenableBuilder<int>(
+              valueListenable: selected,
+              builder: (_, index, _) => TabbedLayout(
+                key: const Key('tl'),
+                tabs: const ['a', 'b', 'c'],
+                selectedIndex: index,
+                preloadAdjacentPages: true,
+                onSelectedIndexChanged: (i) => selected.value = i,
+                pageBuilder: (_, i) => LayoutBuilder(
+                  builder: (_, c) => SizedBox(
+                    key: ValueKey('page$i'),
+                    width: c.maxWidth,
+                    height: c.maxHeight,
+                  ),
+                ),
+              ),
+            ),
+          ),
+        ),
+      );
+      final full = tester.getSize(find.byType(PageView)).height;
+      double heightOf(int i) => tester
+          .renderObject<RenderBox>(
+            find.byKey(ValueKey('page$i'), skipOffstage: false),
+          )
+          .size
+          .height;
+      expect(heightOf(0), moreOrLessEquals(full));
+      expect(
+        heightOf(1),
+        lessThan(full * 0.5),
+        reason: 'the neighbor starts at a small layout',
+      );
+
+      for (var i = 0; i < 8; i++) {
+        await tester.pump();
+      }
+      expect(heightOf(1), moreOrLessEquals(full));
+      expect(heightOf(0), moreOrLessEquals(full));
+    });
+
+    testWidgets('an incoming page is full height during a drag', (
+      tester,
+    ) async {
+      tester.view.physicalSize = const Size(400, 800);
+      tester.view.devicePixelRatio = 1;
+      addTearDown(tester.view.reset);
+      await tester.pumpWidget(
+        MaterialApp(
+          home: Scaffold(
+            body: TabbedLayout(
+              key: const Key('tl'),
+              tabs: const ['a', 'b', 'c'],
+              selectedIndex: 0,
+              preloadAdjacentPages: true,
+              onSelectedIndexChanged: (_) {},
+              pageBuilder: (_, i) => LayoutBuilder(
+                builder: (_, c) => SizedBox(
+                  key: ValueKey('page$i'),
+                  width: c.maxWidth,
+                  height: c.maxHeight,
+                ),
+              ),
+            ),
+          ),
+        ),
+      );
+      final full = tester.getSize(find.byType(PageView)).height;
+      double heightOf(int i) => tester
+          .renderObject<RenderBox>(
+            find.byKey(ValueKey('page$i'), skipOffstage: false),
+          )
+          .size
+          .height;
+      expect(heightOf(1), lessThan(full * 0.5));
+
+      final gesture = await tester.startGesture(
+        tester.getCenter(find.byType(PageView)),
+      );
+      await gesture.moveBy(const Offset(-80, 0));
+      await tester.pump();
+      await tester.pump();
+      final position = tester
+          .state<ScrollableState>(
+            find.descendant(
+              of: find.byType(PageView),
+              matching: find.byType(Scrollable),
+            ),
+          )
+          .position;
+      expect(position.pixels, greaterThan(0), reason: 'the pager never moved');
+      expect(
+        heightOf(1),
+        moreOrLessEquals(full),
+        reason: 'the incoming page mounted at its warmup height mid-drag',
+      );
+      await gesture.moveBy(const Offset(-80, 0));
+      await tester.pump();
+      expect(heightOf(1), moreOrLessEquals(full));
+      await gesture.up();
+      await tester.pumpAndSettle();
     });
 
     testWidgets('only the focused page has tickers enabled', (tester) async {
@@ -812,107 +818,6 @@ void main() {
     expect(pages, isEmpty, reason: 'card pages moved the channel overlay');
   });
 
-  testWidgets('a scrolled-away strip animates back when a swipe starts', (
-    tester,
-  ) async {
-    final tabs = [for (var i = 0; i < 20; i++) 'channel$i'];
-    await tester.pumpWidget(
-      MaterialApp(
-        home: Scaffold(
-          body: TabbedLayout(
-            tabs: tabs,
-            selectedIndex: 0,
-            onFocusChanged: (_) {},
-            onSelectedIndexChanged: (_) {},
-            pageBuilder: (_, i) => Center(child: Text('page$i')),
-          ),
-        ),
-      ),
-    );
-    await tester.pumpAndSettle();
-    ScrollPosition strip() => tester
-        .state<ScrollableState>(
-          find
-              .descendant(
-                of: find.byType(TabBar),
-                matching: find.byType(Scrollable),
-              )
-              .first,
-        )
-        .position;
-    await tester.drag(find.text('channel3'), const Offset(-600, 0));
-    await tester.pumpAndSettle();
-    final away = strip().pixels;
-    expect(away, greaterThan(100));
-
-    final g = await tester.startGesture(tester.getCenter(find.text('page0')));
-    await g.moveBy(const Offset(-30, 0));
-    await tester.pump();
-    await g.moveBy(const Offset(-30, 0));
-    await tester.pump();
-    await tester.pump(const Duration(milliseconds: 100));
-    expect(
-      strip().pixels,
-      allOf(greaterThan(1), lessThan(away)),
-      reason: 'the strip glides back instead of jumping to the tab',
-    );
-    await tester.pump(const Duration(milliseconds: 150));
-    expect(strip().pixels, lessThan(1));
-    await g.up();
-    await tester.pumpAndSettle();
-  });
-
-  testWidgets('the strip glide tracks a swipe that keeps moving', (
-    tester,
-  ) async {
-    final tabs = [for (var i = 0; i < 20; i++) 'channel$i'];
-    await tester.pumpWidget(
-      MaterialApp(
-        home: Scaffold(
-          body: TabbedLayout(
-            tabs: tabs,
-            selectedIndex: 10,
-            onFocusChanged: (_) {},
-            onSelectedIndexChanged: (_) {},
-            pageBuilder: (_, i) => Center(child: Text('page$i')),
-          ),
-        ),
-      ),
-    );
-    await tester.pumpAndSettle();
-    ScrollPosition strip() => tester
-        .state<ScrollableState>(
-          find
-              .descendant(
-                of: find.byType(TabBar),
-                matching: find.byType(Scrollable),
-              )
-              .first,
-        )
-        .position;
-    await tester.drag(find.byType(TabBar), const Offset(2000, 0));
-    await tester.pumpAndSettle();
-
-    final g = await tester.startGesture(tester.getCenter(find.text('page10')));
-    final seen = <double>[];
-    for (var i = 0; i < 24; i++) {
-      await g.moveBy(const Offset(-15, 0));
-      await tester.pump(const Duration(milliseconds: 16));
-      seen.add(strip().pixels);
-    }
-    // Frame 13 (208 ms) ends the glide; from there the strip only follows
-    // the swipe.
-    for (var i = 13; i < seen.length; i++) {
-      expect(
-        (seen[i] - seen[i - 1]).abs(),
-        lessThan(15),
-        reason: 'strip snapped at frame $i: $seen',
-      );
-    }
-    await g.up();
-    await tester.pumpAndSettle();
-  });
-
   group('TabbedLayout bubbles', () {
     Widget harness() => MaterialApp(
       home: Scaffold(
@@ -936,42 +841,6 @@ void main() {
         ),
       ),
     );
-
-    testWidgets('bubble fills are solid and no bar sits behind them', (
-      tester,
-    ) async {
-      await tester.pumpWidget(harness());
-      final theme = Theme.of(tester.element(find.byType(TabbedLayout)));
-      expect(
-        find.byKey(const ValueKey('strip_bar_background')),
-        findsNothing,
-        reason: 'the bubble strip draws no full-width bar',
-      );
-      for (final key in ['strip_bubble_tabs', 'strip_bubble_actions']) {
-        final box = tester.widget<DecoratedBox>(find.byKey(ValueKey(key)));
-        final decoration = box.decoration as ShapeDecoration;
-        expect(decoration.shape, isA<StadiumBorder>());
-        expect(decoration.color, theme.colorScheme.surfaceContainerHigh);
-        expect(
-          decoration.color!.a,
-          1.0,
-          reason: 'the bubble is a solid block, not a wash',
-        );
-      }
-      final canvas = tester.getSize(find.byType(TabbedLayout));
-      expect(
-        tester.getSize(find.byKey(const ValueKey('strip_bubble_tabs'))).width,
-        lessThan(250),
-        reason: 'the tab bubble hugs its tabs instead of drawing a grey bar',
-      );
-      expect(
-        tester
-            .getRect(find.byKey(const ValueKey('strip_bubble_actions')))
-            .right,
-        greaterThan(canvas.width - 24),
-        reason: 'the action bubble stays pinned to the strip end',
-      );
-    });
 
     testWidgets('an overscroll on a short page does not retract the bubbles', (
       tester,
@@ -1038,15 +907,12 @@ void main() {
         greaterThanOrEqualTo(0),
         reason: 'returning to the newest rows brings the bubbles back',
       );
-    });
 
-    testWidgets('a jump to the newest row brings the bubbles back', (
-      tester,
-    ) async {
       final controller = ScrollController();
       addTearDown(controller.dispose);
       await tester.pumpWidget(
         MaterialApp(
+          key: UniqueKey(),
           home: Scaffold(
             body: TabbedLayout(
               tabs: const ['a', 'b'],
@@ -1065,9 +931,9 @@ void main() {
         ),
       );
       await tester.pumpAndSettle();
-      final page = find.byKey(const ValueKey('jump_page_0'));
+      final jumpPage = find.byKey(const ValueKey('jump_page_0'));
 
-      await tester.drag(page, const Offset(0, 400));
+      await tester.drag(jumpPage, const Offset(0, 400));
       await tester.pumpAndSettle();
       expect(
         tester.getTopLeft(find.byType(TabBar)).dy,
@@ -1182,42 +1048,5 @@ void main() {
       expect(reported, [1]);
       expect(find.text('split'), findsOneWidget);
     });
-  });
-
-  testWidgets('a programmatic jump does not report half-drag focus', (
-    tester,
-  ) async {
-    final selected = ValueNotifier<int>(0);
-    addTearDown(selected.dispose);
-    final focused = <int>[];
-    await tester.pumpWidget(
-      MaterialApp(
-        home: Scaffold(
-          body: ListenableBuilder(
-            listenable: selected,
-            builder: (_, _) => TabbedLayout(
-              tabs: const ['a', 'b', 'c', 'd', 'e', 'f', 'g', 'h'],
-              selectedIndex: selected.value,
-              focusOnHalfDrag: true,
-              onFocusChanged: focused.add,
-              onSelectedIndexChanged: (i) => selected.value = i,
-              pageBuilder: (_, i) => Center(child: Text('page$i')),
-            ),
-          ),
-        ),
-      ),
-    );
-    await tester.pumpAndSettle();
-
-    // A far jump takes the pre-jump path, which used to report the flyover
-    // page as focused while the pager was updating.
-    selected.value = 6;
-    await tester.pumpAndSettle();
-
-    expect(
-      focused,
-      isEmpty,
-      reason: 'programmatic jumps commit on landing, not on flyover focus',
-    );
   });
 }

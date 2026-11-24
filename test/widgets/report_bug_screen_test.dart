@@ -96,7 +96,7 @@ void main() {
     scrollable: find.byType(Scrollable).first,
   );
 
-  testWidgets('sending assembles the fields into one report', (tester) async {
+  testWidgets('sending reports and preserving drafts', (tester) async {
     final draft = await openEditor(tester);
     await scrollToSend(tester);
     // Send stays disabled until there is a title.
@@ -127,15 +127,12 @@ void main() {
     expect(outbox.byId(draft.id)?.status, BugReportStatus.sent);
     // The editor closed back to the opener.
     expect(find.text('open'), findsOneWidget);
-  });
 
-  testWidgets('leaving with text keeps a draft, blank leaves nothing', (
-    tester,
-  ) async {
-    final draft = await openEditor(tester);
+    bodies.clear();
+    final pending = await openEditor(tester);
     await tester.pageBack();
     await tester.pumpAndSettle();
-    expect(outbox.reports, isEmpty);
+    expect(outbox.byId(pending.id), isNull);
 
     await tester.tap(find.text('open'));
     await tester.pumpAndSettle();
@@ -143,8 +140,8 @@ void main() {
     await tester.pageBack();
     await tester.pumpAndSettle();
     await settleIo(tester);
-    expect(outbox.byId(draft.id)?.status, BugReportStatus.draft);
-    expect(outbox.byId(draft.id)?.summary, 'Half written');
+    expect(outbox.byId(pending.id)?.status, BugReportStatus.draft);
+    expect(outbox.byId(pending.id)?.summary, 'Half written');
     expect(bodies, isEmpty);
   });
 }

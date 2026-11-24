@@ -6,157 +6,155 @@ import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 void main() {
-  testWidgets('reply header shows in ChatBody and drags down to dismiss', (
-    WidgetTester tester,
-  ) async {
-    final controller = TextEditingController();
-    final focus = FocusNode();
-    addTearDown(controller.dispose);
-    addTearDown(focus.dispose);
-    var replyActive = false;
-    late StateSetter setLocal;
+  testWidgets(
+    'reply header drags to dismiss without remounting the emote sheet',
+    (WidgetTester tester) async {
+      final controller = TextEditingController();
+      final focus = FocusNode();
+      addTearDown(controller.dispose);
+      addTearDown(focus.dispose);
+      var replyActive = false;
+      late StateSetter setLocal;
 
-    await tester.pumpWidget(
-      MaterialApp(
-        home: Scaffold(
-          body: StatefulBuilder(
-            builder: (context, setState) {
-              setLocal = setState;
-              return ChatBody(
-                bodyBuilder:
-                    (
-                      context, {
-                      required hideChromeForKeyboard,
-                      required maxWidth,
-                      required maxHeight,
-                      required keyboardH,
-                      required composerH,
-                    }) => const SizedBox.expand(
-                      child: ColoredBox(color: Colors.black),
-                    ),
-                threadPanel: const SizedBox.shrink(),
-                mentionsPanel: const SizedBox.shrink(),
-                modViewPanel: const SizedBox.shrink(),
-                emotePickerBuilder:
-                    (_, {required sheetBoxHeight, required inset}) =>
-                        const SizedBox.shrink(),
-                autocomplete: const SizedBox.shrink(),
-                emoteMaxFraction: 0.5,
-                replyHeader: replyActive
-                    ? ReplyHeader(
-                        message: TwitchMessage(
-                          login: 'alice',
-                          text: 'parent msg',
-                          channel: 'c',
-                        ),
-                        onDismiss: () => setLocal(() => replyActive = false),
-                      )
-                    : null,
-                composer: MessageInput(
-                  controller: controller,
-                  focusNode: focus,
-                  onSend: () {},
-                  enabled: true,
-                ),
-              );
-            },
+      await tester.pumpWidget(
+        MaterialApp(
+          home: Scaffold(
+            body: StatefulBuilder(
+              builder: (context, setState) {
+                setLocal = setState;
+                return ChatBody(
+                  bodyBuilder:
+                      (
+                        context, {
+                        required hideChromeForKeyboard,
+                        required maxWidth,
+                        required maxHeight,
+                        required keyboardH,
+                        required composerH,
+                      }) => const SizedBox.expand(
+                        child: ColoredBox(color: Colors.black),
+                      ),
+                  threadPanel: const SizedBox.shrink(),
+                  mentionsPanel: const SizedBox.shrink(),
+                  modViewPanel: const SizedBox.shrink(),
+                  emotePickerBuilder:
+                      (_, {required sheetBoxHeight, required inset}) =>
+                          const SizedBox.shrink(),
+                  autocomplete: const SizedBox.shrink(),
+                  emoteMaxFraction: 0.5,
+                  replyHeader: replyActive
+                      ? ReplyHeader(
+                          message: TwitchMessage(
+                            login: 'alice',
+                            text: 'parent msg',
+                            channel: 'c',
+                          ),
+                          onDismiss: () => setLocal(() => replyActive = false),
+                        )
+                      : null,
+                  composer: MessageInput(
+                    controller: controller,
+                    focusNode: focus,
+                    onSend: () {},
+                    enabled: true,
+                  ),
+                );
+              },
+            ),
           ),
         ),
-      ),
-    );
-    await tester.pumpAndSettle();
+      );
+      await tester.pumpAndSettle();
 
-    setLocal(() => replyActive = true);
-    await tester.pumpAndSettle();
-    expect(find.textContaining('Replying to @alice'), findsOneWidget);
-    expect(find.byType(BottomSheet), findsOneWidget);
+      setLocal(() => replyActive = true);
+      await tester.pumpAndSettle();
+      expect(find.textContaining('Replying to @alice'), findsOneWidget);
+      expect(find.byType(BottomSheet), findsOneWidget);
 
-    await tester.drag(find.byType(BottomSheet), const Offset(0, 300));
-    await tester.pumpAndSettle();
+      await tester.drag(find.byType(BottomSheet), const Offset(0, 300));
+      await tester.pumpAndSettle();
 
-    expect(find.textContaining('Replying to @alice'), findsNothing);
-    expect(tester.takeException(), isNull);
-  });
+      expect(find.textContaining('Replying to @alice'), findsNothing);
+      expect(tester.takeException(), isNull);
 
-  testWidgets('reply toggle does not remount the emote sheet', (
-    WidgetTester tester,
-  ) async {
-    final sheetCtrl = DraggableScrollableController();
-    addTearDown(sheetCtrl.dispose);
-    var replyActive = false;
-    late StateSetter setLocal;
-
-    await tester.pumpWidget(
-      MaterialApp(
-        home: Scaffold(
-          body: StatefulBuilder(
-            builder: (context, setState) {
-              setLocal = setState;
-              return ChatBody(
-                bodyBuilder:
-                    (
-                      context, {
-                      required hideChromeForKeyboard,
-                      required maxWidth,
-                      required maxHeight,
-                      required keyboardH,
-                      required composerH,
-                    }) => const SizedBox.expand(
-                      child: ColoredBox(color: Colors.black),
-                    ),
-                threadPanel: const SizedBox.shrink(),
-                mentionsPanel: const SizedBox.shrink(),
-                modViewPanel: const SizedBox.shrink(),
-                emotePickerBuilder:
-                    (_, {required sheetBoxHeight, required inset}) =>
-                        Positioned(
-                          bottom: 0,
-                          left: 0,
-                          right: 0,
-                          height: sheetBoxHeight,
-                          child: ScaleTransition(
-                            scale: const AlwaysStoppedAnimation(1.0),
-                            child: LayoutBuilder(
-                              builder: (context, constraints) => IgnorePointer(
-                                ignoring: false,
-                                child: DraggableScrollableSheet(
-                                  controller: sheetCtrl,
-                                  initialChildSize: 0.5,
-                                  minChildSize: 0,
-                                  maxChildSize: 0.5,
-                                  builder: (_, _) => const SizedBox.shrink(),
-                                ),
+      final sheetCtrl = DraggableScrollableController();
+      addTearDown(sheetCtrl.dispose);
+      replyActive = false;
+      await tester.pumpWidget(
+        MaterialApp(
+          key: UniqueKey(),
+          home: Scaffold(
+            body: StatefulBuilder(
+              builder: (context, setState) {
+                setLocal = setState;
+                return ChatBody(
+                  bodyBuilder:
+                      (
+                        context, {
+                        required hideChromeForKeyboard,
+                        required maxWidth,
+                        required maxHeight,
+                        required keyboardH,
+                        required composerH,
+                      }) => const SizedBox.expand(
+                        child: ColoredBox(color: Colors.black),
+                      ),
+                  threadPanel: const SizedBox.shrink(),
+                  mentionsPanel: const SizedBox.shrink(),
+                  modViewPanel: const SizedBox.shrink(),
+                  emotePickerBuilder:
+                      (_, {required sheetBoxHeight, required inset}) =>
+                          Positioned(
+                            bottom: 0,
+                            left: 0,
+                            right: 0,
+                            height: sheetBoxHeight,
+                            child: ScaleTransition(
+                              scale: const AlwaysStoppedAnimation(1.0),
+                              child: LayoutBuilder(
+                                builder: (context, constraints) =>
+                                    IgnorePointer(
+                                      ignoring: false,
+                                      child: DraggableScrollableSheet(
+                                        controller: sheetCtrl,
+                                        initialChildSize: 0.5,
+                                        minChildSize: 0,
+                                        maxChildSize: 0.5,
+                                        builder: (_, _) =>
+                                            const SizedBox.shrink(),
+                                      ),
+                                    ),
                               ),
                             ),
                           ),
-                        ),
-                autocomplete: const SizedBox.shrink(),
-                emoteMaxFraction: 0.5,
-                replyHeader: replyActive
-                    ? ReplyHeader(
-                        message: TwitchMessage(
-                          login: 'alice',
-                          text: 'parent msg',
-                          channel: 'c',
-                        ),
-                        onDismiss: () => setLocal(() => replyActive = false),
-                      )
-                    : null,
-                composer: const SizedBox(height: 56),
-              );
-            },
+                  autocomplete: const SizedBox.shrink(),
+                  emoteMaxFraction: 0.5,
+                  replyHeader: replyActive
+                      ? ReplyHeader(
+                          message: TwitchMessage(
+                            login: 'alice',
+                            text: 'parent msg',
+                            channel: 'c',
+                          ),
+                          onDismiss: () => setLocal(() => replyActive = false),
+                        )
+                      : null,
+                  composer: const SizedBox(height: 56),
+                );
+              },
+            ),
           ),
         ),
-      ),
-    );
-    await tester.pumpAndSettle();
+      );
+      await tester.pumpAndSettle();
 
-    setLocal(() => replyActive = true);
-    await tester.pumpAndSettle();
-    expect(tester.takeException(), isNull);
+      setLocal(() => replyActive = true);
+      await tester.pumpAndSettle();
+      expect(tester.takeException(), isNull);
 
-    setLocal(() => replyActive = false);
-    await tester.pumpAndSettle();
-    expect(tester.takeException(), isNull);
-  });
+      setLocal(() => replyActive = false);
+      await tester.pumpAndSettle();
+      expect(tester.takeException(), isNull);
+    },
+  );
 }

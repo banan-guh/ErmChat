@@ -46,31 +46,25 @@ Future<void> _pump(
 }
 
 void main() {
-  testWidgets('long press copies the name instead of opening the menu', (
+  testWidgets('long press targets the name or the message menu', (
     tester,
   ) async {
-    var copied = 0;
-    var menu = 0;
-    await _pump(tester, onCopy: () => copied++, onMenu: () => menu++);
+    for (final onName in [true, false]) {
+      var copied = 0;
+      var menu = 0;
+      await _pump(tester, onCopy: () => copied++, onMenu: () => menu++);
 
-    final row = tester.getRect(find.byType(ChatMessageTile));
-    await tester.longPressAt(Offset(row.left + 6, row.center.dy));
-    await tester.pump();
+      final row = tester.getRect(find.byType(ChatMessageTile));
+      await tester.longPressAt(
+        Offset(onName ? row.left + 6 : row.right - 6, row.center.dy),
+      );
+      await tester.pump();
 
-    expect((copied, menu), (1, 0));
-  });
-
-  testWidgets('long press away from the name still opens the menu', (
-    tester,
-  ) async {
-    var copied = 0;
-    var menu = 0;
-    await _pump(tester, onCopy: () => copied++, onMenu: () => menu++);
-
-    final row = tester.getRect(find.byType(ChatMessageTile));
-    await tester.longPressAt(Offset(row.right - 6, row.center.dy));
-    await tester.pump();
-
-    expect((copied, menu), (0, 1));
+      expect(
+        (copied, menu),
+        onName ? (1, 0) : (0, 1),
+        reason: 'long press onName=$onName',
+      );
+    }
   });
 }

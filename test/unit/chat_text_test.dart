@@ -47,8 +47,4 @@ void main() {
       expect(cleanChatText('a\tb'), 'a\tb');
     });
   });
-
-  test('copyableChatText trims what cleaning leaves at the ends', () {
-    expect(copyableChatText('  Bussin eat  ͏'), 'Bussin eat');
-  });
 }

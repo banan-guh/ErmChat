@@ -96,6 +96,15 @@ void main() {
   testWidgets('videos are rejected by content type or by their first bytes', (
     tester,
   ) async {
+    expect(embedTypeMayBeImage('image/gif'), isTrue);
+    expect(embedTypeMayBeImage(''), isTrue);
+    expect(embedTypeMayBeImage('application/octet-stream'), isTrue);
+    expect(embedTypeMayBeImage('video/mp4'), isFalse);
+    expect(embedTypeMayBeImage('text/html; charset=utf-8'), isFalse);
+    expect(sniffEmbedImage(_png), isTrue);
+    expect(sniffEmbedImage(_mp4Head), isFalse);
+    expect(sniffEmbedImage(Uint8List(4)), isNull);
+
     final typed = await pumpPreview(tester, contentType: 'video/mp4');
     expect(typed.hasListener, isFalse);
     expect(find.textContaining('video/mp4'), findsOneWidget);
@@ -139,17 +148,6 @@ void main() {
     await pumpPreview(tester, contentType: 'image/png');
     expect(find.byType(CircularProgressIndicator), findsNothing);
     expect(find.byType(Image), findsOneWidget);
-  });
-
-  test('content types and byte sniffing', () {
-    expect(embedTypeMayBeImage('image/gif'), isTrue);
-    expect(embedTypeMayBeImage(''), isTrue);
-    expect(embedTypeMayBeImage('application/octet-stream'), isTrue);
-    expect(embedTypeMayBeImage('video/mp4'), isFalse);
-    expect(embedTypeMayBeImage('text/html; charset=utf-8'), isFalse);
-    expect(sniffEmbedImage(_png), isTrue);
-    expect(sniffEmbedImage(_mp4Head), isFalse);
-    expect(sniffEmbedImage(Uint8List(4)), isNull);
   });
 
   testWidgets('an open preview stays open when new chat rebuilds its row', (

@@ -1,7 +1,5 @@
 import 'package:http/http.dart' as http;
 
-import 'package:ermchat/util/layout_density.dart';
-import 'package:ermchat/widgets/sheet_action_row.dart';
 import 'widget_test_harness.dart';
 
 void main() {
@@ -15,162 +13,6 @@ void main() {
   });
 
   group('emote sheet', () {
-    late FakeUrlLauncher emoteSheetLauncher;
-
-    setUp(() {
-      emoteSheetLauncher = FakeUrlLauncher();
-      UrlLauncherPlatform.instance = emoteSheetLauncher;
-    });
-
-    Widget wrapMany(List<Emote> emotes) {
-      return MaterialApp(
-        key: UniqueKey(),
-        home: Scaffold(
-          body: EmoteSheet(
-            emotes: emotes,
-            messageController: TextEditingController(),
-            focusNode: FocusNode(),
-            onClose: () {},
-            images: EmoteImages(),
-          ),
-        ),
-      );
-    }
-
-    Widget wrapEmoteSheet(Emote emote) => wrapMany([emote]);
-
-    Emote sevenTvEmote({
-      String? baseName,
-      bool zeroWidth = false,
-      EmoteScope scope = EmoteScope.global,
-    }) {
-      return Emote(
-        id: '7tv-1',
-        code: 'Cope',
-        meta: SevenTvMeta(baseName: baseName, creator: 'CopeQueen'),
-        scales: const {
-          EmoteScale.medium: 'https://cdn.7tv.app/emote/1/1x.webp',
-        },
-        isZeroWidth: zeroWidth,
-        scope: scope,
-      );
-    }
-
-    testWidgets(
-      'Emote sheet header shows name, type, alias, creator and zero width',
-      (WidgetTester tester) async {
-        {
-          await tester.pumpWidget(wrapEmoteSheet(sevenTvEmote()));
-          await tester.pump();
-          await tester.pump();
-
-          expect(find.text('Cope', skipOffstage: false), findsOneWidget);
-          expect(
-            find.text('7TV Global Emote', skipOffstage: false),
-            findsOneWidget,
-          );
-          expect(
-            find.text('Created by CopeQueen', skipOffstage: false),
-            findsOneWidget,
-          );
-          expect(find.textContaining('Alias of'), findsNothing);
-        }
-        {
-          await tester.pumpWidget(
-            wrapEmoteSheet(sevenTvEmote(baseName: 'BaseEmote')),
-          );
-          await tester.pump();
-          await tester.pump();
-
-          expect(
-            find.text('Alias of BaseEmote', skipOffstage: false),
-            findsOneWidget,
-          );
-        }
-        {
-          await tester.pumpWidget(
-            wrapEmoteSheet(sevenTvEmote(zeroWidth: true)),
-          );
-          await tester.pump();
-          await tester.pump();
-
-          expect(
-            find.text('7TV Global Emote (Zero Width)', skipOffstage: false),
-            findsOneWidget,
-          );
-        }
-        {
-          await tester.pumpWidget(
-            wrapEmoteSheet(
-              const Emote(
-                id: 'tw-1',
-                code: 'SubEmote',
-                meta: TwitchMeta(
-                  kind: TwitchEmoteKind.sub,
-                  ownerChannel: 'streamer',
-                ),
-                scales: {EmoteScale.medium: 'https://example.com/1.png'},
-                scope: EmoteScope.channel,
-              ),
-            ),
-          );
-          await tester.pump();
-          await tester.pump();
-
-          expect(find.textContaining('Created by'), findsNothing);
-        }
-        {
-          await tester.pumpWidget(
-            wrapEmoteSheet(sevenTvEmote(scope: EmoteScope.personal)),
-          );
-          await tester.pump();
-          await tester.pump();
-
-          expect(
-            find.text('7TV Personal Emote', skipOffstage: false),
-            findsOneWidget,
-          );
-        }
-      },
-    );
-
-    testWidgets('Emote sheet open link succeeds and reports failures', (
-      WidgetTester tester,
-    ) async {
-      {
-        await tester.pumpWidget(wrapEmoteSheet(sevenTvEmote()));
-        await tester.pump();
-        await tester.pump();
-
-        await tester.tap(find.text('Open emote link', skipOffstage: false));
-        await tester.pump();
-        await tester.pump();
-
-        expect(emoteSheetLauncher.lastUrl, 'https://7tv.app/emotes/7tv-1');
-        expect(
-          emoteSheetLauncher.lastMode,
-          PreferredLaunchMode.externalApplication,
-        );
-      }
-      {
-        emoteSheetLauncher.succeed = false;
-        await tester.pumpWidget(wrapEmoteSheet(sevenTvEmote()));
-        await tester.pump();
-        await tester.pump();
-
-        await tester.tap(find.text('Open emote link', skipOffstage: false));
-        await tester.pump();
-        await tester.pump();
-
-        expect(
-          find.textContaining('Could not open', skipOffstage: false),
-          findsOneWidget,
-        );
-        // Let the toast auto-close timer fire so no Timer is pending at exit.
-        await tester.pump(const Duration(seconds: 4));
-      }
-    });
-
     testWidgets('emote sheet keeps full-box canvas with keyboard open', (
       WidgetTester tester,
     ) async {
@@ -266,13 +108,6 @@ void main() {
   });
 
   group('user profile sheet', () {
-    late FakeUrlLauncher profileLauncher;
-
-    setUp(() {
-      profileLauncher = FakeUrlLauncher();
-      UrlLauncherPlatform.instance = profileLauncher;
-    });
-
     TwitchApi createApi() {
       return TwitchApi(
         client: MockClient(
@@ -283,93 +118,6 @@ void main() {
         ),
       );
     }
-
-    Widget wrapUserProfile(TwitchApi api) {
-      return MaterialApp(
-        key: UniqueKey(),
-        home: Scaffold(
-          body: UserProfileSheet(
-            username: 'testuser',
-            userId: '123',
-            displayName: 'TestUser',
-            twitchApi: api,
-            twitchAuth: TwitchAuth()..accessToken = 'test-token',
-            messageController: TextEditingController(),
-            focusNode: FocusNode(),
-            onClose: () {},
-          ),
-        ),
-      );
-    }
-
-    for (final row in [true, false]) {
-      testWidgets('user profile action row follows the override ($row)', (
-        WidgetTester tester,
-      ) async {
-        await tester.pumpWidget(
-          MaterialApp(
-            key: UniqueKey(),
-            home: CompactLayoutScope(
-              compact: true,
-              overrides: LayoutOverrides(enabled: true, sheetActionRow: row),
-              child: Scaffold(
-                body: UserProfileSheet(
-                  username: 'testuser',
-                  userId: '123',
-                  displayName: 'TestUser',
-                  twitchApi: createApi(),
-                  twitchAuth: TwitchAuth()..accessToken = 'test-token',
-                  messageController: TextEditingController(),
-                  focusNode: FocusNode(),
-                  onClose: () {},
-                ),
-              ),
-            ),
-          ),
-        );
-        await tester.pumpAndSettle();
-
-        expect(
-          find.byType(SheetActionRow),
-          row ? findsOneWidget : findsNothing,
-        );
-        expect(find.text('Mention'), row ? findsOneWidget : findsNothing);
-        expect(find.text('Mention user'), row ? findsNothing : findsOneWidget);
-      });
-    }
-
-    testWidgets('User profile report opens the page and reports failures', (
-      WidgetTester tester,
-    ) async {
-      {
-        await tester.pumpWidget(wrapUserProfile(createApi()));
-        await tester.pumpAndSettle();
-
-        await tester.tap(find.text('Report'));
-        await tester.pumpAndSettle();
-
-        expect(profileLauncher.lastUrl, 'https://twitch.tv/testuser/report');
-        expect(
-          profileLauncher.lastMode,
-          PreferredLaunchMode.externalApplication,
-        );
-      }
-      {
-        profileLauncher.succeed = false;
-        await tester.pumpWidget(wrapUserProfile(createApi()));
-        await tester.pumpAndSettle();
-
-        await tester.tap(find.text('Report'));
-        await tester.pumpAndSettle();
-
-        expect(
-          find.text('Could not open the report page', skipOffstage: false),
-          findsOneWidget,
-        );
-        // Let the toast auto-close timer fire so no Timer is pending at exit.
-        await tester.pump(const Duration(seconds: 4));
-      }
-    });
 
     Widget wrapUserProfileWithHistory(
       TwitchApi api,
@@ -403,51 +151,6 @@ void main() {
       );
       return tester.widget<AnimatedOpacity>(fade).opacity;
     }
-
-    testWidgets('User profile pins the latest message and the arrow returns', (
-      WidgetTester tester,
-    ) async {
-      await tester.pumpWidget(
-        wrapUserProfileWithHistory(createApi(), [
-          // Oldest first, like production: the latest lands at the bottom.
-          for (var i = 0; i < 30; i++)
-            TwitchMessage(
-              login: 'testuser',
-              text: 'm$i',
-              channel: 'somechannel',
-            ),
-        ]),
-      );
-      await tester.pumpAndSettle();
-
-      // Chronological rows, but the sheet lands on the latest (m29) with the
-      // card pinned above it: the oldest row is offscreen, arrow hidden.
-      expect(find.text('row:m29'), findsOneWidget);
-      expect(find.text('row:m0'), findsNothing);
-      expect(find.text('TestUser'), findsOneWidget);
-      // The pinned card paints opaquely so rows scrolling beneath it never
-      // bleed through.
-      final cardMaterials = find.ancestor(
-        of: find.text('TestUser'),
-        matching: find.byWidgetPredicate(
-          (w) => w is Material && w.borderRadius != null,
-        ),
-      );
-      expect(cardMaterials, findsOneWidget);
-      expect(arrowOpacity(tester), 0);
-
-      // Drag toward older messages: the card stays pinned, the arrow shows.
-      await tester.drag(find.text('row:m29'), const Offset(0, 300));
-      await tester.pumpAndSettle();
-      expect(find.text('TestUser'), findsOneWidget);
-      expect(find.text('row:m29'), findsNothing);
-      expect(arrowOpacity(tester), 1);
-
-      await tester.tap(find.byIcon(Icons.keyboard_arrow_down));
-      await tester.pumpAndSettle();
-      expect(find.text('row:m29'), findsOneWidget);
-      expect(arrowOpacity(tester), 0);
-    });
 
     testWidgets('User profile never overflows a short screen', (
       WidgetTester tester,

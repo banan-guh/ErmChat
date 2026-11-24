@@ -255,6 +255,16 @@ void main() {
         moderator: 'moduser',
       ),
     );
+    final now = DateTime.now();
+    mod.putBan(
+      BanEntry(
+        at: now.subtract(const Duration(minutes: 20)),
+        channel: 'testchannel',
+        login: 'lapseduser',
+        moderator: 'moduser',
+        expiresAt: now.subtract(const Duration(minutes: 10)),
+      ),
+    );
     mod.addWarning(
       WarnEntry(
         at: t0,
@@ -332,6 +342,8 @@ void main() {
     expect(find.text('banneduser'), findsOneWidget);
     expect(find.text('warneduser'), findsOneWidget);
     expect(find.text('flaggeduser'), findsOneWidget);
+    expect(find.text('lapseduser'), findsNothing);
+    expect(find.text('RECENT BANS (1)'), findsOneWidget);
     expect(find.text('rosmod'), findsNothing);
     expect(find.text('rosvip'), findsNothing);
     expect(
@@ -620,39 +632,26 @@ void main() {
     expect(await vips, isNull);
   });
 
-  testWidgets('users tab hides lapsed timeouts', (tester) async {
-    final chat = _chat();
-    final mod = chat.channelFor('testchannel')!.moderation;
-    final now = DateTime.now();
-    mod.putBan(
-      BanEntry(
-        at: now.subtract(const Duration(minutes: 20)),
-        channel: 'testchannel',
-        login: 'lapseduser',
-        moderator: 'moduser',
-        expiresAt: now.subtract(const Duration(minutes: 10)),
-      ),
-    );
-    mod.putBan(
-      BanEntry(
-        at: now,
-        channel: 'testchannel',
-        login: 'timeduser',
-        moderator: 'moduser',
-        expiresAt: now.add(const Duration(minutes: 10)),
-      ),
-    );
-    await _pumpOn(tester, 4, chat: chat);
-    await tester.pumpAndSettle();
-    expect(find.text('timeduser'), findsOneWidget);
-    expect(find.text('lapseduser'), findsNothing);
-    expect(find.text('RECENT BANS (1)'), findsOneWidget);
-  });
-
-  testWidgets('modes tab sends chat settings and offers slow presets', (
+  testWidgets('modes tab sends chat settings and automod shows presets', (
     tester,
   ) async {
-    await _pumpOn(tester, 2);
+    Future<http.Response> handler(http.Request request) async {
+      if (request.method == 'GET' &&
+          request.url.path.endsWith('moderation/automod/settings')) {
+        // Twitch's level 1 preset uses mixed category levels.
+        return http.Response(
+          '{"data":[{"broadcaster_id":"broad1","moderator_id":"mod1",'
+          '"overall_level":1,"disability":0,"aggression":1,'
+          '"sexuality_sex_or_gender":0,"misogyny":0,"bullying":1,'
+          '"swearing":0,"race_ethnicity_or_religion":1,'
+          '"sex_based_terms":0}]}',
+          200,
+        );
+      }
+      return _handler(request);
+    }
+
+    await _pumpOn(tester, 2, handler: handler);
     await tester.pumpAndSettle();
     await tester.tap(find.text('Emote-only'));
     await tester.pumpAndSettle();
@@ -672,26 +671,11 @@ void main() {
       (r) => r.url.path.endsWith('chat/settings'),
     );
     expect(jsonDecode(patch.body)['slow_mode_wait_time'], 5);
-  });
 
-  testWidgets('automod setup shows the preset Twitch reports', (tester) async {
-    Future<http.Response> handler(http.Request request) async {
-      if (request.method == 'GET' &&
-          request.url.path.endsWith('moderation/automod/settings')) {
-        // Twitch's level 1 preset uses mixed category levels.
-        return http.Response(
-          '{"data":[{"broadcaster_id":"broad1","moderator_id":"mod1",'
-          '"overall_level":1,"disability":0,"aggression":1,'
-          '"sexuality_sex_or_gender":0,"misogyny":0,"bullying":1,'
-          '"swearing":0,"race_ethnicity_or_religion":1,'
-          '"sex_based_terms":0}]}',
-          200,
-        );
-      }
-      return _handler(request);
-    }
-
-    await _pumpOn(tester, 7, handler: handler);
+    tester
+        .widget<ModViewPanel>(find.byType(ModViewPanel))
+        .tabController
+        .animateTo(7);
     await tester.pumpAndSettle();
     bool selected(String label) => tester
         .widget<ChoiceChip>(find.widgetWithText(ChoiceChip, label))

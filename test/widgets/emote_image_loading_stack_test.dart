@@ -132,65 +132,38 @@ void main() {
       mainGate.complete(_pngBytes());
       await _settle(tester);
       expect(tester.takeException(), isNull);
-    },
-  );
 
-  testWidgets('an explicit infinity dimension still fills a bounded parent', (
-    tester,
-  ) async {
-    final gate = Completer<Uint8List>();
-    EmoteUrlProvider.debugFetchOverride = (_) => gate.future;
-    const url = 'https://leading.test/fill.png';
-    await tester.pumpWidget(
-      MaterialApp(
-        home: Scaffold(
-          body: Center(
-            child: SizedBox(
-              width: 60,
-              height: 60,
-              child: EmoteImage(
-                url: url,
-                emoteImages: _images,
-                width: double.infinity,
-                height: double.infinity,
+      final fillGate = Completer<Uint8List>();
+      EmoteUrlProvider.debugFetchOverride = (_) => fillGate.future;
+      const fillUrl = 'https://leading.test/fill.png';
+      await tester.pumpWidget(
+        MaterialApp(
+          key: UniqueKey(),
+          home: Scaffold(
+            body: Center(
+              child: SizedBox(
+                width: 60,
+                height: 60,
+                child: EmoteImage(
+                  url: fillUrl,
+                  emoteImages: _images,
+                  width: double.infinity,
+                  height: double.infinity,
+                ),
               ),
             ),
           ),
         ),
-      ),
-    );
-    await tester.pump();
+      );
+      await tester.pump();
 
-    expect(tester.takeException(), isNull);
-    expect(_emoteBox(tester).size, const Size(60, 60));
+      expect(tester.takeException(), isNull);
+      expect(_emoteBox(tester).size, const Size(60, 60));
 
-    gate.complete(_pngBytes());
-    await _settle(tester);
-    expect(tester.takeException(), isNull);
-    expect(_emoteBox(tester).size, const Size(60, 60));
-  });
-
-  testWidgets('a sizeless emote in a loose slot keeps its intrinsic size', (
-    tester,
-  ) async {
-    EmoteUrlProvider.debugFetchOverride = (_) async => _pngBytes();
-    const url = 'https://leading.test/tiny.png';
-    await tester.pumpWidget(
-      MaterialApp(
-        home: Scaffold(
-          body: ListView(
-            children: [
-              Center(
-                child: EmoteImage(url: url, emoteImages: _images),
-              ),
-            ],
-          ),
-        ),
-      ),
-    );
-    await _settle(tester);
-
-    expect(tester.takeException(), isNull);
-    expect(_emoteBox(tester).size.width, lessThanOrEqualTo(8.0));
-  });
+      fillGate.complete(_pngBytes());
+      await _settle(tester);
+      expect(tester.takeException(), isNull);
+      expect(_emoteBox(tester).size, const Size(60, 60));
+    },
+  );
 }

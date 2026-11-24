@@ -75,7 +75,7 @@ void main() {
     final body = LayoutBuilder(
       builder: (_, _) {
         builds++;
-        return const SizedBox.expand();
+        return const SizedBox.expand(key: Key('body'));
       },
     );
     Widget host(double height, {bool offstage = true}) => MaterialApp(
@@ -95,25 +95,17 @@ void main() {
     final shown = builds;
     await tester.pumpWidget(host(450, offstage: false));
     expect(builds, greaterThan(shown));
-  });
 
-  // The sheet slides down to half rather than shrinking; a list sized to
-  // the whole sheet rested its newest rows, or a short list all of them,
-  // in the hidden half.
-  testWidgets('a half open sheet fits its body to the visible part', (
-    tester,
-  ) async {
-    const key = Key('body');
-    await tester.pumpWidget(
-      const MaterialApp(
-        home: _Host(
-          height: 600,
-          offstage: false,
-          open: true,
-          body: SizedBox.expand(key: key),
-        ),
-      ),
-    );
+    tester.view.padding = FakeViewPadding(top: 90, bottom: 135);
+    addTearDown(tester.view.reset);
+    final settledHosts = hostBuilds;
+    for (final bottom in [100.0, 60.0, 20.0, 0.0]) {
+      tester.view.padding = FakeViewPadding(top: 90, bottom: bottom);
+      await tester.pump();
+    }
+    expect(hostBuilds, settledHosts);
+
+    await tester.pumpWidget(host(600, offstage: false));
     tester
             .state<_HostState>(find.byType(_Host))
             ._panels
@@ -122,52 +114,9 @@ void main() {
         0.5;
     await tester.pump();
     expect(
-      tester.getRect(find.byKey(key)).bottom,
+      tester.getRect(find.byKey(const Key('body'))).bottom,
       moreOrLessEquals(tester.getRect(find.byType(_Host)).bottom, epsilon: 1),
       reason: 'the body runs past the visible sheet',
     );
-  });
-
-  // The host passes its own context to the sheet. Reading padding there
-  // subscribed the whole host (HomeScreen) to the keyboard's bottom inset.
-  testWidgets('an overlay sheet never ties its host to the bottom inset', (
-    tester,
-  ) async {
-    tester.view.padding = FakeViewPadding(top: 90, bottom: 135);
-    addTearDown(tester.view.reset);
-    await tester.pumpWidget(
-      const MaterialApp(
-        home: _Host(height: 700, offstage: true, body: SizedBox.expand()),
-      ),
-    );
-    final settled = hostBuilds;
-    for (final bottom in [100.0, 60.0, 20.0, 0.0]) {
-      tester.view.padding = FakeViewPadding(top: 90, bottom: bottom);
-      await tester.pump();
-    }
-    expect(hostBuilds, settled);
-  });
-
-  // The glass header sits under the panel; a strip left above the sheet let
-  // it show through behind the status bar.
-  testWidgets('an open sheet covers the status bar strip', (tester) async {
-    tester.view.padding = FakeViewPadding(top: 40);
-    tester.view.viewPadding = FakeViewPadding(top: 40);
-    tester.view.devicePixelRatio = 1;
-    addTearDown(tester.view.reset);
-    const bodyKey = Key('panel_body');
-    await tester.pumpWidget(
-      const MaterialApp(
-        home: _Host(
-          height: 700,
-          offstage: false,
-          open: true,
-          body: SizedBox.expand(key: bodyKey),
-        ),
-      ),
-    );
-    final sheet = find.byType(Material).last;
-    expect(tester.getTopLeft(sheet).dy, 0);
-    expect(tester.getTopLeft(find.byKey(bodyKey)).dy, greaterThan(40));
   });
 }

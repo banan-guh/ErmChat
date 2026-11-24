@@ -44,103 +44,90 @@ void main() {
 
       widgets.onPinned(PinnedMessageEvent(channel: 'c', id: '', removed: true));
       expect(widgets.pins, isEmpty, reason: 'Helix read found no pin');
-    },
-  );
 
-  testWidgets('untimed pins ask Helix for a refresh until removed', (
-    tester,
-  ) async {
-    final refreshes = <String>[];
-    final widgets = BroadcastWidgets(
-      selectedChannel: () => 'c',
-      onPinRefresh: refreshes.add,
-    );
-    addTearDown(widgets.dispose);
+      for (final timed in [false, true]) {
+        final refreshes = <String>[];
+        final refreshing = BroadcastWidgets(
+          selectedChannel: () => 'c',
+          onPinRefresh: refreshes.add,
+        );
+        addTearDown(refreshing.dispose);
 
-    widgets.onPinned(
-      PinnedMessageEvent(channel: 'c', id: 'a', messageId: 'ma', text: 'hi'),
-    );
-    await tester.pump(const Duration(minutes: 5));
-    expect(refreshes, ['c'], reason: 'an untimed pin outlives a missed unpin');
+        refreshing.onPinned(
+          PinnedMessageEvent(
+            channel: 'c',
+            id: 'a',
+            messageId: 'ma',
+            text: 'hi',
+            endsAt: timed ? DateTime.now().add(const Duration(hours: 1)) : null,
+          ),
+        );
+        await tester.pump(const Duration(minutes: 5));
+        expect(
+          refreshes,
+          ['c'],
+          reason: timed
+              ? 'a timed pin can be unpinned early'
+              : 'an untimed pin outlives a missed unpin',
+        );
 
-    widgets.onPinned(PinnedMessageEvent(channel: 'c', id: 'a', removed: true));
-    await tester.pump(const Duration(minutes: 5));
-    expect(refreshes, ['c'], reason: 'a removed pin stops refreshing');
-  });
+        refreshing.onPinned(
+          PinnedMessageEvent(channel: 'c', id: 'a', removed: true),
+        );
+        await tester.pump(const Duration(minutes: 5));
+        expect(refreshes, ['c'], reason: 'a removed pin stops refreshing');
+      }
 
-  testWidgets('timed pins ask Helix for a refresh too', (tester) async {
-    final refreshes = <String>[];
-    final widgets = BroadcastWidgets(
-      selectedChannel: () => 'c',
-      onPinRefresh: refreshes.add,
-    );
-    addTearDown(widgets.dispose);
-
-    widgets.onPinned(
-      PinnedMessageEvent(
-        channel: 'c',
-        id: 'a',
-        messageId: 'ma',
-        text: 'hi',
-        endsAt: DateTime.now().add(const Duration(hours: 1)),
-      ),
-    );
-    await tester.pump(const Duration(minutes: 5));
-    expect(refreshes, ['c'], reason: 'a timed pin can be unpinned early');
-    widgets.onPinned(PinnedMessageEvent(channel: 'c', id: 'a', removed: true));
-  });
-
-  testWidgets('cards fold for the keyboard until restored (#17)', (
-    tester,
-  ) async {
-    final widgets = BroadcastWidgets(selectedChannel: () => 'c');
-    addTearDown(widgets.dispose);
-    widgets.onPinned(PinnedMessageEvent(channel: 'c', id: 'a', text: 'hi'));
-    final room = ValueNotifier(600.0);
-    await tester.pumpWidget(
-      MaterialApp(
-        localizationsDelegates: AppLocalizations.localizationsDelegates,
-        home: Scaffold(
-          body: ListenableBuilder(
-            listenable: Listenable.merge([room, widgets.notifier]),
-            builder: (_, _) =>
-                widgets.buildOverlay(
-                  'c',
-                  room: room.value,
-                  onMinimizeChanged: widgets.setMinimized,
-                ) ??
-                const SizedBox(),
+      final cards = BroadcastWidgets(selectedChannel: () => 'c');
+      addTearDown(cards.dispose);
+      cards.onPinned(PinnedMessageEvent(channel: 'c', id: 'a', text: 'hi'));
+      final room = ValueNotifier(600.0);
+      addTearDown(room.dispose);
+      await tester.pumpWidget(
+        MaterialApp(
+          localizationsDelegates: AppLocalizations.localizationsDelegates,
+          home: Scaffold(
+            body: ListenableBuilder(
+              listenable: Listenable.merge([room, cards.notifier]),
+              builder: (_, _) =>
+                  cards.buildOverlay(
+                    'c',
+                    room: room.value,
+                    onMinimizeChanged: cards.setMinimized,
+                  ) ??
+                  const SizedBox(),
+            ),
           ),
         ),
-      ),
-    );
-    await tester.pump();
-    expect(find.byType(ChatWidgetCutout), findsOneWidget);
+      );
+      await tester.pump();
+      expect(find.byType(ChatWidgetCutout), findsOneWidget);
 
-    room.value = 40;
-    await tester.pump();
-    expect(
-      find.byType(ChatWidgetMinimizedBar),
-      findsOneWidget,
-      reason: 'the keyboard leaves no room for the card',
-    );
+      room.value = 40;
+      await tester.pump();
+      expect(
+        find.byType(ChatWidgetMinimizedBar),
+        findsOneWidget,
+        reason: 'the keyboard leaves no room for the card',
+      );
 
-    await tester.tap(find.byType(IconButton));
-    await tester.pump();
-    expect(
-      find.byType(ChatWidgetCutout),
-      findsOneWidget,
-      reason: 'a restore while cramped stays open',
-    );
+      await tester.tap(find.byType(IconButton));
+      await tester.pump();
+      expect(
+        find.byType(ChatWidgetCutout),
+        findsOneWidget,
+        reason: 'a restore while cramped stays open',
+      );
 
-    room.value = 600;
-    await tester.pump();
-    room.value = 40;
-    await tester.pump();
-    expect(
-      find.byType(ChatWidgetMinimizedBar),
-      findsOneWidget,
-      reason: 'the next keyboard folds it again',
-    );
-  });
+      room.value = 600;
+      await tester.pump();
+      room.value = 40;
+      await tester.pump();
+      expect(
+        find.byType(ChatWidgetMinimizedBar),
+        findsOneWidget,
+        reason: 'the next keyboard folds it again',
+      );
+    },
+  );
 }

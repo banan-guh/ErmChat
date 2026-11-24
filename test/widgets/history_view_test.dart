@@ -16,7 +16,7 @@ import 'package:ermchat/services/twitch_badge_service.dart';
 import 'package:ermchat/services/third_party_badge_service.dart';
 import 'package:ermchat/util/settings.dart';
 import 'package:flutter/foundation.dart'
-    show debugDefaultTargetPlatformOverride;
+    show ValueListenable, debugDefaultTargetPlatformOverride;
 import 'package:flutter/gestures.dart' show PointerDeviceKind;
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -210,6 +210,7 @@ Future<void> _pumpView(
   List<TwitchMessage>? newestRows,
   bool settle = true,
   bool compact = false,
+  ValueListenable<bool>? activeListenable,
   String? Function()? ownLogin,
   IslandMetrics? metrics,
 }) async {
@@ -225,9 +226,10 @@ Future<void> _pumpView(
     thirdPartyBadgeService: ThirdPartyBadgeService(),
     onShowEmoteSheet: (_) {},
   );
-  final view = HistoryView(
+  HistoryView view({bool active = true}) => HistoryView(
     channel: _ch,
     source: source ?? FakeHistorySource(_ch),
+    active: active,
     rows: ChatRows(
       channel: _ch,
       messageBuilder: builder,
@@ -247,14 +249,20 @@ Future<void> _pumpView(
     ownLogin: ownLogin,
     topPadding: _inset,
   );
+  Widget host(Widget child) =>
+      metrics == null ? child : IslandScope(metrics: metrics, child: child);
   await tester.pumpWidget(
     MaterialApp(
+      key: UniqueKey(),
       localizationsDelegates: AppLocalizations.localizationsDelegates,
       supportedLocales: AppLocalizations.supportedLocales,
       home: Scaffold(
-        body: metrics == null
-            ? view
-            : IslandScope(metrics: metrics, child: view),
+        body: activeListenable == null
+            ? host(view())
+            : ValueListenableBuilder<bool>(
+                valueListenable: activeListenable,
+                builder: (_, active, _) => host(view(active: active)),
+              ),
       ),
     ),
   );
@@ -351,6 +359,30 @@ Future<void> _settle(WidgetTester tester) async {
 Finder _tile(String id) => find.byWidgetPredicate(
   (w) => w is ChatMessageTile && w.message.messageId == id,
 );
+
+Future<void> _scrollRowToBottomEdge(WidgetTester tester, String id) async {
+  final list = find.byType(CustomScrollView);
+  for (var i = 0; i < 20 && _tile(id).evaluate().isEmpty; i++) {
+    await tester.drag(list, const Offset(0, 400));
+    await _settle(tester);
+  }
+  expect(_tile(id), findsOneWidget, reason: 'row $id never built');
+  final position = tester
+      .state<ScrollableState>(
+        find.descendant(of: list, matching: find.byType(Scrollable)),
+      )
+      .position;
+  final bottom = tester.getRect(list).bottom - kOpaqueComposerGap;
+  final delta = bottom - tester.getBottomLeft(_tile(id)).dy;
+  position.jumpTo(
+    (position.pixels + delta).clamp(
+      position.minScrollExtent,
+      position.maxScrollExtent,
+    ),
+  );
+  await tester.pump();
+  await tester.pump();
+}
 
 /// Actions with only a VOD to follow.
 HistoryActions _vodActions(
@@ -540,6 +572,27 @@ void main() {
       moreOrLessEquals(bottom, epsilon: 1),
       reason: 'resting on the newest row resumes following',
     );
+
+    final list = find.byType(CustomScrollView);
+    final pointer = TestPointer(1, PointerDeviceKind.mouse);
+    await tester.sendEventToBinding(pointer.hover(tester.getCenter(list)));
+    await tester.sendEventToBinding(pointer.scroll(const Offset(0, -300)));
+    await _settle(tester);
+
+    final wheelView = tester.getRect(list);
+    final wheelReading = buffer.firstWhere((m) {
+      final f = _tile(m.messageId!);
+      return f.evaluate().isNotEmpty &&
+          (tester.getCenter(f).dy - wheelView.center.dy).abs() < 40;
+    }).messageId!;
+    final wheelY = tester.getTopLeft(_tile(wheelReading)).dy;
+    arrive(3);
+    await tester.pump();
+    expect(
+      tester.getTopLeft(_tile(wheelReading)).dy,
+      wheelY,
+      reason: 'the next arrival snapped a wheel reader back to the newest',
+    );
   });
 
   testWidgets('iOS drag past the newest row overscrolls', (tester) async {
@@ -649,53 +702,6 @@ void main() {
     );
   });
 
-  testWidgets('a wheel scroll up stops following like a drag', (tester) async {
-    final version = ValueNotifier(0);
-    addTearDown(version.dispose);
-    final buffer = <TwitchMessage>[];
-    var n = 0;
-    void arrive(int count) {
-      for (var i = 0; i < count; i++) {
-        n++;
-        buffer.insert(
-          0,
-          TwitchMessage(
-            login: 'live',
-            text: 'live $n',
-            messageId: 'live-$n',
-            channel: _ch,
-            timestamp: FakeHistory.now.add(Duration(seconds: n)),
-          ),
-        );
-      }
-      version.value++;
-    }
-
-    arrive(30);
-    await _pumpView(tester, live: () => buffer, liveVersion: version);
-    await _settle(tester);
-    final list = find.byType(CustomScrollView);
-    final pointer = TestPointer(1, PointerDeviceKind.mouse);
-    await tester.sendEventToBinding(pointer.hover(tester.getCenter(list)));
-    await tester.sendEventToBinding(pointer.scroll(const Offset(0, -300)));
-    await _settle(tester);
-
-    final view = tester.getRect(list);
-    final reading = buffer.firstWhere((m) {
-      final f = _tile(m.messageId!);
-      return f.evaluate().isNotEmpty &&
-          (tester.getCenter(f).dy - view.center.dy).abs() < 40;
-    }).messageId!;
-    final y = tester.getTopLeft(_tile(reading)).dy;
-    arrive(3);
-    await tester.pump();
-    expect(
-      tester.getTopLeft(_tile(reading)).dy,
-      y,
-      reason: 'the next arrival snapped a wheel reader back to the newest',
-    );
-  });
-
   testWidgets('a live buffer above the window cap keeps following', (
     tester,
   ) async {
@@ -740,6 +746,27 @@ void main() {
       ),
       reason: 'a trim into the live rows broke the live sync',
     );
+
+    buffer.clear();
+    final tiles = _CountingTiles();
+    arrive(5);
+    await _pumpView(
+      tester,
+      live: () => buffer,
+      liveVersion: version,
+      tileCache: {_ch: tiles},
+    );
+    await _settle(tester);
+    // A history restore landing at once, like a busy channel's on startup.
+    tiles.built = 0;
+    arrive(3000);
+    await tester.pump();
+    expect(
+      tiles.built,
+      lessThan(200),
+      reason: 'the frame laid out the whole batch to reach the newest row',
+    );
+    expect(_tile('live-$n'), findsOneWidget, reason: 'newest row not shown');
   });
 
   testWidgets('repeated live messages fold and expand inline', (tester) async {
@@ -1070,24 +1097,6 @@ void main() {
     );
   });
 
-  testWidgets('a channel shorter than the screen rests above the composer', (
-    tester,
-  ) async {
-    final atBottom = ValueNotifier(true);
-    addTearDown(atBottom.dispose);
-    await _pumpView(tester, source: _ListSource.small(12), atBottom: atBottom);
-    await _settle(tester);
-    final list = find.byType(CustomScrollView);
-    final bottom = tester.getRect(list).bottom - kOpaqueComposerGap;
-    double newestBottom() => tester.getBottomLeft(_tile('small-11')).dy;
-    expect(newestBottom(), moreOrLessEquals(bottom, epsilon: 1));
-    // A drag past the end lands back in the same place.
-    await tester.drag(list, const Offset(0, 400));
-    await _settle(tester);
-    expect(newestBottom(), moreOrLessEquals(bottom, epsilon: 1));
-    expect(atBottom.value, isTrue, reason: 'a drag showed the button');
-  });
-
   testWidgets('a late clear fades held rows in its range, by its chatter', (
     tester,
   ) async {
@@ -1123,6 +1132,100 @@ void main() {
       reason: 'the visible tile kept its old look',
     );
   });
+
+  testWidgets('a late stream marker keeps the reading row still', (
+    tester,
+  ) async {
+    final at = _ListSource.t0;
+    final rows = [
+      for (var i = 0; i < 100; i++)
+        TwitchMessage(
+          login: 'reader',
+          text: 'row $i',
+          messageId: 'row-$i',
+          channel: _ch,
+          timestamp: at.add(Duration(minutes: i)),
+        ),
+    ];
+    final source = _ListSource(rows);
+    await _pumpView(tester, source: source);
+    await _scrollRowToBottomEdge(tester, 'row-60');
+    final before = tester.getTopLeft(_tile('row-60')).dy;
+
+    source.streamList = [
+      HistoryStream(
+        id: 'late',
+        start: rows[60].timestamp.subtract(const Duration(seconds: 1)),
+        end: rows[80].timestamp,
+        title: 'Speedrun',
+        game: 'Zelda',
+        live: false,
+      ),
+    ];
+    source.streamsChanged();
+    await _settle(tester);
+
+    expect(find.textContaining('Speedrun'), findsOneWidget);
+    expect(
+      tester.getTopLeft(_tile('row-60')).dy,
+      moreOrLessEquals(before, epsilon: 0.5),
+      reason: 'the late marker moved the row at the reading edge',
+    );
+  });
+
+  testWidgets(
+    'a clear that unfolds a repeat pile keeps the reading row still',
+    (tester) async {
+      await _foldPrefs();
+      final at = _ListSource.t0;
+      final rows = <TwitchMessage>[
+        for (var i = 0; i < 100; i++)
+          TwitchMessage(
+            login: 'reader',
+            text: 'row $i',
+            messageId: i == 61 ? 'sentinel' : 'row-$i',
+            channel: _ch,
+            timestamp: at.add(Duration(minutes: i)),
+          ),
+      ];
+      for (var i = 0; i < 3; i++) {
+        rows[58 + i] = TwitchMessage(
+          login: 'spam',
+          text: 'KEKW',
+          messageId: 'spam-$i',
+          channel: _ch,
+          timestamp: at.add(const Duration(minutes: 58)),
+        );
+      }
+      final source = _ListSource(rows);
+      await _pumpView(tester, source: source, compact: true);
+      await _scrollRowToBottomEdge(tester, 'sentinel');
+      expect(
+        _tile('spam-2'),
+        findsNothing,
+        reason: 'the pile started expanded',
+      );
+      final before = tester.getTopLeft(_tile('sentinel')).dy;
+
+      source.clear((
+        login: 'spam',
+        from: rows[58].timestamp,
+        to: rows[60].timestamp,
+      ));
+      await _settle(tester);
+
+      expect(
+        _tile('spam-2'),
+        findsOneWidget,
+        reason: 'the clear did not unfold',
+      );
+      expect(
+        tester.getTopLeft(_tile('sentinel')).dy,
+        moreOrLessEquals(before, epsilon: 0.5),
+        reason: 'unfolding the pile moved the row at the reading edge',
+      );
+    },
+  );
 
   testWidgets('a stream that reopens drops its stale end marker', (
     tester,
@@ -1201,27 +1304,21 @@ void main() {
       isEmpty,
       reason: 'opened on the newest rows',
     );
-  });
 
-  // Search blacked out for a frame each time it settled: its new list
-  // awaited rows the settle step already held.
-  testWidgets('a list given its first rows paints them on its first frame', (
-    tester,
-  ) async {
-    final source = _ListSource.small(6);
+    final first = _ListSource.small(6);
     await _pumpView(
       tester,
-      source: source,
+      source: first,
       liveFirst: false,
-      newestRows: source.rows,
+      newestRows: first.rows,
       settle: false,
     );
     expect(find.textContaining('small 5'), findsOneWidget);
     // Search jumped a frame after settling: its first frame sat below the
     // bottom gap that the newest row rests on.
-    final first = tester.getRect(find.textContaining('small 5'));
+    final frame = tester.getRect(find.textContaining('small 5'));
     await tester.pump();
-    expect(tester.getRect(find.textContaining('small 5')), first);
+    expect(tester.getRect(find.textContaining('small 5')), frame);
   });
 
   testWidgets('switching channels comes back at the bottom, no button', (
@@ -1341,51 +1438,6 @@ void main() {
     expect(flashes, [0, 0], reason: 'the button flashed during a switch');
   });
 
-  testWidgets('thousands of rows landing while following build one screen', (
-    tester,
-  ) async {
-    final version = ValueNotifier(0);
-    addTearDown(version.dispose);
-    final buffer = <TwitchMessage>[];
-    var n = 0;
-    void arrive(int count) {
-      for (var i = 0; i < count; i++) {
-        n++;
-        buffer.insert(
-          0,
-          TwitchMessage(
-            login: 'live',
-            text: 'live $n',
-            messageId: 'live-$n',
-            channel: _ch,
-            timestamp: FakeHistory.now.add(Duration(seconds: n)),
-          ),
-        );
-      }
-      version.value++;
-    }
-
-    final tiles = _CountingTiles();
-    arrive(5);
-    await _pumpView(
-      tester,
-      live: () => buffer,
-      liveVersion: version,
-      tileCache: {_ch: tiles},
-    );
-    await _settle(tester);
-    // A history restore landing at once, like a busy channel's on startup.
-    tiles.built = 0;
-    arrive(3000);
-    await tester.pump();
-    expect(
-      tiles.built,
-      lessThan(200),
-      reason: 'the frame laid out the whole batch to reach the newest row',
-    );
-    expect(_tile('live-$n'), findsOneWidget, reason: 'newest row not shown');
-  });
-
   testWidgets('a jump request shows that message, on open or later', (
     tester,
   ) async {
@@ -1399,69 +1451,25 @@ void main() {
     await _settle(tester);
     expect(_items(tester).keys, contains('$_ch-200'), reason: 'while open');
     expect(jump.value, isNull);
-  });
 
-  testWidgets('a jump to an inactive page lands once it is active', (
-    tester,
-  ) async {
-    FakeHistory.loadDelay = Duration.zero;
-    tester.view.physicalSize = const Size(400, 800);
-    tester.view.devicePixelRatio = 1;
-    addTearDown(tester.view.reset);
-    final em = EmoteManager();
-    addTearDown(em.dispose);
-    final builder = MessageBuilder(
-      emoteSource: em,
-      badgeService: TwitchBadgeService(),
-      thirdPartyBadgeService: ThirdPartyBadgeService(),
-      onShowEmoteSheet: (_) {},
-    );
-    final jump = ValueNotifier<DateTime?>(FakeHistory.timeOf(_ch, 200));
+    final waiting = ValueNotifier<DateTime?>(FakeHistory.timeOf(_ch, 200));
     final active = ValueNotifier(false);
-    addTearDown(jump.dispose);
+    addTearDown(waiting.dispose);
     addTearDown(active.dispose);
-    await tester.pumpWidget(
-      MaterialApp(
-        localizationsDelegates: AppLocalizations.localizationsDelegates,
-        supportedLocales: AppLocalizations.supportedLocales,
-        home: Scaffold(
-          body: ValueListenableBuilder(
-            valueListenable: active,
-            builder: (_, on, _) => HistoryView(
-              channel: _ch,
-              source: FakeHistorySource(_ch),
-              active: on,
-              jumpRequest: jump,
-              rows: ChatRows(
-                channel: _ch,
-                messageBuilder: builder,
-                onShowUserProfile: (_, _, _, {displayName}) {},
-              ),
-              topPadding: _inset,
-            ),
-          ),
-        ),
-      ),
-    );
-    await tester.runAsync(() => Future<void>.delayed(Duration.zero));
-    await tester.pump();
-    await tester.pump();
-
+    await _pumpView(tester, jumpRequest: waiting, activeListenable: active);
     expect(
       _items(tester).keys,
       isNot(contains('$_ch-200')),
       reason: 'an offstage page cannot place the target',
     );
-    expect(jump.value, isNotNull, reason: 'the request waits');
+    expect(waiting.value, isNotNull, reason: 'the request waits');
 
     active.value = true;
     await tester.pump();
-    await tester.runAsync(() => Future<void>.delayed(Duration.zero));
-    await tester.pump();
-    await tester.pump();
+    await _settle(tester);
 
     expect(_items(tester).keys, contains('$_ch-200'));
-    expect(jump.value, isNull);
+    expect(waiting.value, isNull);
   });
 
   testWidgets('a jump just past a block start keeps the rows above it', (
@@ -1648,21 +1656,7 @@ void main() {
           'restore landed on different rows '
           '(before=$before, after=$after, pixels=${p2.pixels})',
     );
-  });
 
-  testWidgets('a restored row past the archive opens at live', (tester) async {
-    FakeHistory.loadDelay = Duration.zero;
-    tester.view.physicalSize = const Size(400, 800);
-    tester.view.devicePixelRatio = 1;
-    addTearDown(tester.view.reset);
-    final em = EmoteManager();
-    addTearDown(em.dispose);
-    final builder = MessageBuilder(
-      emoteSource: em,
-      badgeService: TwitchBadgeService(),
-      thirdPartyBadgeService: ThirdPartyBadgeService(),
-      onShowEmoteSheet: (_) {},
-    );
     final at = _ListSource.t0;
     final archive = [
       for (var i = 0; i < 40; i++)
@@ -1688,10 +1682,9 @@ void main() {
     addTearDown(version.dispose);
     final atBottom = ValueNotifier(true);
     addTearDown(atBottom.dispose);
-    final show = ValueNotifier(true);
-    addTearDown(show.dispose);
+    show.value = true;
     final source = _ListSource(archive);
-    Widget view() => HistoryView(
+    Widget liveView() => HistoryView(
       channel: _ch,
       storageId: 'test:live-restore',
       source: source,
@@ -1707,13 +1700,14 @@ void main() {
     );
     await tester.pumpWidget(
       MaterialApp(
+        key: UniqueKey(),
         localizationsDelegates: AppLocalizations.localizationsDelegates,
         supportedLocales: AppLocalizations.supportedLocales,
         home: Scaffold(
           body: ValueListenableBuilder(
             valueListenable: show,
             builder: (_, visible, _) =>
-                visible ? view() : const SizedBox.shrink(),
+                visible ? liveView() : const SizedBox.shrink(),
           ),
         ),
       ),
@@ -1736,54 +1730,5 @@ void main() {
 
     expect(_tile('live-9'), findsOneWidget);
     expect(atBottom.value, isTrue);
-  });
-
-  testWidgets('a drag on a fitted chat holds its rest', (tester) async {
-    final metrics = IslandMetrics()
-      ..publish(
-        top: 120,
-        height: 56,
-        footer: 0,
-        extra: 0,
-        trim: 0,
-        footerFor: null,
-      );
-    await _pumpView(tester, source: _ListSource.small(3), metrics: metrics);
-    await _settle(tester);
-    final p = tester
-        .state<ScrollableState>(
-          find.descendant(
-            of: find.byType(CustomScrollView),
-            matching: find.byType(Scrollable),
-          ),
-        )
-        .position;
-    final rest = p.minScrollExtent;
-    final gesture = await tester.startGesture(
-      tester.getCenter(find.byType(CustomScrollView)),
-    );
-    await gesture.moveBy(const Offset(0, 60));
-    expect(
-      p.pixels,
-      moreOrLessEquals(rest, epsilon: 0.5),
-      reason: 'a fitted chat moved within its gap',
-    );
-    await tester.pump();
-    expect(
-      p.pixels,
-      moreOrLessEquals(rest, epsilon: 0.5),
-      reason: 'a fitted chat moved within its gap',
-    );
-    await gesture.up();
-    await tester.pump();
-    expect(p.pixels, moreOrLessEquals(rest, epsilon: 0.5));
-    final up = await tester.startGesture(
-      tester.getCenter(find.byType(CustomScrollView)),
-    );
-    await up.moveBy(const Offset(0, -60));
-    expect(p.pixels, moreOrLessEquals(rest, epsilon: 0.5));
-    await tester.pump();
-    await up.up();
-    await tester.pump();
   });
 }

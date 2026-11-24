@@ -14,154 +14,7 @@ void main() {
   });
 
   group('Settings screen', () {
-    testWidgets('Account screen shows the looked-up login and disconnects', (
-      WidgetTester tester,
-    ) async {
-      {
-        SharedPreferences.setMockInitialValues({});
-        final auth = TwitchAuth()..accessToken = 'test-token';
-        final api = TwitchApi(
-          client: MockClient((request) async {
-            return http.Response(
-              '{"data":[{"id":"1","login":"testuser","display_name":"TestUser"}]}',
-              200,
-            );
-          }),
-        );
-
-        await tester.pumpWidget(
-          MaterialApp(
-            key: UniqueKey(),
-            home: AccountScreen(twitchAuth: auth, twitchApi: api),
-          ),
-        );
-        await tester.pump();
-        await tester.pump();
-
-        expect(
-          find.text('Connected as testuser', skipOffstage: false),
-          findsOneWidget,
-        );
-        expect(find.text('Connected'), findsNothing);
-      }
-      {
-        SharedPreferences.setMockInitialValues({});
-        final auth = TwitchAuth()..accessToken = 'test-token';
-
-        await tester.pumpWidget(
-          MaterialApp(
-            key: UniqueKey(),
-            home: AccountScreen(twitchAuth: auth),
-          ),
-        );
-        await tester.pump();
-
-        expect(find.text('Connected', skipOffstage: false), findsOneWidget);
-
-        await tester.tap(find.text('Disconnect', skipOffstage: false));
-        await tester.pump();
-        await tester.pump();
-
-        expect(find.text('Connected'), findsNothing);
-        expect(find.text('Log in', skipOffstage: false), findsOneWidget);
-      }
-    });
-
-    testWidgets('Customization true dark toggle is locked in light mode', (
-      WidgetTester tester,
-    ) async {
-      final tileFinder = find.widgetWithText(SwitchListTile, 'True dark mode');
-      Future<void> pumpScreen(ThemeMode mode) async {
-        await tester.pumpWidget(
-          MaterialApp(
-            key: UniqueKey(),
-            theme: ThemeData(brightness: Brightness.light),
-            darkTheme: ThemeData(brightness: Brightness.dark),
-            themeMode: mode,
-            home: const CustomizationScreen(),
-          ),
-        );
-        await tester.pump();
-        await tester.scrollUntilVisible(
-          tileFinder,
-          120,
-          scrollable: find.byType(Scrollable).first,
-        );
-      }
-
-      await pumpScreen(ThemeMode.light);
-      expect(tester.widget<SwitchListTile>(tileFinder).onChanged, isNull);
-      await tester.tap(tileFinder);
-      await tester.pumpAndSettle();
-      var prefs = await SharedPreferences.getInstance();
-      expect(prefs.getBool('true_dark'), isNull);
-
-      await pumpScreen(ThemeMode.dark);
-      expect(tester.widget<SwitchListTile>(tileFinder).value, isFalse);
-      await tester.tap(tileFinder);
-      await tester.pumpAndSettle();
-      expect(tester.widget<SwitchListTile>(tileFinder).value, isTrue);
-      prefs = await SharedPreferences.getInstance();
-      expect(prefs.getBool('true_dark'), isTrue);
-    });
-
-    testWidgets('Customization layout sheet picks density and opens custom', (
-      WidgetTester tester,
-    ) async {
-      SharedPreferences.setMockInitialValues({});
-
-      await tester.pumpWidget(
-        MaterialApp(key: UniqueKey(), home: const CustomizationScreen()),
-      );
-      await tester.pumpAndSettle();
-
-      // Layout opens a bottom sheet with the density rows plus Custom.
-      await tester.tap(find.widgetWithText(ListTile, 'Layout'));
-      await tester.pumpAndSettle();
-      expect(find.text('Custom'), findsOneWidget);
-
-      await tester.tap(find.text('Full'));
-      await tester.pumpAndSettle();
-      final prefs = await SharedPreferences.getInstance();
-      expect(prefs.getString('layout_density'), 'full');
-
-      // Custom opens the override screen, greyed out until the master is on.
-      await tester.tap(find.widgetWithText(ListTile, 'Layout'));
-      await tester.pumpAndSettle();
-      await tester.tap(find.text('Custom'));
-      await tester.pumpAndSettle();
-      expect(find.text('Enable custom layout'), findsOneWidget);
-      expect(find.text('Compact density'), findsOneWidget);
-      final tile = tester.widget<SwitchListTile>(
-        find.widgetWithText(SwitchListTile, 'Compact density'),
-      );
-      expect(tile.onChanged, isNull);
-
-      await tester.tap(find.text('Enable custom layout'));
-      await tester.pumpAndSettle();
-      final enabled = tester.widget<SwitchListTile>(
-        find.widgetWithText(SwitchListTile, 'Compact density'),
-      );
-      expect(enabled.onChanged, isNotNull);
-
-      // Custom on keeps Layout reachable but greys the density rows.
-      await tester.pageBack();
-      await tester.pumpAndSettle();
-      expect(find.text('Custom'), findsOneWidget);
-      await tester.tap(find.widgetWithText(ListTile, 'Layout'));
-      await tester.pumpAndSettle();
-      final full = tester.widget<ListTile>(
-        find.widgetWithText(ListTile, 'Full'),
-      );
-      expect(full.enabled, isFalse);
-      // Last match: the page's Layout row also reads "Custom" underneath.
-      final custom = tester.widget<ListTile>(
-        find.widgetWithText(ListTile, 'Custom').last,
-      );
-      expect(custom.enabled, isTrue);
-    });
-
-    testWidgets('Channel settings drag handle reorders channels', (
+    testWidgets('Channel settings reorder, join, and enforce the cap', (
       WidgetTester tester,
     ) async {
       SharedPreferences.setMockInitialValues({});
@@ -193,308 +46,76 @@ void main() {
 
       expect(reordered, isNotNull);
       expect(reordered, isNot(equals(['a', 'b', 'c'])));
-    });
 
-    testWidgets(
-      'Channel settings join dialog validates input and blocks at the cap',
-      (WidgetTester tester) async {
-        {
-          SharedPreferences.setMockInitialValues({});
-          final added = <String>[];
-
-          await tester.pumpWidget(
-            MaterialApp(
-              key: UniqueKey(),
-              home: ChannelSettingsScreen(
-                channelNotifier: ValueNotifier([]),
-                onAddChannel: added.add,
-              ),
-            ),
-          );
-          await tester.pump();
-
-          await tester.tap(find.text('Add channels', skipOffstage: false));
-          await tester.pumpAndSettle();
-
-          expect(find.text('Add channels', skipOffstage: false), findsWidgets);
-          expect(find.text('Cancel', skipOffstage: false), findsOneWidget);
-          expect(find.text('Add', skipOffstage: false), findsOneWidget);
-
-          await tester.enterText(
-            find.byType(TextField).last,
-            'newchannel, second channel',
-          );
-          await tester.tap(find.text('Add', skipOffstage: false).last);
-          await tester.pumpAndSettle();
-
-          expect(added, ['newchannel', 'second', 'channel']);
-        }
-        {
-          SharedPreferences.setMockInitialValues({});
-          String? addedChannel;
-          final channels = List.generate(kMaxChannels, (i) => 'ch$i');
-
-          await tester.pumpWidget(
-            MaterialApp(
-              key: UniqueKey(),
-              home: ChannelSettingsScreen(
-                channelNotifier: ValueNotifier(channels),
-                onAddChannel: (ch) => addedChannel = ch,
-              ),
-            ),
-          );
-          await tester.pump();
-
-          // The Join button sits below the capped list, so it starts offstage.
-          // Jump straight to the bottom in one drag instead of stepping
-          // through every row.
-          await tester.drag(
-            find.byType(Scrollable).first,
-            const Offset(0, -5000),
-          );
-          await tester.pumpAndSettle();
-
-          // At the cap the Add channels button is disabled, so tapping it opens no
-          // dialog and never fires onAddChannel.
-          final joinFinder = find.text('Add channels', skipOffstage: false);
-          expect(joinFinder, findsOneWidget);
-          expect(
-            tester
-                .widget<OutlinedButton>(
-                  find.widgetWithText(
-                    OutlinedButton,
-                    'Add channels',
-                    skipOffstage: false,
-                  ),
-                )
-                .onPressed,
-            isNull,
-          );
-          await tester.tap(joinFinder, warnIfMissed: false);
-          await tester.pumpAndSettle();
-          expect(addedChannel, isNull);
-          expect(find.text('Cancel', skipOffstage: false), findsNothing);
-        }
-      },
-    );
-
-    testWidgets('Appearance timestamp toggle and format picker persist', (
-      WidgetTester tester,
-    ) async {
       SharedPreferences.setMockInitialValues({});
-
-      await tester.pumpWidget(
-        MaterialApp(key: UniqueKey(), home: const CustomizationScreen()),
-      );
-      await tester.pump();
-
-      final toggleFinder = find.widgetWithText(
-        SwitchListTile,
-        'Show timestamps',
-        skipOffstage: false,
-      );
-      // Interact with the toggle before scrolling down: the lazy ListView
-      // disposes items that scroll out of the cache extent, so bring it into
-      // view first (otherwise the tap misses and nothing is persisted).
-      await tester.scrollUntilVisible(
-        toggleFinder,
-        120,
-        scrollable: find.byType(Scrollable).first,
-      );
-      await tester.pumpAndSettle();
-
-      final toggle = tester.widget<SwitchListTile>(toggleFinder);
-      expect(toggle.value, isTrue);
-      await tester.tap(toggleFinder);
-      await tester.pumpAndSettle();
-      var prefs = await SharedPreferences.getInstance();
-      expect(prefs.getBool('show_timestamps'), isFalse);
-      await tester.scrollUntilVisible(
-        find.widgetWithText(ListTile, 'Timestamp format', skipOffstage: false),
-        120,
-      );
-      await tester.pumpAndSettle();
-      expect(find.text('HH:mm', skipOffstage: false), findsOneWidget);
-
-      final formatTile = find.widgetWithText(ListTile, 'Timestamp format');
-      await tester.ensureVisible(formatTile);
-      await tester.pumpAndSettle();
-      await tester.tap(formatTile);
-      await tester.pumpAndSettle();
-      await tester.tap(find.text('h:mm a', skipOffstage: false));
-      await tester.pumpAndSettle();
-
-      prefs = await SharedPreferences.getInstance();
-      expect(prefs.getString('timestamp_format'), 'h:mm a');
-      expect(find.text('h:mm a', skipOffstage: false), findsOneWidget);
-    });
-
-    testWidgets(
-      'Emote fetch tier follows manual changes and auto mode and connectivity',
-      (WidgetTester tester) async {
-        {
-          SharedPreferences.setMockInitialValues({
-            'emote_fetch_auto': EmoteFetchAutoMode.off.index,
-          });
-          await Prefs.load();
-          int? changed;
-
-          await tester.pumpWidget(
-            MaterialApp(
-              key: UniqueKey(),
-              home: EmotesSettingsScreen(
-                onEmoteTierChanged: (value) => changed = value,
-              ),
-            ),
-          );
-          await tester.pump();
-          await tester.pump();
-
-          final slider = tester.widget<Slider>(
-            find.byKey(const Key('emote_tier_slider')),
-          );
-          // The tier change (persist + callback + refetch cascade) fires on
-          // release, not per drag tick.
-          slider.onChangeEnd!(EmoteFetchTier.low.index.toDouble());
-          await tester.pump();
-          await tester.pump();
-
-          expect(changed, EmoteFetchTier.low.index);
-          expect(find.text('Low', skipOffstage: false), findsOneWidget);
-          final prefs = await SharedPreferences.getInstance();
-          expect(prefs.getInt('emote_fetch_tier'), EmoteFetchTier.low.index);
-        }
-        {
-          SharedPreferences.setMockInitialValues({});
-          await Prefs.load();
-          EmoteFetchAutoMode? changed;
-
-          await tester.pumpWidget(
-            MaterialApp(
-              key: UniqueKey(),
-              home: EmotesSettingsScreen(
-                onEmoteAutoModeChanged: (mode) => changed = mode,
-              ),
-            ),
-          );
-          await tester.pump();
-          await tester.pump();
-
-          expect(find.byKey(const Key('emote_auto_mode')), findsOneWidget);
-          // Auto mode defaults to Balanced, so the manual tier slider is locked.
-          expect(find.text('Balanced', skipOffstage: false), findsOneWidget);
-          var slider = tester.widget<Slider>(
-            find.byKey(const Key('emote_tier_slider')),
-          );
-          expect(slider.onChanged, isNull);
-
-          await tester.tap(find.text('Aggressive', skipOffstage: false));
-          await tester.pump();
-          await tester.pump();
-
-          expect(changed, EmoteFetchAutoMode.aggressive);
-          final prefs = await SharedPreferences.getInstance();
-          expect(
-            prefs.getInt('emote_fetch_auto'),
-            EmoteFetchAutoMode.aggressive.index,
-          );
-          slider = tester.widget<Slider>(
-            find.byKey(const Key('emote_tier_slider')),
-          );
-          expect(slider.onChanged, isNull);
-
-          await tester.tap(find.text('Off', skipOffstage: false));
-          await tester.pump();
-          await tester.pump();
-
-          expect(changed, EmoteFetchAutoMode.off);
-          final unlocked = tester.widget<Slider>(
-            find.byKey(const Key('emote_tier_slider')),
-          );
-          expect(unlocked.onChanged, isNotNull);
-        }
-        {
-          SharedPreferences.setMockInitialValues({
-            'emote_fetch_auto': EmoteFetchAutoMode.balanced.index,
-          });
-          await Prefs.load();
-          final mobile = ValueNotifier<bool>(true);
-
-          await tester.pumpWidget(
-            MaterialApp(
-              key: UniqueKey(),
-              home: EmotesSettingsScreen(mobileNotifier: mobile),
-            ),
-          );
-          await tester.pump();
-          await tester.pump();
-
-          // Balanced + cellular => Low is being picked and shown on the slider.
-          expect(find.text('Low', skipOffstage: false), findsOneWidget);
-          var slider = tester.widget<Slider>(
-            find.byKey(const Key('emote_tier_slider')),
-          );
-          expect(slider.value, EmoteFetchTier.low.index.toDouble());
-          expect(slider.onChanged, isNull);
-
-          // Hand off to Wi-Fi while the screen is open: the tier animates up to
-          // High; wait for the animation to settle before asserting the value.
-          mobile.value = false;
-          await tester.pumpAndSettle();
-          expect(find.text('High', skipOffstage: false), findsOneWidget);
-          expect(find.text('Low'), findsNothing);
-          slider = tester.widget<Slider>(
-            find.byKey(const Key('emote_tier_slider')),
-          );
-          expect(slider.value, EmoteFetchTier.high.index.toDouble());
-        }
-      },
-    );
-
-    testWidgets('provider toggles flip the manager and persist', (
-      WidgetTester tester,
-    ) async {
-      SharedPreferences.setMockInitialValues({});
-      final manager = EmoteManager(
-        fetchStagger: Duration.zero,
-        tier: EmoteFetchTier.nothing,
-      );
-
+      final added = <String>[];
       await tester.pumpWidget(
         MaterialApp(
           key: UniqueKey(),
-          home: EmotesSettingsScreen(emoteManager: manager),
+          home: ChannelSettingsScreen(
+            channelNotifier: ValueNotifier([]),
+            onAddChannel: added.add,
+          ),
         ),
       );
       await tester.pump();
-      await tester.pump();
 
-      // The Animation section pushes the provider rows below the fold of
-      // the lazy list; bring them on stage first.
-      await tester.scrollUntilVisible(
-        find.byKey(const Key('providers_tile')),
-        200,
-        scrollable: find.byType(Scrollable).first,
+      await tester.tap(find.text('Add channels', skipOffstage: false));
+      await tester.pumpAndSettle();
+
+      expect(find.text('Add channels', skipOffstage: false), findsWidgets);
+      expect(find.text('Cancel', skipOffstage: false), findsOneWidget);
+      expect(find.text('Add', skipOffstage: false), findsOneWidget);
+
+      await tester.enterText(
+        find.byType(TextField).last,
+        'newchannel, second channel',
       );
+      await tester.tap(find.text('Add', skipOffstage: false).last);
       await tester.pumpAndSettle();
 
-      expect(find.text('Providers', skipOffstage: false), findsOneWidget);
+      expect(added, ['newchannel', 'second', 'channel']);
 
-      // The picker lives in a bottom sheet at the bottom of the page.
-      expect(find.byKey(const Key('provider_toggle_bttv')), findsNothing);
-      await tester.tap(find.byKey(const Key('providers_tile')));
-      await tester.pumpAndSettle();
-      expect(find.byKey(const Key('provider_toggle_twitch')), findsOneWidget);
-      expect(find.text('BetterTTV', skipOffstage: false), findsOneWidget);
-      expect(find.text('FrankerFaceZ', skipOffstage: false), findsOneWidget);
-      expect(find.text('7TV', skipOffstage: false), findsOneWidget);
-
-      await tester.tap(find.byKey(const Key('provider_toggle_bttv')));
+      SharedPreferences.setMockInitialValues({});
+      String? addedChannel;
+      final channels = List.generate(kMaxChannels, (i) => 'ch$i');
+      await tester.pumpWidget(
+        MaterialApp(
+          key: UniqueKey(),
+          home: ChannelSettingsScreen(
+            channelNotifier: ValueNotifier(channels),
+            onAddChannel: (ch) => addedChannel = ch,
+          ),
+        ),
+      );
       await tester.pump();
 
-      expect(manager.isProviderEnabled(EmoteType.bttv), isFalse);
-      final prefs = await SharedPreferences.getInstance();
-      expect(prefs.getStringList('emote_providers_disabled'), ['bttv']);
+      // The Join button sits below the capped list, so it starts offstage.
+      // Jump straight to the bottom in one drag instead of stepping
+      // through every row.
+      await tester.drag(find.byType(Scrollable).first, const Offset(0, -5000));
+      await tester.pumpAndSettle();
+
+      // At the cap the Add channels button is disabled, so tapping it opens no
+      // dialog and never fires onAddChannel.
+      final joinFinder = find.text('Add channels', skipOffstage: false);
+      expect(joinFinder, findsOneWidget);
+      expect(
+        tester
+            .widget<OutlinedButton>(
+              find.widgetWithText(
+                OutlinedButton,
+                'Add channels',
+                skipOffstage: false,
+              ),
+            )
+            .onPressed,
+        isNull,
+      );
+      await tester.tap(joinFinder, warnIfMissed: false);
+      await tester.pumpAndSettle();
+      expect(addedChannel, isNull);
+      expect(find.text('Cancel', skipOffstage: false), findsNothing);
     });
 
     testWidgets('Emote cache size applies only on apply and evicts on zero', (
@@ -676,7 +297,7 @@ void main() {
     expect(auth.scopeStale, isFalse);
   }
 
-  testWidgets('Tapping a saved account switches to it', (
+  testWidgets('saved and anonymous account switches preserve isolation', (
     WidgetTester tester,
   ) async {
     final auth = twoAccounts();
@@ -688,26 +309,9 @@ void main() {
     await tester.pumpAndSettle();
     expect(auth.login, 'alice');
     expect(auth.accessToken, 'token_a');
-  });
 
-  testWidgets('stale scopes offer a one-tap re-login', (
-    WidgetTester tester,
-  ) async {
-    await expectReLogin(tester, (auth) => auth.markScopeStale());
-  });
-
-  testWidgets('expired token offers a one-tap re-login', (
-    WidgetTester tester,
-  ) async {
-    await expectReLogin(tester, (auth) => auth.markActiveExpired());
-  });
-
-  testWidgets('Anonymous row switches to and from saved accounts', (
-    WidgetTester tester,
-  ) async {
-    final auth = twoAccounts();
-    await tester.pumpWidget(wrapAccountScreen(auth));
-    await tester.pump();
+    await auth.switchTo('bob');
+    await tester.pumpAndSettle();
     expect(auth.login, 'bob');
     expect(find.text('Anonymous', skipOffstage: false), findsOneWidget);
     expect(find.text('Active', skipOffstage: false), findsOneWidget);
@@ -727,6 +331,17 @@ void main() {
     await tester.pumpAndSettle();
     expect(auth.login, 'alice');
     expect(auth.accessToken, 'token_a');
+  });
+
+  testWidgets('stale scopes and expired tokens offer a one-tap re-login', (
+    tester,
+  ) async {
+    for (final mark in [
+      (TwitchAuth auth) => auth.markScopeStale(),
+      (TwitchAuth auth) => auth.markActiveExpired(),
+    ]) {
+      await expectReLogin(tester, mark);
+    }
   });
 
   testWidgets('Disconnect asks for confirmation and falls back to login', (

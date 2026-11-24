@@ -47,6 +47,7 @@ class _Harness {
     addTearDown(atBottom.dispose);
     await tester.pumpWidget(
       MaterialApp(
+        key: UniqueKey(),
         home: Scaffold(
           body: ChatView(
             channel: 'test',
@@ -102,320 +103,141 @@ class _Harness {
 }
 
 void main() {
-  testWidgets('hold keeps reading position across sequential arrivals', (
-    tester,
-  ) async {
+  Future<_Harness> pumpDeep(
+    WidgetTester tester, {
+    int count = 80,
+    bool keepAlive = true,
+  }) async {
     tester.view.physicalSize = const Size(1080, 2400);
     tester.view.devicePixelRatio = 3.0;
     addTearDown(tester.view.reset);
-
     final notifier = ValueNotifier(0);
     addTearDown(notifier.dispose);
-    final messages = <TwitchMessage>[for (var i = 80; i >= 1; i--) _msg(i)];
+    final messages = <TwitchMessage>[for (var i = count; i >= 1; i--) _msg(i)];
     final h = _Harness(tester: tester, messages: messages, notifier: notifier);
-    await h.pump();
-
-    // A real device fling leaves the reader deep in the backlog.
+    await h.pump(keepAlive: keepAlive);
     await tester.fling(
       find.byType(CustomScrollView),
       const Offset(0, 900),
       2000,
     );
     await tester.pumpAndSettle();
+    return h;
+  }
 
-    final tracked = h.visibleRows().keys.take(6).toList();
-    expect(tracked, isNotEmpty, reason: 'need rows on screen to assert a hold');
-    final before = h.visibleRows();
-    final offsetBefore = h.controller.offset;
-
-    // Six arrivals, one per frame, mixed heights.
-    for (var k = 0; k < 6; k++) {
-      h.insertHead([_msg(81 + k)]);
-      await tester.pump();
-      await tester.pump();
-    }
-
-    final after = h.visibleRows();
-    for (final key in tracked) {
-      expect(
-        after[key],
-        isNotNull,
-        reason: '$key should still be built after the hold',
-      );
-      expect(
-        after[key],
-        moreOrLessEquals(before[key]!, epsilon: 0.5),
-        reason: '$key moved while the reader was scrolled up',
-      );
-    }
-    // The list compensated by moving its offset toward the new head.
-    expect(h.controller.offset, greaterThan(offsetBefore));
-  });
-
-  testWidgets('hold keeps reading position for a bulk arrival', (tester) async {
-    tester.view.physicalSize = const Size(1080, 2400);
-    tester.view.devicePixelRatio = 3.0;
-    addTearDown(tester.view.reset);
-
-    final notifier = ValueNotifier(0);
-    addTearDown(notifier.dispose);
-    final messages = <TwitchMessage>[for (var i = 80; i >= 1; i--) _msg(i)];
-    final h = _Harness(tester: tester, messages: messages, notifier: notifier);
-    await h.pump();
-
-    await tester.fling(
-      find.byType(CustomScrollView),
-      const Offset(0, 900),
-      2000,
-    );
-    await tester.pumpAndSettle();
-
-    final tracked = h.visibleRows().keys.take(6).toList();
-    expect(tracked, isNotEmpty);
-    final before = h.visibleRows();
-    final offsetBefore = h.controller.offset;
-
-    // Five rows land in the same tick, so the hold must shift the whole batch.
-    h.insertHead([for (var k = 0; k < 5; k++) _msg(81 + k)]);
-    await tester.pump();
-    await tester.pump();
-
-    final after = h.visibleRows();
-    for (final key in tracked) {
-      expect(after[key], isNotNull);
-      expect(
-        after[key],
-        moreOrLessEquals(before[key]!, epsilon: 0.5),
-        reason: '$key moved on a bulk arrival',
-      );
-    }
-    expect(h.controller.offset, greaterThan(offsetBefore));
-  });
-
-  testWidgets('hold works on a PageStorage-backed list', (tester) async {
-    tester.view.physicalSize = const Size(1080, 2400);
-    tester.view.devicePixelRatio = 3.0;
-    addTearDown(tester.view.reset);
-
-    final notifier = ValueNotifier(0);
-    addTearDown(notifier.dispose);
-    final messages = <TwitchMessage>[for (var i = 80; i >= 1; i--) _msg(i)];
-    final h = _Harness(tester: tester, messages: messages, notifier: notifier);
-    // keepAlive false routes through the PageStorageKey branch channel pages use.
-    await h.pump(keepAlive: false);
-
-    await tester.fling(
-      find.byType(CustomScrollView),
-      const Offset(0, 900),
-      2000,
-    );
-    await tester.pumpAndSettle();
-
-    final tracked = h.visibleRows().keys.take(6).toList();
-    expect(tracked, isNotEmpty);
-    final before = h.visibleRows();
-
-    h.insertHead([_msg(81)]);
-    await tester.pump();
-    await tester.pump();
-
-    final after = h.visibleRows();
-    for (final key in tracked) {
-      expect(after[key], isNotNull);
-      expect(
-        after[key],
-        moreOrLessEquals(before[key]!, epsilon: 0.5),
-        reason: '$key moved on a PageStorage-backed list',
-      );
-    }
-  });
-
-  testWidgets('hold works when the buffer is at cap (length unchanged)', (
+  testWidgets('hold keeps reading position across buffer changes', (
     tester,
   ) async {
-    tester.view.physicalSize = const Size(1080, 2400);
-    tester.view.devicePixelRatio = 3.0;
-    addTearDown(tester.view.reset);
+    for (final scenario in [
+      'sequential',
+      'bulk',
+      'pageStorage',
+      'cap',
+      'removal',
+    ]) {
+      final h = await pumpDeep(tester, keepAlive: scenario != 'pageStorage');
+      final tracked = h.visibleRows().keys.take(6).toList();
+      expect(tracked, isNotEmpty, reason: scenario);
+      final before = h.visibleRows();
+      final offsetBefore = h.controller.offset;
 
-    final notifier = ValueNotifier(0);
-    addTearDown(notifier.dispose);
-    final messages = <TwitchMessage>[for (var i = 80; i >= 1; i--) _msg(i)];
-    final h = _Harness(tester: tester, messages: messages, notifier: notifier);
-    await h.pump();
+      switch (scenario) {
+        case 'sequential':
+          for (var k = 0; k < 6; k++) {
+            h.insertHead([_msg(81 + k)]);
+            await tester.pump();
+            await tester.pump();
+          }
+        case 'bulk':
+          h.insertHead([for (var k = 0; k < 5; k++) _msg(81 + k)]);
+          await tester.pump();
+          await tester.pump();
+        case 'pageStorage':
+          h.insertHead([_msg(81)]);
+          await tester.pump();
+          await tester.pump();
+        case 'cap':
+          for (var k = 0; k < 6; k++) {
+            h.insertHeadAtCap([_msg(81 + k)]);
+            await tester.pump();
+            await tester.pump();
+          }
+        case 'removal':
+          h.messages.removeAt(0);
+          h.notifier.value++;
+          await tester.pump();
+          await tester.pump();
+      }
 
-    await tester.fling(
-      find.byType(CustomScrollView),
-      const Offset(0, 900),
-      2000,
-    );
-    await tester.pumpAndSettle();
-
-    final tracked = h.visibleRows().keys.take(6).toList();
-    expect(tracked, isNotEmpty);
-    final before = h.visibleRows();
-    final offsetBefore = h.controller.offset;
-
-    // A full buffer keeps its length while every arrival still shifts the view.
-    for (var k = 0; k < 6; k++) {
-      h.insertHeadAtCap([_msg(81 + k)]);
-      await tester.pump();
-      await tester.pump();
+      final after = h.visibleRows();
+      for (final key in tracked) {
+        expect(after[key], isNotNull, reason: '$scenario: $key');
+        expect(
+          after[key],
+          moreOrLessEquals(before[key]!, epsilon: 0.5),
+          reason: '$scenario: $key moved while the reader was scrolled up',
+        );
+      }
+      if (scenario == 'sequential' || scenario == 'cap') {
+        expect(
+          h.controller.offset,
+          greaterThan(offsetBefore),
+          reason: '$scenario did not compensate for the new head',
+        );
+      }
     }
+  });
 
-    final after = h.visibleRows();
-    for (final key in tracked) {
-      expect(after[key], isNotNull);
+  testWidgets('FAB reaches the bottom through races and active arrivals', (
+    tester,
+  ) async {
+    for (final scenario in ['deep', 'tapFrame', 'pending', 'active']) {
+      final h = await pumpDeep(tester, count: 400);
+      expect(h.controller.offset, greaterThan(1000), reason: scenario);
+      final fab = find.byKey(const ValueKey('scroll_down'));
+      expect(fab, findsOneWidget);
+
+      switch (scenario) {
+        case 'deep':
+          await tester.tap(fab);
+          await tester.pump();
+          await tester.pump();
+        case 'tapFrame':
+          await tester.tap(fab);
+          h.insertHead([_msg(999)]);
+          await tester.pump();
+          await tester.pump();
+        case 'pending':
+          h.insertHead([_msg(999)]);
+          await tester.pump();
+          await tester.tap(fab);
+          await tester.pump();
+          await tester.pump();
+        case 'active':
+          for (var k = 0; k < 3; k++) {
+            h.insertHead([_msg(600 + k)]);
+            await tester.pump();
+          }
+          await tester.tap(fab);
+          for (var k = 0; k < 6; k++) {
+            h.insertHead([_msg(700 + k)]);
+            await tester.pump();
+          }
+          await tester.pump();
+      }
+
       expect(
-        after[key],
-        moreOrLessEquals(before[key]!, epsilon: 0.5),
-        reason: '$key moved while the buffer was at cap',
+        h.controller.offset,
+        lessThanOrEqualTo(0.5),
+        reason: '$scenario did not land at the bottom',
       );
     }
-    expect(h.controller.offset, greaterThan(offsetBefore));
   });
 
-  testWidgets('hold keeps reading position when a newer row is removed', (
+  testWidgets('FAB from the oldest end jumps without building every row', (
     tester,
   ) async {
-    tester.view.physicalSize = const Size(1080, 2400);
-    tester.view.devicePixelRatio = 3.0;
-    addTearDown(tester.view.reset);
-
-    final notifier = ValueNotifier(0);
-    addTearDown(notifier.dispose);
-    final messages = <TwitchMessage>[for (var i = 80; i >= 1; i--) _msg(i)];
-    final h = _Harness(tester: tester, messages: messages, notifier: notifier);
-    await h.pump();
-
-    await tester.fling(
-      find.byType(CustomScrollView),
-      const Offset(0, 900),
-      2000,
-    );
-    await tester.pumpAndSettle();
-
-    final tracked = h.visibleRows().keys.take(6).toList();
-    expect(tracked, isNotEmpty);
-    final before = h.visibleRows();
-
-    // Drop the newest row, which sits off screen ahead of the reader. The rows
-    // on screen lose its height in content space and must be held in place.
-    messages.removeAt(0);
-    notifier.value++;
-    await tester.pump();
-    await tester.pump();
-
-    final after = h.visibleRows();
-    for (final key in tracked) {
-      expect(after[key], isNotNull);
-      expect(
-        after[key],
-        moreOrLessEquals(before[key]!, epsilon: 0.5),
-        reason: '$key moved when a newer row was removed',
-      );
-    }
-  });
-
-  testWidgets('FAB returns to the bottom from deep in history', (tester) async {
-    tester.view.physicalSize = const Size(1080, 2400);
-    tester.view.devicePixelRatio = 3.0;
-    addTearDown(tester.view.reset);
-
-    final notifier = ValueNotifier(0);
-    addTearDown(notifier.dispose);
-    final messages = <TwitchMessage>[for (var i = 400; i >= 1; i--) _msg(i)];
-    final h = _Harness(tester: tester, messages: messages, notifier: notifier);
-    await h.pump();
-
-    await tester.fling(
-      find.byType(CustomScrollView),
-      const Offset(0, 3000),
-      4000,
-    );
-    await tester.pumpAndSettle();
-    expect(h.controller.offset, greaterThan(1000));
-
-    final fab = find.byKey(const ValueKey('scroll_down'));
-    expect(fab, findsOneWidget);
-    await tester.tap(fab);
-    await tester.pump();
-    await tester.pump();
-
-    expect(h.controller.offset, lessThanOrEqualTo(0.5));
-  });
-
-  testWidgets('FAB lands at bottom when a row lands on the tap frame', (
-    tester,
-  ) async {
-    tester.view.physicalSize = const Size(1080, 2400);
-    tester.view.devicePixelRatio = 3.0;
-    addTearDown(tester.view.reset);
-
-    final notifier = ValueNotifier(0);
-    addTearDown(notifier.dispose);
-    final messages = <TwitchMessage>[for (var i = 400; i >= 1; i--) _msg(i)];
-    final h = _Harness(tester: tester, messages: messages, notifier: notifier);
-    await h.pump();
-
-    await tester.fling(
-      find.byType(CustomScrollView),
-      const Offset(0, 3000),
-      4000,
-    );
-    await tester.pumpAndSettle();
-    expect(h.controller.offset, greaterThan(1000));
-
-    await tester.tap(find.byKey(const ValueKey('scroll_down')));
-    messages.insert(0, _msg(999));
-    notifier.value++;
-    await tester.pump();
-    await tester.pump();
-
-    expect(h.controller.offset, lessThanOrEqualTo(0.5));
-  });
-
-  testWidgets('FAB lands at bottom when a row is pending before the tap', (
-    tester,
-  ) async {
-    tester.view.physicalSize = const Size(1080, 2400);
-    tester.view.devicePixelRatio = 3.0;
-    addTearDown(tester.view.reset);
-
-    final notifier = ValueNotifier(0);
-    addTearDown(notifier.dispose);
-    final messages = <TwitchMessage>[for (var i = 400; i >= 1; i--) _msg(i)];
-    final h = _Harness(tester: tester, messages: messages, notifier: notifier);
-    await h.pump();
-
-    await tester.fling(
-      find.byType(CustomScrollView),
-      const Offset(0, 3000),
-      4000,
-    );
-    await tester.pumpAndSettle();
-    expect(h.controller.offset, greaterThan(1000));
-
-    messages.insert(0, _msg(999));
-    notifier.value++;
-    await tester.pump();
-    await tester.tap(find.byKey(const ValueKey('scroll_down')));
-    await tester.pump();
-    await tester.pump();
-
-    expect(h.controller.offset, lessThanOrEqualTo(0.5));
-  });
-
-  testWidgets('FAB returns to bottom from the oldest end', (tester) async {
-    tester.view.physicalSize = const Size(1080, 2400);
-    tester.view.devicePixelRatio = 3.0;
-    addTearDown(tester.view.reset);
-
-    final notifier = ValueNotifier(0);
-    addTearDown(notifier.dispose);
-    final messages = <TwitchMessage>[for (var i = 500; i >= 1; i--) _msg(i)];
-    final h = _Harness(tester: tester, messages: messages, notifier: notifier);
-    await h.pump();
-
+    final h = await pumpDeep(tester, count: 500);
     h.controller.jumpTo(h.controller.position.maxScrollExtent);
     await tester.pumpAndSettle();
     expect(h.controller.offset, greaterThan(1000));
@@ -431,40 +253,5 @@ void main() {
       lessThan(100),
       reason: 'the jump built every row between the oldest and the newest',
     );
-  });
-
-  testWidgets('FAB reaches the bottom on an active chat', (tester) async {
-    tester.view.physicalSize = const Size(1080, 2400);
-    tester.view.devicePixelRatio = 3.0;
-    addTearDown(tester.view.reset);
-
-    final notifier = ValueNotifier(0);
-    addTearDown(notifier.dispose);
-    final messages = <TwitchMessage>[for (var i = 500; i >= 1; i--) _msg(i)];
-    final h = _Harness(tester: tester, messages: messages, notifier: notifier);
-    await h.pump();
-
-    h.controller.jumpTo(h.controller.position.maxScrollExtent);
-    await tester.pumpAndSettle();
-    expect(h.controller.offset, greaterThan(1000));
-
-    // Active chat: arrivals keep landing while the reader is deep in history.
-    for (var k = 0; k < 3; k++) {
-      messages.insert(0, _msg(600 + k));
-      notifier.value++;
-      await tester.pump();
-    }
-
-    await tester.tap(find.byKey(const ValueKey('scroll_down')));
-
-    // More arrivals over the frames after the tap.
-    for (var k = 0; k < 6; k++) {
-      messages.insert(0, _msg(700 + k));
-      notifier.value++;
-      await tester.pump();
-    }
-    await tester.pump();
-
-    expect(h.controller.offset, lessThanOrEqualTo(0.5));
   });
 }

@@ -49,6 +49,7 @@ class _Harness {
     addTearDown(atBottom.dispose);
     await tester.pumpWidget(
       MaterialApp(
+        key: UniqueKey(),
         home: Scaffold(
           body: ChatView(
             channel: 'test',
@@ -82,104 +83,87 @@ class _Harness {
 }
 
 void main() {
-  testWidgets('a growing insert keeps built rows in order without a crash', (
+  testWidgets('inserts and churn keep built rows ordered without a crash', (
     tester,
   ) async {
     tester.view.physicalSize = const Size(1080, 2400);
     tester.view.devicePixelRatio = 3.0;
     addTearDown(tester.view.reset);
 
-    final notifier = ValueNotifier(0);
-    addTearDown(notifier.dispose);
-    final messages = <TwitchMessage>[for (var i = 1; i <= 40; i++) _msg(i)];
-    final h = _Harness(tester: tester, messages: messages, notifier: notifier);
-    await h.pump();
-
-    expect(
-      h.builtIds().length,
-      greaterThan(4),
-      reason: 'need built rows to track',
-    );
-
-    // A message arrives at the head: every built row shifts one slot. Rows
-    // move only into slots that existed last layout, so none lands in a slot
-    // with no layout offset; the rest rebuild in place.
-    messages.insert(0, _msg(100));
-    notifier.value++;
-    await tester.pump();
-
-    final after = h.builtIds();
-    expect(after, contains('msg-100'));
-    expect(
-      after.toSet().length,
-      after.length,
-      reason: 'a row was built twice after the insert',
-    );
-    expect(tester.takeException(), isNull);
-  });
-
-  testWidgets('a duplicate row id does not orphan a moved row', (tester) async {
-    tester.view.physicalSize = const Size(1080, 2400);
-    tester.view.devicePixelRatio = 3.0;
-    addTearDown(tester.view.reset);
-
-    final notifier = ValueNotifier(0);
-    addTearDown(notifier.dispose);
-    final messages = <TwitchMessage>[for (var i = 1; i <= 40; i++) _msg(i)];
-    final h = _Harness(tester: tester, messages: messages, notifier: notifier);
-    await h.pump();
-
-    // The duplicates below come from rows newer than this one.
-    const tracked = 'msg-6';
-    const trackedKey = ValueKey<String>(tracked);
-    final before = tester.element(find.byKey(trackedKey, skipOffstage: false));
-
-    // Two rows share a key: both would claim the same slot and leave one
-    // render child behind, a blank row that also stalls scrolling.
-    for (var round = 0; round < 2; round++) {
-      messages.insert(0, _msg(500 + round));
-      messages.insert(0, messages[4]);
-      notifier.value++;
-      await tester.pump();
-      await tester.tap(find.byType(CustomScrollView), warnIfMissed: false);
-      await tester.pump();
-      expect(tester.takeException(), isNull, reason: 'round $round');
-    }
-    expect(
-      tester.element(find.byKey(trackedKey, skipOffstage: false)),
-      same(before),
-      reason: 'rows still move instead of rebuilding',
-    );
-  });
-
-  testWidgets('rapid grow and shrink churn does not throw', (tester) async {
-    tester.view.physicalSize = const Size(1080, 2400);
-    tester.view.devicePixelRatio = 3.0;
-    addTearDown(tester.view.reset);
-
-    final notifier = ValueNotifier(0);
-    addTearDown(notifier.dispose);
-    final messages = <TwitchMessage>[for (var i = 1; i <= 40; i++) _msg(i)];
-    final h = _Harness(tester: tester, messages: messages, notifier: notifier);
-    await h.pump();
-
-    // Grow at the head, drop from the middle: keys move to higher and lower
-    // slots in the same tick, then a tap walks every child. Guards against a
-    // row being parked in a slot the sliver has no layout offset for.
-    for (var round = 0; round < 40; round++) {
-      messages.insert(0, _msg(1000 + round));
-      if (messages.length > 24) messages.removeAt(12);
-      notifier.value++;
-      await tester.pump();
-
-      await tester.tap(find.byType(CustomScrollView), warnIfMissed: false);
-      await tester.pump();
+    for (final scenario in ['grow', 'duplicate', 'churn']) {
+      final notifier = ValueNotifier(0);
+      addTearDown(notifier.dispose);
+      final messages = <TwitchMessage>[for (var i = 1; i <= 40; i++) _msg(i)];
+      final h = _Harness(
+        tester: tester,
+        messages: messages,
+        notifier: notifier,
+      );
+      await h.pump();
 
       expect(
-        tester.takeException(),
-        isNull,
-        reason: 'round $round threw during churn or hit test',
+        h.builtIds().length,
+        greaterThan(4),
+        reason: '$scenario needs built rows to track',
       );
+
+      switch (scenario) {
+        case 'grow':
+          messages.insert(0, _msg(100));
+          notifier.value++;
+          await tester.pump();
+
+          final after = h.builtIds();
+          expect(after, contains('msg-100'));
+          expect(
+            after.toSet().length,
+            after.length,
+            reason: 'a row was built twice after the insert',
+          );
+          expect(tester.takeException(), isNull);
+        case 'duplicate':
+          const tracked = 'msg-6';
+          const trackedKey = ValueKey<String>(tracked);
+          final before = tester.element(
+            find.byKey(trackedKey, skipOffstage: false),
+          );
+          for (var round = 0; round < 2; round++) {
+            messages.insert(0, _msg(500 + round));
+            messages.insert(0, messages[4]);
+            notifier.value++;
+            await tester.pump();
+            await tester.tap(
+              find.byType(CustomScrollView),
+              warnIfMissed: false,
+            );
+            await tester.pump();
+            expect(tester.takeException(), isNull, reason: 'round $round');
+          }
+          expect(
+            tester.element(find.byKey(trackedKey, skipOffstage: false)),
+            same(before),
+            reason: 'rows still move instead of rebuilding',
+          );
+        case 'churn':
+          for (var round = 0; round < 40; round++) {
+            messages.insert(0, _msg(1000 + round));
+            if (messages.length > 24) messages.removeAt(12);
+            notifier.value++;
+            await tester.pump();
+
+            await tester.tap(
+              find.byType(CustomScrollView),
+              warnIfMissed: false,
+            );
+            await tester.pump();
+
+            expect(
+              tester.takeException(),
+              isNull,
+              reason: 'round $round threw during churn or hit test',
+            );
+          }
+      }
     }
   });
 

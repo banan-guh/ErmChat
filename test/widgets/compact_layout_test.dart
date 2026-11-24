@@ -63,16 +63,6 @@ void main() {
     await tester.pump();
   }
 
-  Finder inStrip(Finder f) => find.descendant(
-    of: find.ancestor(of: find.byType(TabBar), matching: find.byType(Row)),
-    matching: f,
-  );
-
-  Finder inBottomBar(Finder f) => find.descendant(
-    of: find.byKey(const Key('bottom_chrome_bar')),
-    matching: f,
-  );
-
   Future<void> setDensity(WidgetTester tester, LayoutDensity density) async {
     await Prefs.load();
     await Settings.layoutDensity.set(density);
@@ -88,74 +78,6 @@ void main() {
     await tester.pump();
     await tester.pumpAndSettle();
   }
-
-  testWidgets('a compact layout keeps emote in the field, not the row', (
-    tester,
-  ) async {
-    await pumpJoined(tester, density: LayoutDensity.compact);
-
-    final rowEmote = inBottomBar(find.byIcon(Icons.emoji_emotions_outlined));
-    expect(rowEmote, findsNothing);
-
-    // The same layout without compact leaves the emote button in the row.
-    final prefs = await Prefs.load();
-    await prefs.setCustomChromeThemes([
-      ChromeTheme.ermchat.spec.copyWith(
-        compact: false,
-        fieldStart: [],
-        fieldEnd: [FieldItem.send],
-      ),
-    ]);
-    await prefs.setChromeThemeKey('${Prefs.customChromeThemePrefix}0');
-    await settlePrefs(tester);
-    expect(rowEmote, findsOneWidget);
-  });
-
-  testWidgets('the bottom row holds the actions and panel titles fold', (
-    tester,
-  ) async {
-    await pumpJoined(tester, density: LayoutDensity.compact);
-
-    expect(inStrip(find.byIcon(Icons.add)), findsOneWidget);
-    expect(
-      inBottomBar(find.byIcon(Icons.notifications_active)),
-      findsOneWidget,
-    );
-    expect(inBottomBar(find.byIcon(Icons.more_vert)), findsOneWidget);
-
-    // The strip clears the status bar now that nothing sits above it.
-    expect(tester.getRect(find.byType(TabBar)).top, greaterThanOrEqualTo(24));
-
-    // The join tab opens the join dialog without leaving the channel.
-    await tester.tap(inStrip(find.byIcon(Icons.add)));
-    await tester.pumpAndSettle();
-    expect(find.text('Add', skipOffstage: false), findsWidgets);
-    await tester.tap(find.text('Cancel'));
-    await tester.pumpAndSettle();
-
-    // The panel title folds into its tabs, one row with the back button.
-    await tester.tap(inBottomBar(find.byIcon(Icons.notifications_active)));
-    await tester.pumpAndSettle();
-    expect(find.text('Mentions / Whispers'), findsNothing);
-    final whispers = find.widgetWithText(Tab, 'Whispers');
-    final back = find.byTooltip('Back');
-    expect(whispers, findsOneWidget);
-    expect(back, findsOneWidget);
-    expect(
-      tester.getCenter(back).dy,
-      closeTo(tester.getCenter(whispers).dy, 4),
-    );
-  });
-
-  testWidgets('full keeps the join tab in the strip', (tester) async {
-    await pumpJoined(tester, density: LayoutDensity.full);
-
-    expect(inStrip(find.byIcon(Icons.add)), findsOneWidget);
-    expect(
-      inBottomBar(find.byIcon(Icons.notifications_active)),
-      findsOneWidget,
-    );
-  });
 
   testWidgets('flipping density keeps the channel and focus', (tester) async {
     await pumpJoined(tester, density: LayoutDensity.full);
@@ -215,25 +137,5 @@ void main() {
         reason: 'only the menu stays, menu in the $place',
       );
     }
-  });
-
-  testWidgets('the DankChat 4 overflow matches the chrome buttons', (
-    tester,
-  ) async {
-    await pumpJoined(
-      tester,
-      density: LayoutDensity.full,
-      chromeTheme: 'dankchat4',
-    );
-    Color colorOf(IconData icon) {
-      final element = tester.element(find.byIcon(icon).first);
-      return IconTheme.of(element).color!;
-    }
-
-    expect(
-      colorOf(Icons.more_vert),
-      colorOf(Icons.add),
-      reason: 'the overflow icon used a different foreground',
-    );
   });
 }

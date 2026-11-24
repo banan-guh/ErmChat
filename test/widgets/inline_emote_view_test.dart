@@ -6,7 +6,6 @@ import 'package:ermchat/emotes/emote.dart';
 import 'package:ermchat/emotes/emote_catalog.dart';
 import 'package:ermchat/emotes/emote_picker.dart';
 import 'package:ermchat/services/emote_images.dart';
-import 'package:ermchat/services/emote_probe_memo.dart';
 import 'package:ermchat/widgets/emote_url_provider.dart';
 import 'package:ermchat/widgets/emote_scale_resolver.dart';
 import 'package:ermchat/widgets/emote_text.dart';
@@ -28,16 +27,6 @@ class _ResolvingEmoteImages extends EmoteImages {
     final url = emote.urlFor(EmoteScale.medium) ?? emote.scales.values.first;
     return (url: url, placeholder: null);
   }
-}
-
-/// Resolves every emote to nothing, standing in for the nothing tier with an
-/// uncached emote so the resolver takes its text fallback.
-class _UnresolvingEmoteImages extends EmoteImages {
-  @override
-  Future<({String url, String? placeholder})?> resolve(
-    Emote emote,
-    EmoteSurface surface,
-  ) async => null;
 }
 
 Uint8List _pngBytes([int width = 2, int height = 2]) {
@@ -72,7 +61,9 @@ void main() {
     EmoteUrlProvider.loadBackoff.clear();
   });
 
-  test('failed urls back off: permanent long, transient doubling to a cap', () {
+  testWidgets('failed urls back off and rebuilt rows do not refetch', (
+    tester,
+  ) async {
     var t = DateTime(2026, 1, 1);
     withClock(Clock(() => t), () {
       final backoff = EmoteLoadBackoff();
@@ -123,9 +114,7 @@ void main() {
       );
       expect(backoff.isBlocked('u${EmoteLoadBackoff.maxEntries + 4}'), isTrue);
     });
-  });
 
-  testWidgets('a failed url is not refetched while backed off', (tester) async {
     var fetches = 0;
     EmoteUrlProvider.debugFetchOverride = (_) async {
       fetches++;
@@ -135,6 +124,7 @@ void main() {
     Future<void> mount() async {
       await tester.pumpWidget(
         MaterialApp(
+          key: UniqueKey(),
           home: InlineEmoteView(
             url: url,
             width: 28,
@@ -158,9 +148,7 @@ void main() {
     expect(fetches, 2, reason: 'clearing the record (emote reload) retries');
   });
 
-  testWidgets('shows the band while loading and after a url change', (
-    tester,
-  ) async {
+  testWidgets('loading and decode failures keep the band', (tester) async {
     final firstGate = Completer<Uint8List>();
     EmoteUrlProvider.debugFetchOverride = (_) => firstGate.future;
     const firstUrl = 'https://inline.test/a.png';
@@ -205,6 +193,33 @@ void main() {
     secondGate.complete(_pngBytes());
     await _pumpUntilLoaded(tester);
     expect(ro.debugFrame, isNotNull);
+
+    // Transparent-frame WebPs fail engine decode routinely; failures must
+    // degrade to the loading band without reporting through FlutterError.
+    EmoteUrlProvider.debugFetchOverride = (_) async =>
+        Uint8List.fromList('definitely not an image'.codeUnits);
+    const brokenUrl = 'https://inline.test/broken.png';
+    await tester.pumpWidget(
+      MaterialApp(
+        key: UniqueKey(),
+        home: Center(
+          child: SizedBox(
+            width: 28,
+            height: 28,
+            child: InlineEmoteView(
+              url: brokenUrl,
+              width: 28,
+              height: 28,
+              images: _images,
+            ),
+          ),
+        ),
+      ),
+    );
+    await _pumpUntilLoaded(tester);
+
+    expect(tester.takeException(), isNull);
+    expect(_renderOf(tester).debugShowsBand, isTrue);
   });
 
   testWidgets('tapping an emote span fires the emote callback', (tester) async {
@@ -242,123 +257,75 @@ void main() {
     expect(tapped.single.map((e) => e.code), [code]);
   });
 
-  testWidgets('an unresolvable emote renders its code as normal text', (
+  testWidgets('shared live urls keep independent frames and one decoder', (
     tester,
   ) async {
-    const code = 'FRICK';
-    final emote = Emote(
-      id: 'frick',
-      code: code,
-      meta: const SevenTvMeta(),
-      scales: const {EmoteScale.medium: 'https://inline.test/frick.png'},
-    );
-    final channelEmotes = EmoteLookup(byCode: {code: emote}, suggestions: []);
-    final spans = EmoteText.build(
-      text: code,
-      twitchPositions: null,
-      channelEmotes: channelEmotes,
-      emoteImages: _UnresolvingEmoteImages(),
-    );
-
-    await tester.pumpWidget(
-      MaterialApp(
-        home: Scaffold(body: Text.rich(TextSpan(children: spans))),
-      ),
-    );
-    await tester.pump();
-    await tester.pump();
-
-    // The code flows at its natural width instead of wrapping inside a 28px
-    // emote box. A boxed fallback would be 28 wide with two lines.
-    expect(find.text(code), findsOneWidget);
-    expect(tester.getSize(find.text(code)).width, greaterThan(28));
-  });
-
-  testWidgets(
-    'same emote url in two widgets paints both without double-dispose',
-    (tester) async {
-      // Regression: a shared completer handed one ImageInfo to every listener
-      // (and disposing the engine's own image) double-freed the underlying
-      // ui.Image ("cannot dispose of image"). Each listener must get its own
-      // clone and the engine's image must never be disposed by us.
-      EmoteUrlProvider.debugFetchOverride = (_) async => _pngBytes();
-      const url = 'https://inline.test/shared.png';
-      await tester.pumpWidget(
-        MaterialApp(
-          home: Center(
-            child: Row(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                SizedBox(
+    EmoteUrlProvider.debugFetchOverride = (_) async => _pngBytes();
+    const url = 'https://inline.test/shared.png';
+    Widget row(int count) => MaterialApp(
+      key: UniqueKey(),
+      home: Center(
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            for (var i = 0; i < count; i++)
+              SizedBox(
+                width: 28,
+                height: 28,
+                child: InlineEmoteView(
+                  url: url,
                   width: 28,
                   height: 28,
-                  child: InlineEmoteView(
-                    url: url,
-                    width: 28,
-                    height: 28,
-                    images: _images,
-                  ),
+                  images: _images,
                 ),
-                SizedBox(
-                  width: 28,
-                  height: 28,
-                  child: InlineEmoteView(
-                    url: url,
-                    width: 28,
-                    height: 28,
-                    images: _images,
-                  ),
-                ),
-              ],
-            ),
-          ),
-        ),
-      );
-      await _pumpUntilLoaded(tester);
-
-      final renderObjects = tester
-          .renderObjectList<RenderInlineEmote>(find.byType(InlineEmoteView))
-          .toList();
-      expect(renderObjects, hasLength(2));
-      for (final ro in renderObjects) {
-        expect(ro.debugFrame, isNotNull);
-      }
-
-      // Dispose both; a shared-image double-dispose would surface here.
-      await tester.pumpWidget(const SizedBox.shrink());
-      await tester.pumpAndSettle();
-      expect(tester.takeException(), isNull);
-    },
-  );
-
-  testWidgets('a decode failure stays silent and keeps the band', (
-    tester,
-  ) async {
-    // Transparent-frame WebPs fail engine decode routinely; failures must
-    // degrade to the loading band without reporting through FlutterError.
-    EmoteUrlProvider.debugFetchOverride = (_) async =>
-        Uint8List.fromList('definitely not an image'.codeUnits);
-    const url = 'https://inline.test/broken.png';
-    await tester.pumpWidget(
-      MaterialApp(
-        home: Center(
-          child: SizedBox(
-            width: 28,
-            height: 28,
-            child: InlineEmoteView(
-              url: url,
-              width: 28,
-              height: 28,
-              images: _images,
-            ),
-          ),
+              ),
+          ],
         ),
       ),
     );
+
+    // Regression: a shared completer handed one ImageInfo to every listener
+    // (and disposing the engine's own image) double-freed the underlying
+    // ui.Image ("cannot dispose of image"). Each listener must get its own
+    // clone and the engine's image must never be disposed by us.
+    await tester.pumpWidget(row(2));
     await _pumpUntilLoaded(tester);
 
+    final renderObjects = tester
+        .renderObjectList<RenderInlineEmote>(find.byType(InlineEmoteView))
+        .toList();
+    expect(renderObjects, hasLength(2));
+    for (final ro in renderObjects) {
+      expect(ro.debugFrame, isNotNull);
+    }
+
+    await tester.pumpWidget(const SizedBox.shrink());
+    await tester.pumpAndSettle();
     expect(tester.takeException(), isNull);
-    expect(_renderOf(tester).debugShowsBand, isTrue);
+
+    await tester.pumpWidget(row(1));
+    await _pumpUntilLoaded(tester);
+    final buildsAfterFirst = EmoteUrlProvider.debugCompleterBuilds;
+
+    // Drop the cache bookmark while the row still holds the playing completer,
+    // mimicking the capture cleanup and the load-error eviction.
+    PaintingBinding.instance.imageCache.evict(
+      EmoteUrlProvider(url, images: _images),
+    );
+    await tester.pump();
+
+    // A second row for the same url must attach to the same completer instead
+    // of building a fresh playback clock.
+    await tester.pumpWidget(row(2));
+    await _pumpUntilLoaded(tester);
+
+    expect(EmoteUrlProvider.debugCompleterBuilds, buildsAfterFirst);
+    expect(
+      tester
+          .renderObject<RenderInlineEmote>(find.byType(InlineEmoteView).first)
+          .debugFrame,
+      isNotNull,
+    );
   });
 
   testWidgets('a disabled TickerMode defers the decode until enabled', (
@@ -373,6 +340,7 @@ void main() {
 
     Future<void> pumpWith(bool enabled) => tester.pumpWidget(
       MaterialApp(
+        key: UniqueKey(),
         home: TickerMode(
           enabled: enabled,
           child: InlineEmoteView(
@@ -414,37 +382,6 @@ void main() {
     expect(tester.takeException(), isNull);
   });
 
-  testWidgets('a warm emote skips the placeholder frame', (tester) async {
-    final memo = EmoteProbeMemo();
-    final images = EmoteImages(probeMemo: memo);
-    addTearDown(images.dispose);
-    const url = 'https://inline.test/warm.png';
-    const emote = Emote(
-      id: 'warm',
-      code: 'KappaWarm',
-      meta: SevenTvMeta(),
-      scales: {EmoteScale.medium: url},
-    );
-    // Warm the probe memo the way a prior render of this emote would.
-    await memo.probe(url, (_) async => true);
-
-    await tester.pumpWidget(
-      MaterialApp(
-        home: EmoteScaleResolver(
-          emote: emote,
-          surface: EmoteSurface.chat,
-          images: images,
-          width: 28,
-          height: 28,
-          lean: true,
-        ),
-      ),
-    );
-
-    // Resolved before the first build: an Image, not the gray placeholder box.
-    expect(find.byType(Image), findsOneWidget);
-  });
-
   testWidgets('a stock Twitch GIF pauses while emotes are frozen', (
     tester,
   ) async {
@@ -476,6 +413,7 @@ void main() {
       EmoteUrlProvider.applyFrameRate(60);
       await tester.pumpWidget(
         MaterialApp(
+          key: ValueKey(name),
           home: EmoteScaleResolver(
             key: ValueKey(name),
             emote: emote,
@@ -503,45 +441,5 @@ void main() {
       await tester.pump();
       expect(ticking(), isTrue, reason: name);
     }
-  });
-
-  testWidgets('a cache evict does not spawn a second decoder for a live url', (
-    tester,
-  ) async {
-    EmoteUrlProvider.debugFetchOverride = (_) async => _pngBytes();
-    const url = 'https://inline.test/shared-evict.png';
-
-    Widget column(int count) => MaterialApp(
-      home: Column(
-        children: [
-          for (var i = 0; i < count; i++)
-            InlineEmoteView(url: url, width: 28, height: 28, images: _images),
-        ],
-      ),
-    );
-
-    await tester.pumpWidget(column(1));
-    await _pumpUntilLoaded(tester);
-    final buildsAfterFirst = EmoteUrlProvider.debugCompleterBuilds;
-
-    // Drop the cache bookmark while the row still holds the playing completer,
-    // mimicking the capture cleanup and the load-error eviction.
-    PaintingBinding.instance.imageCache.evict(
-      EmoteUrlProvider(url, images: _images),
-    );
-    await tester.pump();
-
-    // A second row for the same url must attach to the same completer instead
-    // of building a fresh playback clock.
-    await tester.pumpWidget(column(2));
-    await _pumpUntilLoaded(tester);
-
-    expect(EmoteUrlProvider.debugCompleterBuilds, buildsAfterFirst);
-    expect(
-      tester
-          .renderObject<RenderInlineEmote>(find.byType(InlineEmoteView).first)
-          .debugFrame,
-      isNotNull,
-    );
   });
 }

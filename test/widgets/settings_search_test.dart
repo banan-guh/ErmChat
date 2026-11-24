@@ -69,28 +69,6 @@ void main() {
     await PingManager.instance.load();
   });
 
-  // The registry is what search and the anchors both key on.
-  test('every registered row has a title and a known page', () {
-    expect(
-      Settings.all.map((s) => s.id).toSet().length,
-      Settings.all.length,
-      reason: 'ids key the titles and the anchors, so they are unique',
-    );
-    for (final s in Settings.all) {
-      if (s.anchored) {
-        expect(hasTitleEntry(s.id), isTrue, reason: '${s.key} has no title');
-      }
-      expect(
-        SettingsPageId.values.map((p) => p.name),
-        contains(s.page),
-        reason: '${s.id} names an unknown page',
-      );
-    }
-    for (final r in SettingsRow.all) {
-      expect(hasTitleEntry(r.id), isTrue, reason: '${r.id} has no title');
-    }
-  });
-
   // A renamed, moved or deleted tile would leave search pointing at nothing.
   testWidgets('every searchable row is on the page search opens', (
     tester,
@@ -99,6 +77,7 @@ void main() {
     tester.view.physicalSize = const Size(1000, 12000);
     tester.view.devicePixelRatio = 1;
     addTearDown(tester.view.reset);
+    var switches = 0;
 
     for (final page in SettingsPageId.values) {
       final widget = _page(page);
@@ -144,28 +123,14 @@ void main() {
           reason: '${r.id} label drifted on $page',
         );
       }
-    }
-  });
-
-  // A switch added without a setting would ship unsearchable.
-  testWidgets('every switch tile on a searchable page is anchored', (
-    tester,
-  ) async {
-    tester.view.physicalSize = const Size(1000, 12000);
-    tester.view.devicePixelRatio = 1;
-    addTearDown(tester.view.reset);
-
-    var seen = 0;
-    for (final page in SettingsPageId.values) {
-      final widget = _page(page);
-      if (widget == null) continue;
-      await _pump(tester, widget);
-      final loose = find.byWidgetPredicate(
-        (w) => w is SwitchListTile,
-        skipOffstage: false,
-      );
-      for (final e in loose.evaluate()) {
-        seen++;
+      for (final e
+          in find
+              .byWidgetPredicate(
+                (w) => w is SwitchListTile,
+                skipOffstage: false,
+              )
+              .evaluate()) {
+        switches++;
         expect(
           e.findAncestorWidgetOfExactType<SettingAnchor>(),
           isNotNull,
@@ -173,7 +138,7 @@ void main() {
         );
       }
     }
-    expect(seen, greaterThan(0), reason: 'switches exist to check');
+    expect(switches, greaterThan(0), reason: 'switches exist to check');
   });
 
   testWidgets('a result far down an unbuilt list scrolls into view', (

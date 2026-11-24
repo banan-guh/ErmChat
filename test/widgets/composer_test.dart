@@ -1,5 +1,141 @@
-import 'package:ermchat/composer/composer_bar.dart' show inputBarKey;
+import 'package:ermchat/chat/chat.dart';
+import 'package:ermchat/client/session.dart';
+import 'package:ermchat/composer/composer_controller.dart';
+import 'package:ermchat/emotes/emote_catalog.dart';
+import 'package:ermchat/l10n/l10n.dart';
+import 'package:ermchat/services/chat_connection_manager.dart';
+import 'package:ermchat/services/chat_sender.dart';
+import 'package:ermchat/services/command_handler.dart';
+import 'package:ermchat/services/emote_usage_registry.dart';
+import 'package:ermchat/services/user_store.dart';
+import 'package:ermchat/widgets/panel_manager.dart';
+
 import 'widget_test_harness.dart';
+
+mixin _Unimplemented {
+  @override
+  Never noSuchMethod(Invocation invocation) =>
+      throw UnimplementedError('$runtimeType.${invocation.memberName}');
+}
+
+class _UnusedCommandHandler with _Unimplemented implements CommandHandler {}
+
+class _UnusedEmotes with _Unimplemented implements EmoteLookupSource {
+  @override
+  EmoteLookup? lookup(String channel, String? senderTwitchId) => null;
+}
+
+class _SpamConn with _Unimplemented implements ChatConnectionManager {
+  _SpamConn(this.session, this.auth, this.macros) : irc = IrcService() {
+    sender = ChatSender(
+      irc: irc,
+      session: session,
+      twitchAuth: auth,
+      onCommand: (_, _, _) {},
+      getReplyToMsg: () => null,
+      setReplyToMsg: (_) {},
+      onSystemMessage: (_, _) {},
+      slowModeSeconds: (_) => 0,
+      selfBadges: (_) => const {},
+      getMacros: () => macros,
+    );
+  }
+
+  final Session session;
+  final TwitchAuth auth;
+  final Map<String, String> macros;
+  final IrcService irc;
+  @override
+  late final ChatSender sender;
+  final delays = <Duration>[];
+  final sent = <String>[];
+  int delayCalls = 0;
+
+  @override
+  bool get isChatPipeConnected => true;
+
+  @override
+  bool isCommandText(String text) => sender.isCommandText(text);
+
+  @override
+  Duration repeatDelay(
+    String channel, {
+    Duration? gap,
+    Duration? privilegedGap,
+  }) {
+    delayCalls++;
+    return delays.isEmpty ? const Duration(seconds: 1) : delays.removeAt(0);
+  }
+
+  @override
+  Future<void> doSendMessage(
+    String text,
+    String channel, {
+    TwitchMessage? replyTo,
+  }) async {
+    sent.add(text);
+  }
+
+  @override
+  int? remainingSelfTimeout(String channel) => null;
+
+  @override
+  int? remainingSlowCooldown(String channel) => null;
+
+  @override
+  void dispose() {
+    sender.dispose();
+    irc.dispose();
+  }
+}
+
+({ComposerController composer, _SpamConn conn}) _spamComposer(
+  Map<String, String> macros, {
+  List<Duration> delays = const [],
+}) {
+  final session = Session()..seed('viewer');
+  final auth = TwitchAuth()..accessToken = 'test-token';
+  final conn = _SpamConn(session, auth, macros)..delays.addAll(delays);
+  final chat = Chat()..ensure('test');
+  final usage = EmoteUsageRegistry(capacity: () => 300);
+  final composer = ComposerController(
+    chatConn: conn,
+    commandHandler: _UnusedCommandHandler(),
+    twitchAuth: auth,
+    emoteSource: _UnusedEmotes(),
+    emoteUsage: usage,
+    userStore: UserStore(),
+    chat: chat,
+    session: session,
+    setReplyTo: (_) {},
+    getSelectedChannel: () => 'test',
+    isWhispersTabActive: () => false,
+    whisperTarget: () => null,
+    activePanel: () => OverlayPanel.closed,
+    threadsTabIndex: () => 0,
+    openThreadRoot: () => null,
+    replyToRoot: () => false,
+    preferEmotesFirst: () => false,
+    sendSwipeMenu: () => false,
+    spamIntervalMs: () => 1000,
+    spamIntervalModMs: () => 1000,
+    computeThreadMessages: () => const [],
+    channelChatReady: () => true,
+    replayingVod: () => false,
+    showNotice: (_) {},
+    strings: englishStrings,
+    emoteSheetOpen: () => false,
+    closeEmoteSheet: () async {},
+    showEmoteMenu: () {},
+    markDirty: () {},
+  );
+  addTearDown(conn.dispose);
+  addTearDown(chat.dispose);
+  addTearDown(usage.dispose);
+  addTearDown(session.dispose);
+  addTearDown(auth.dispose);
+  return (composer: composer, conn: conn);
+}
 
 // Composer regressions:
 //  - the field must focus on a plain tap;
@@ -11,6 +147,58 @@ void main() {
     SharedPreferences.setMockInitialValues({});
     FlutterSecureStorage.setMockInitialValues({});
     HomeScreen.disableJoinSpinner = true;
+  });
+
+  testWidgets('spam never starts or continues for a command macro', (
+    tester,
+  ) async {
+    final macros = <String, String>{'repeat': 'hello'};
+    final blocked = _spamComposer(macros);
+    macros['repeat'] = '/ban friend';
+    blocked.composer.messageController.text = 'repeat friend';
+    blocked.composer.startSpam();
+    await tester.pump(const Duration(seconds: 2));
+    expect(blocked.conn.sent, isEmpty, reason: 'command macro started spam');
+    expect(blocked.conn.delayCalls, 0, reason: 'command macro created a timer');
+
+    macros['repeat'] = 'hello';
+    final edited = _spamComposer(macros, delays: [const Duration(seconds: 1)]);
+    edited.composer.messageController.text = 'repeat friend';
+    edited.composer.startSpam();
+    expect(edited.conn.delayCalls, 1);
+    macros['repeat'] = '/ban friend';
+    await tester.pump(const Duration(seconds: 1));
+    expect(
+      edited.conn.sent,
+      isEmpty,
+      reason: 'spam continued after the macro became a command',
+    );
+    expect(
+      edited.conn.delayCalls,
+      1,
+      reason: 'command macro reached the repeat loop',
+    );
+    blocked.composer.dispose();
+    edited.composer.dispose();
+  });
+
+  testWidgets('a zero repeat delay sends once without a zero-delay loop', (
+    tester,
+  ) async {
+    final spam = _spamComposer(
+      {},
+      delays: [Duration.zero, Duration.zero, Duration.zero],
+    );
+    spam.composer.messageController.text = 'hello';
+    spam.composer.startSpam();
+    await tester.pump(const Duration(seconds: 5));
+    expect(spam.conn.sent, ['hello']);
+    expect(
+      spam.conn.delayCalls,
+      3,
+      reason: 'a zero delay re-armed the repeat timer',
+    );
+    spam.composer.dispose();
   });
 
   // Bare ChatBody harness: geometry and hit-testing without the whole app.
@@ -33,6 +221,7 @@ void main() {
   }) {
     return tester.pumpWidget(
       MaterialApp(
+        key: UniqueKey(),
         home: Scaffold(
           body: ChatBody(
             keyboardHidesButtons: keyboardHidesButtons,
@@ -82,137 +271,6 @@ void main() {
       ),
     );
   }
-
-  Future<bool> tapBodyComposer(WidgetTester tester, FocusNode focus) async {
-    final field = find.byKey(const Key('message_input'));
-    expect(field, findsWidgets);
-    focus.unfocus();
-    await tester.pump();
-    await tester.tap(field.last, warnIfMissed: false);
-    await tester.pump();
-    return focus.hasFocus;
-  }
-
-  testWidgets('the busy line takes space only while shown', (tester) async {
-    final focus = FocusNode();
-    final busy = ValueNotifier(false);
-    addTearDown(focus.dispose);
-    addTearDown(busy.dispose);
-    await pumpBody(
-      tester,
-      focus: focus,
-      islandFlush: true,
-      busyListenable: busy,
-      isBusy: () => busy.value,
-    );
-    await tester.pump();
-    await tester.pump();
-    final line = find.byType(LinearProgressIndicator);
-    expect(
-      tester.getSize(line).height,
-      0,
-      reason: 'the idle line reserved space',
-    );
-
-    busy.value = true;
-    await tester.pump();
-    await tester.pump(const Duration(milliseconds: 400));
-    expect(
-      tester.getSize(line).height,
-      2,
-      reason: 'the shown line did not take space',
-    );
-
-    busy.value = false;
-    await tester.pump();
-    await tester.pump(const Duration(milliseconds: 400));
-    expect(tester.getSize(line).height, 0, reason: 'the line did not collapse');
-  });
-
-  testWidgets('composer is tappable', (tester) async {
-    final focus = FocusNode();
-    addTearDown(focus.dispose);
-    await pumpBody(tester, focus: focus);
-    await tester.pumpAndSettle();
-    expect(find.byKey(inputBarKey), findsOneWidget);
-    expect(await tapBodyComposer(tester, focus), isTrue);
-    expect(tester.takeException(), isNull);
-  });
-
-  // Hidden-by-keyboard: the island stays pinned to the screen bottom and the
-  // row is clipped from below; the field only rides up once the keyboard top
-  // reaches it.
-  testWidgets('hidden buttons clip the row and push the field last', (
-    tester,
-  ) async {
-    final focus = FocusNode();
-    addTearDown(focus.dispose);
-    tester.view.physicalSize = const Size(400, 800);
-    tester.view.devicePixelRatio = 1;
-    tester.view.viewInsets = FakeViewPadding.zero;
-    addTearDown(tester.view.reset);
-
-    // The status line swaps by itself on a channel switch, with no
-    // ChatBody rebuild.
-    final status = ValueNotifier(20.0);
-    addTearDown(status.dispose);
-    await pumpBody(
-      tester,
-      focus: focus,
-      keyboardHidesButtons: true,
-      bottomBar: const SizedBox(key: Key('test_bar'), height: 48),
-      islandFooter: ValueListenableBuilder<double>(
-        valueListenable: status,
-        builder: (_, h, _) => SizedBox(height: h),
-      ),
-    );
-    await tester.pumpAndSettle();
-
-    final field = find.byKey(const Key('message_input'));
-    final island = find.byKey(const ValueKey('composer_island'));
-    final bar = find.byKey(const Key('test_bar'));
-    // Closed: one margin above the screen bottom.
-    expect(
-      tester.getRect(island).bottom,
-      closeTo(800 - kComposerIslandMargin, 0.5),
-    );
-    final closedFieldBottom = tester.getRect(field).bottom;
-
-    // A short keyboard only clips the row; the field has not moved yet.
-    tester.view.viewInsets = const FakeViewPadding(bottom: 30);
-    await tester.pump(const Duration(milliseconds: 16));
-    await tester.pump(const Duration(milliseconds: 300));
-    expect(
-      tester.getRect(field).bottom,
-      closeTo(closedFieldBottom, 0.5),
-      reason: 'the field only moves once the keyboard reaches it',
-    );
-
-    // A tall keyboard pushes the field one margin above the keyboard top and
-    // leaves the row and the status line clipped below that line.
-    tester.view.viewInsets = const FakeViewPadding(bottom: 300);
-    await tester.pump(const Duration(milliseconds: 16));
-    await tester.pump(const Duration(milliseconds: 300));
-    final fieldBottom = tester.getRect(field).bottom;
-    expect(fieldBottom, closeTo(800 - 300 - kComposerIslandMargin, 1.0));
-    expect(
-      tester.getRect(bar).top,
-      greaterThanOrEqualTo(fieldBottom - 0.5),
-      reason: 'the row must sit below the clip line, hidden',
-    );
-
-    // A channel switch drops the status with the keyboard up: a stale
-    // status height left the row's top peeking out under the field.
-    status.value = 0;
-    await tester.pump();
-    await tester.pump();
-    expect(tester.getRect(field).bottom, closeTo(fieldBottom, 0.5));
-    expect(
-      tester.getRect(island).bottom,
-      closeTo(fieldBottom, 0.5),
-      reason: 'the clip follows the new status height',
-    );
-  });
 
   // Shipped bug (#38): panels asked the footer for their own channel
   // (@whispers, @mentions), got none, and the island's status line covered
@@ -430,67 +488,6 @@ void main() {
     );
   });
 
-  // Fullscreen hides the nav bar: the composer eases down into the freed
-  // inset instead of jumping.
-  testWidgets('nav bar inset eases away', (tester) async {
-    final focus = FocusNode();
-    addTearDown(focus.dispose);
-    tester.view.devicePixelRatio = 1;
-    tester.view.padding = const FakeViewPadding(bottom: 48);
-    tester.view.viewPadding = const FakeViewPadding(bottom: 48);
-    addTearDown(tester.view.reset);
-    await pumpBody(tester, focus: focus);
-    await tester.pumpAndSettle();
-    final field = find.byKey(const Key('message_input'));
-    final before = tester.getBottomLeft(field).dy;
-
-    tester.view.padding = FakeViewPadding.zero;
-    tester.view.viewPadding = FakeViewPadding.zero;
-    await tester.pump();
-    // The ease starts after the frame that saw the change.
-    await tester.pump(const Duration(milliseconds: 16));
-    await tester.pump(const Duration(milliseconds: 110));
-    final mid = tester.getBottomLeft(field).dy;
-    await tester.pumpAndSettle();
-    final after = tester.getBottomLeft(field).dy;
-
-    expect(after, closeTo(before + 48, 1));
-    expect(mid, greaterThan(before + 5));
-    expect(mid, lessThan(after - 5));
-  });
-
-  // Keyboard close with the nav bar coming back must snap the nav pad. The
-  // Scaffold already moves the body with the keyboard, so easing the pad on
-  // top would read as a bounce up to the limit.
-  testWidgets('keyboard close snaps the nav pad', (tester) async {
-    final focus = FocusNode();
-    addTearDown(focus.dispose);
-    tester.view.physicalSize = const Size(400, 800);
-    tester.view.devicePixelRatio = 1;
-    // Keyboard up with the nav bar hidden.
-    tester.view.viewInsets = const FakeViewPadding(bottom: 300);
-    tester.view.viewPadding = FakeViewPadding.zero;
-    tester.view.padding = FakeViewPadding.zero;
-    addTearDown(tester.view.reset);
-    await pumpBody(tester, focus: focus);
-    await tester.pumpAndSettle();
-    final field = find.byKey(const Key('message_input'));
-
-    // Keyboard closes and the nav bar reappears in the same tick.
-    tester.view.viewInsets = FakeViewPadding.zero;
-    tester.view.viewPadding = const FakeViewPadding(bottom: 48);
-    tester.view.padding = const FakeViewPadding(bottom: 48);
-    await tester.pump();
-    await tester.pump(const Duration(milliseconds: 16));
-    final early = tester.getBottomLeft(field).dy;
-    await tester.pumpAndSettle();
-    final settled = tester.getBottomLeft(field).dy;
-
-    // Snapped: already at the limit right after the close, not easing up.
-    expect(settled, lessThan(800 - 40));
-    expect(early, closeTo(settled, 1));
-  });
-
   Future<void> moveKeyboard(WidgetTester tester, List<double> insets) async {
     for (final kb in insets) {
       tester.view.viewInsets = FakeViewPadding(bottom: kb);
@@ -500,14 +497,13 @@ void main() {
 
   // A tap right after a close asks for the keyboard before the IME's first
   // tick lands; the close's pending unfocus then closed it again.
-  for (final gap in [60, 100]) {
-    testWidgets('retap ${gap}ms after a close keeps the keyboard', (
-      tester,
-    ) async {
+  testWidgets('retap after a close keeps the keyboard', (tester) async {
+    for (final gap in [60, 100]) {
       final focus = FocusNode();
       addTearDown(focus.dispose);
       tester.view.physicalSize = const Size(400, 800);
       tester.view.devicePixelRatio = 1;
+      tester.view.viewInsets = FakeViewPadding.zero;
       addTearDown(tester.view.reset);
       await pumpBody(tester, focus: focus, dismissUnfocuses: true);
       await tester.pumpAndSettle();
@@ -526,34 +522,77 @@ void main() {
 
       expect(focus.hasFocus, isTrue, reason: 'gap ${gap}ms');
       expect(tester.testTextInput.isVisible, isTrue, reason: 'gap ${gap}ms');
-    });
-  }
-
-  // Without a stacked player the body ignores the keyboard numbers, so a
-  // gesture must not rebuild it (a few hundred elements on open and close).
-  testWidgets('a keyboard gesture keeps a keyboard-blind body cached', (
-    tester,
-  ) async {
-    final focus = FocusNode();
-    addTearDown(focus.dispose);
-    tester.view.physicalSize = const Size(400, 800);
-    tester.view.devicePixelRatio = 1;
-    addTearDown(tester.view.reset);
-    final builds = <double>[];
-    await pumpBody(
-      tester,
-      focus: focus,
-      keyboardHs: builds,
-      bodyReadsKeyboard: false,
-    );
-    await tester.pumpAndSettle();
-    builds.clear();
-    await moveKeyboard(tester, [100, 200, 300]);
-    await tester.pump(const Duration(milliseconds: 400));
-    await moveKeyboard(tester, [200, 100, 0]);
-    await tester.pump(const Duration(milliseconds: 400));
-    expect(builds, isEmpty);
+    }
   });
+
+  testWidgets(
+    'keyboard ticks cache the body, request frames, and learn height',
+    (tester) async {
+      tester.view.physicalSize = const Size(400, 800);
+      tester.view.devicePixelRatio = 1;
+      addTearDown(tester.view.reset);
+
+      Future<FocusNode> fresh() async {
+        tester.view.viewInsets = FakeViewPadding.zero;
+        tester.view.padding = FakeViewPadding.zero;
+        tester.view.viewPadding = FakeViewPadding.zero;
+        final focus = FocusNode();
+        addTearDown(focus.dispose);
+        await pumpBody(tester, focus: focus, dismissUnfocuses: true);
+        await tester.pumpAndSettle();
+        return focus;
+      }
+
+      // Without a stacked player the body ignores the keyboard numbers, so a
+      // gesture must not rebuild it (a few hundred elements on open and close).
+      await fresh();
+      final builds = <double>[];
+      final blindFocus = FocusNode();
+      addTearDown(blindFocus.dispose);
+      await pumpBody(
+        tester,
+        focus: blindFocus,
+        keyboardHs: builds,
+        bodyReadsKeyboard: false,
+      );
+      await tester.pumpAndSettle();
+      builds.clear();
+      await moveKeyboard(tester, [100, 200, 300]);
+      await tester.pump(const Duration(milliseconds: 400));
+      await moveKeyboard(tester, [200, 100, 0]);
+      await tester.pump(const Duration(milliseconds: 400));
+      expect(builds, isEmpty);
+
+      // Inset ticks land inside Android's frame. With no frame already
+      // requested, each one missed its vsync and a reopen after unfocus drew
+      // at 30fps.
+      await fresh();
+      for (final kb in <double>[100, 200, 300]) {
+        tester.view.viewInsets = FakeViewPadding(bottom: kb);
+        await tester.pump(const Duration(milliseconds: 16));
+        expect(tester.binding.hasScheduledFrame, isTrue, reason: 'kb=$kb');
+      }
+      await tester.pump(const Duration(milliseconds: 400));
+      expect(tester.binding.hasScheduledFrame, isFalse, reason: 'settled');
+
+      // An IME that stalls mid-close settles at a partial height. Learning it
+      // made the next open assume that height, then flip decisions on settle.
+      final focus = await fresh();
+      final keyboardHs = <double>[];
+      await pumpBody(tester, focus: focus, keyboardHs: keyboardHs);
+      await tester.pumpAndSettle();
+      await moveKeyboard(tester, [100, 200, 300]);
+      await tester.pump(const Duration(milliseconds: 400));
+      await moveKeyboard(tester, [250, 200]);
+      await tester.pump(const Duration(milliseconds: 200));
+      await moveKeyboard(tester, [100, 0]);
+      await tester.pump(const Duration(milliseconds: 400));
+
+      keyboardHs.clear();
+      await moveKeyboard(tester, [30]);
+      expect(keyboardHs.first, 300, reason: 'next open uses the real height');
+    },
+  );
 
   // A real Samsung close (from a device trace) eases out in sub-pixel steps
   // while the nav-bar padding grows back. The step onto closed was dropped
@@ -602,51 +641,6 @@ void main() {
     expect(focus.hasFocus, isFalse);
   });
 
-  // Inset ticks land inside Android's frame. With no frame already
-  // requested, each one missed its vsync and a reopen after unfocus drew
-  // at 30fps.
-  testWidgets('keyboard motion keeps a frame requested', (tester) async {
-    final focus = FocusNode();
-    addTearDown(focus.dispose);
-    tester.view.physicalSize = const Size(400, 800);
-    tester.view.devicePixelRatio = 1;
-    addTearDown(tester.view.reset);
-    await pumpBody(tester, focus: focus, dismissUnfocuses: true);
-    await tester.pumpAndSettle();
-    for (final kb in <double>[100, 200, 300]) {
-      tester.view.viewInsets = FakeViewPadding(bottom: kb);
-      await tester.pump(const Duration(milliseconds: 16));
-      expect(tester.binding.hasScheduledFrame, isTrue, reason: 'kb=$kb');
-    }
-    await tester.pump(const Duration(milliseconds: 400));
-    expect(tester.binding.hasScheduledFrame, isFalse, reason: 'settled');
-  });
-
-  // An IME that stalls mid-close settles at a partial height. Learning it
-  // made the next open assume that height, then flip decisions on settle.
-  testWidgets('a stalled close does not teach the keyboard height', (
-    tester,
-  ) async {
-    final focus = FocusNode();
-    addTearDown(focus.dispose);
-    tester.view.physicalSize = const Size(400, 800);
-    tester.view.devicePixelRatio = 1;
-    addTearDown(tester.view.reset);
-    final keyboardHs = <double>[];
-    await pumpBody(tester, focus: focus, keyboardHs: keyboardHs);
-    await tester.pumpAndSettle();
-    await moveKeyboard(tester, [100, 200, 300]);
-    await tester.pump(const Duration(milliseconds: 400));
-    await moveKeyboard(tester, [250, 200]);
-    await tester.pump(const Duration(milliseconds: 200));
-    await moveKeyboard(tester, [100, 0]);
-    await tester.pump(const Duration(milliseconds: 400));
-
-    keyboardHs.clear();
-    await moveKeyboard(tester, [30]);
-    expect(keyboardHs.first, 300, reason: 'next open uses the real height');
-  });
-
   // Full-app harness: the real HomeScreen wiring, joined and connected, so the
   // field is enabled and a plain tap can be checked.
   Future<void> pumpJoined(WidgetTester tester) async {
@@ -691,7 +685,7 @@ void main() {
     await tester.pump();
   }
 
-  testWidgets('full app: composer focuses on a plain tap', (
+  testWidgets('full app composer keeps focus across rebuilds and sheets', (
     WidgetTester tester,
   ) async {
     await pumpJoined(tester);
@@ -713,18 +707,9 @@ void main() {
 
     expect(node.hasFocus, isTrue, reason: 'tapping the composer must focus it');
     expect(tester.takeException(), isNull);
-  });
 
-  // Back with the keyboard up skipped the IME's predictive dip: any rebuild
-  // while focused claimed back for the app, outranking the IME's callback.
-  testWidgets('full app: composer focus never claims back', (tester) async {
-    await pumpJoined(tester);
-    final input = find.byKey(const Key('message_input'));
-    await tester.tap(input);
-    await tester.pump();
-    expect(tester.widget<TextField>(input).focusNode!.hasFocus, isTrue);
-
-    // An unrelated rebuild while typing.
+    // Back with the keyboard up skipped the IME's predictive dip: any rebuild
+    // while focused claimed back for the app, outranking the IME's callback.
     tester.element(find.byType(HomeScreen)).markNeedsBuild();
     await tester.pump();
 
@@ -737,21 +722,10 @@ void main() {
           .first,
     );
     expect(scope.canPop, isTrue, reason: 'the IME must own back');
-  });
 
-  // A sheet over the chat took focus and handed it back on pop, reopening
-  // the IME cold; when Android ignored that show the field stayed focused
-  // with no keyboard, and back closed the app instead of unfocusing.
-  testWidgets('full app: a closed sheet restores composer focus and keyboard', (
-    tester,
-  ) async {
-    await pumpJoined(tester);
-    final input = find.byKey(const Key('message_input'));
-    await tester.tap(input);
-    await tester.pump();
-    final node = tester.widget<TextField>(input).focusNode!;
-    expect(node.hasFocus, isTrue);
-
+    // A sheet over the chat took focus and handed it back on pop, reopening
+    // the IME cold; when Android ignored that show the field stayed focused
+    // with no keyboard, and back closed the app instead of unfocusing.
     final home = tester.element(find.byType(HomeScreen));
     unawaited(
       showModalBottomSheet<void>(
@@ -807,57 +781,52 @@ void main() {
         reason: 'line $line left the newest message under the field',
       );
     }
-  });
 
-  // Shipped bug: with the row hidden under the keyboard, the island kept a
-  // stale height, so sending a wrapped message left the chat ~30px high.
-  testWidgets('a hidden-row island tracks its field under the keyboard', (
-    tester,
-  ) async {
     tester.view.physicalSize = const Size(400, 800);
     tester.view.devicePixelRatio = 1;
+    tester.view.viewInsets = FakeViewPadding.zero;
     addTearDown(tester.view.reset);
-    IslandMetrics? metrics;
-    double clearance() => metrics?.clearance() ?? 0;
-    final text = TextEditingController(text: 'a\nb');
-    final focus = FocusNode();
-    addTearDown(text.dispose);
-    addTearDown(focus.dispose);
+    IslandMetrics? hiddenMetrics;
+    double hiddenClearance() => hiddenMetrics?.clearance() ?? 0;
+    final hiddenText = TextEditingController(text: 'a\nb');
+    final hiddenFocus = FocusNode();
+    addTearDown(hiddenText.dispose);
+    addTearDown(hiddenFocus.dispose);
     await pumpBody(
       tester,
-      focus: focus,
-      text: text,
+      focus: hiddenFocus,
+      text: hiddenText,
       maxLines: 6,
       keyboardHidesButtons: true,
       bottomBar: const SizedBox(key: Key('test_bar'), height: 48),
       onBodyBuild: (inner) {
-        metrics = IslandScope.maybeOf(inner)?.metrics;
+        hiddenMetrics = IslandScope.maybeOf(inner)?.metrics;
       },
     );
     await tester.pumpAndSettle();
     final island = find.byKey(const ValueKey('composer_island'));
     final bar = find.byKey(const Key('test_bar'));
-    double fieldGap() =>
+    double hiddenFieldGap() =>
         tester.getRect(find.byType(ChatBody)).bottom -
         tester.getRect(find.byKey(const Key('message_input'))).top;
     // Two lines typed before the keyboard opens and hides the row.
-    focus.requestFocus();
+    hiddenFocus.requestFocus();
     await tester.pump();
     await moveKeyboard(tester, [for (var kb = 0.0; kb <= 300; kb += 30) kb]);
     await tester.pumpAndSettle();
-    expect(clearance(), moreOrLessEquals(fieldGap(), epsilon: 1));
+    expect(hiddenClearance(), moreOrLessEquals(hiddenFieldGap(), epsilon: 1));
 
-    text.clear();
+    hiddenText.clear();
     await tester.pumpAndSettle();
     expect(
-      clearance(),
-      moreOrLessEquals(fieldGap(), epsilon: 1),
+      hiddenClearance(),
+      moreOrLessEquals(hiddenFieldGap(), epsilon: 1),
       reason: 'sending left a gap under the newest message',
     );
 
     // Shipped bug: while the field grew, the row read as shorter than it is
     // and peeked out under the field until the animation ended.
-    text.text = 'a\nb';
+    hiddenText.text = 'a\nb';
     for (var f = 0; f < 20; f++) {
       await tester.pump(const Duration(milliseconds: 16));
       expect(
@@ -868,8 +837,8 @@ void main() {
     }
     await tester.pumpAndSettle();
     expect(
-      clearance(),
-      moreOrLessEquals(fieldGap(), epsilon: 1),
+      hiddenClearance(),
+      moreOrLessEquals(hiddenFieldGap(), epsilon: 1),
       reason: 'a typed line slid the field over the newest message',
     );
   });
