@@ -1,16 +1,25 @@
 import 'package:flutter/material.dart';
 import 'seven_tv_paint_service.dart';
 
+/// Shadows are immutable and catalog paints are shared, so one list per paint
+/// serves every name wearing it. The expando drops it with the paint.
+final Expando<List<Shadow>> _shadowCache = Expando<List<Shadow>>();
+
 /// Flutter text shadows for [paint], reversed so the API's first shadow sits
 /// on top as CSS draws it. Parallel draws skip the chain's outer halo growth.
-List<Shadow> paintTextShadows(SevenTvPaint paint) => [
-  for (final shadow in paint.shadows.reversed)
-    Shadow(
-      color: shadow.color,
-      offset: Offset(shadow.offsetX, shadow.offsetY),
-      blurRadius: _flutterBlur(shadow.blur),
-    ),
-];
+/// The returned list is shared, so callers must not mutate it.
+List<Shadow> paintTextShadows(SevenTvPaint paint) {
+  final cached = _shadowCache[paint];
+  if (cached != null) return cached;
+  return _shadowCache[paint] = [
+    for (final shadow in paint.shadows.reversed)
+      Shadow(
+        color: shadow.color,
+        offset: Offset(shadow.offsetX, shadow.offsetY),
+        blurRadius: _flutterBlur(shadow.blur),
+      ),
+  ];
+}
 
 /// CSS drop-shadow blur radius -> Flutter [Shadow.blurRadius] with the same
 /// Gaussian sigma (CSS uses radius/2, Flutter radius*0.57735+0.5).
@@ -119,7 +128,7 @@ class _NamePainter extends CustomPainter {
     required this.textDirection,
     required this.textScaler,
     super.repaint,
-  });
+  }) : _animated = namePaint.layers.firstOrNull is SevenTvImagePaintLayer;
 
   final SevenTvPaintService service;
   final SevenTvPaint namePaint;
@@ -131,24 +140,56 @@ class _NamePainter extends CustomPainter {
   final TextDirection textDirection;
   final TextScaler textScaler;
 
+  /// Only image paints advance a shader on the ticker. Other shaders depend
+  /// solely on the paint and size, both fixed for this painter's lifetime.
+  final bool _animated;
+
+  Paint? _foreground;
+  TextStyle? _fallbackStyle;
+  TextStyle? _shaderStyle;
+  TextSpan? _fallbackSpan;
+  TextSpan? _shaderSpan;
+  Shader? _staticShader;
+  Size? _shaderSize;
+
   @override
   void paint(Canvas canvas, Size size) {
-    final shader = service.shaderFor(namePaint, size);
-    final painted = shader == null
-        ? style.copyWith(
-            color: fallbackColor,
-            shadows: shadows.isEmpty ? null : shadows,
-          )
-        : style.copyWith(
-            foreground: Paint()
-              ..shader = shader
-              // Texture and gradient alpha shows the name color, matching
-              // 7TV's background-color under the layer fill.
-              ..colorFilter = ColorFilter.mode(baseColor, BlendMode.dstOver),
-            shadows: shadows.isEmpty ? null : shadows,
-          );
+    final Shader? shader;
+    if (_animated || _shaderSize != size) {
+      shader = service.shaderFor(namePaint, size);
+      if (!_animated) {
+        _staticShader = shader;
+        _shaderSize = size;
+      }
+    } else {
+      shader = _staticShader;
+    }
+
+    final TextSpan span;
+    if (shader == null) {
+      span = _fallbackSpan ??= TextSpan(
+        text: text,
+        style: _fallbackStyle ??= style.copyWith(
+          color: fallbackColor,
+          shadows: shadows.isEmpty ? null : shadows,
+        ),
+      );
+    } else {
+      final foreground = _foreground ??= Paint()
+        // Texture and gradient alpha shows the name color, matching 7TV's
+        // background-color under the layer fill.
+        ..colorFilter = ColorFilter.mode(baseColor, BlendMode.dstOver);
+      foreground.shader = shader;
+      span = _shaderSpan ??= TextSpan(
+        text: text,
+        style: _shaderStyle ??= style.copyWith(
+          foreground: foreground,
+          shadows: shadows.isEmpty ? null : shadows,
+        ),
+      );
+    }
     final painter = TextPainter(
-      text: TextSpan(text: text, style: painted),
+      text: span,
       textDirection: textDirection,
       textScaler: textScaler,
     )..layout();
