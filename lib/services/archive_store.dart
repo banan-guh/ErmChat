@@ -98,7 +98,7 @@ class _ChannelTables {
 class ArchiveStore {
   ArchiveStore._(this._db, this._now);
 
-  static const int schemaVersion = 15;
+  static const int schemaVersion = 16;
   static const Duration defaultRetention = Duration(days: 30);
 
   /// How long chat stays before pruning. The History settings set it, and
@@ -162,7 +162,8 @@ class ArchiveStore {
         // each thread's first direct reply, for the list preview. Version 14
         // indexes end times across channels, so the retention delete never
         // reads block data. Version 15 marks blocks whose reply roots are in
-        // the thread index, so blocks sealed before it can be indexed.
+        // the thread index, so blocks sealed before it can be indexed. Version
+        // 16 covers moderation reads by channel and overlapping time range.
         onUpgrade: (db, from, to) async {
           if (from < 9) {
             await db.execute('ALTER TABLE moderation ADD COLUMN at_ts INTEGER');
@@ -173,6 +174,7 @@ class ArchiveStore {
           if (from < 13) await _createThreadRoots(db);
           if (from < 14) await _createBlockTimeIndex(db);
           if (from < 15) await _addThreadFlag(db);
+          if (from < 16) await _createModerationIndex(db);
         },
       ),
     );
@@ -390,6 +392,50 @@ class ArchiveStore {
       'WHERE kind = ? AND scope = ? AND source = ? ORDER BY at_ms',
       [kind, scope, source],
     ))
+      _observation(r),
+  ];
+
+  /// Observations of every requested set, oldest first within each set.
+  /// Missing sets get an empty list. Requests chunk below SQLite's bound
+  /// parameter limit, so the eight logs of one channel use one query.
+  Future<
+    Map<({String kind, String scope, String source}), List<SetObservation>>
+  >
+  observationsFor(
+    Iterable<({String kind, String scope, String source})> sets,
+  ) async {
+    final keys = sets.toSet().toList();
+    final out =
+        <({String kind, String scope, String source}), List<SetObservation>>{
+          for (final key in keys) key: [],
+        };
+    for (var i = 0; i < keys.length; i += 300) {
+      final part = keys.skip(i).take(300);
+      final matches = <String>[];
+      final args = <Object?>[];
+      for (final key in part) {
+        matches.add('(kind = ? AND scope = ? AND source = ?)');
+        args.addAll([key.kind, key.scope, key.source]);
+      }
+      final rows = await _db.rawQuery(
+        'SELECT kind, scope, source, at_ms, seen_ms, full, added, removed, hash '
+        'FROM observations WHERE ${matches.join(' OR ')} '
+        'ORDER BY kind, scope, source, at_ms',
+        args,
+      );
+      for (final row in rows) {
+        final key = (
+          kind: row['kind']! as String,
+          scope: row['scope']! as String,
+          source: row['source']! as String,
+        );
+        out[key]!.add(_observation(row));
+      }
+    }
+    return out;
+  }
+
+  static SetObservation _observation(Map<String, Object?> r) =>
       SetObservation.fromStored(
         atMs: r['at_ms']! as int,
         seenMs: r['seen_ms']! as int,
@@ -397,8 +443,7 @@ class ArchiveStore {
         added: r['added']!,
         removed: r['removed']! as String,
         hash: r['hash']! as String,
-      ),
-  ];
+      );
 
   /// Stores [o] for one set; an observation already at its time is kept.
   Future<void> addObservation(
@@ -493,7 +538,16 @@ class ArchiveStore {
     await db.execute(
       'CREATE INDEX moderation_by_end ON moderation(channel, to_ts)',
     );
+    await _createModerationIndex(db);
   }
+
+  /// Channel and both range bounds, plus the fields a read returns. `to_ts`
+  /// leads the range so a history window seeks past older moderation instead
+  /// of scanning it, and the remaining columns keep the read covering.
+  static Future<void> _createModerationIndex(Database db) => db.execute(
+    'CREATE INDEX IF NOT EXISTS moderation_by_range ON moderation('
+    'channel, to_ts, from_ts, login, at_ts)',
+  );
 
   /// Third-party emotes as they were when first archived, so history shows
   /// an emote after its set drops or renames it. Written once per key

@@ -279,18 +279,55 @@ class SetHistory {
     try {
       final s = await store;
       if (s == null) return null;
+      final emoteKeys = <({String kind, String scope, String source})>[
+        for (final scope in ['', channel])
+          for (final p in _providers)
+            (kind: emoteKind, scope: scope, source: p.name),
+      ];
+      final badgeKeys = <({String kind, String scope, String source})>[
+        for (final scope in ['', channel])
+          (kind: badgeKind, scope: scope, source: _badgeSource),
+      ];
+      final keys = [...emoteKeys, ...badgeKeys];
+      final logs =
+          <({String kind, String scope, String source}), Future<SetLog>>{};
+      final missing = <({String kind, String scope, String source})>[];
+      for (final key in keys) {
+        final cacheKey = _logKey(key.kind, key.scope, key.source);
+        final known = _logs.remove(cacheKey);
+        if (known != null) {
+          _logs[cacheKey] = known;
+          logs[key] = known;
+        } else {
+          missing.add(key);
+        }
+      }
+      if (missing.isNotEmpty) {
+        final rows = await s.observationsFor(missing);
+        for (final key in missing) {
+          if (_logs.length >= _cacheSize) _evictLog();
+          final cacheKey = _logKey(key.kind, key.scope, key.source);
+          final log = Future.value(SetLog(rows[key]!));
+          _logs[cacheKey] = log;
+          log.then(
+            (_) => _logsLoaded.add(cacheKey),
+            onError: (_) => _logsLoaded.add(cacheKey),
+          );
+          logs[key] = log;
+        }
+      }
       return ChannelSets._(
         this,
         channel,
         emotes: [
-          for (final scope in ['', channel])
-            for (final p in _providers)
-              (scope, p, await _log(s, emoteKind, scope, p.name)),
+          for (var i = 0; i < emoteKeys.length; i++)
+            (
+              emoteKeys[i].scope,
+              _providers[i % _providers.length],
+              await logs[emoteKeys[i]]!,
+            ),
         ],
-        badges: [
-          for (final scope in ['', channel])
-            await _log(s, badgeKind, scope, _badgeSource),
-        ],
+        badges: [for (final key in badgeKeys) await logs[key]!],
         visibility: visibility(),
       );
     } catch (e) {

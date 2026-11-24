@@ -50,12 +50,108 @@ class _ManualTimer implements Timer {
   int get tick => fired ? 1 : 0;
 }
 
+/// Store seam for startup tests: each phase waits on an explicit gate, so no
+/// test needs a timed delay or a real database load.
+class _StartupStore implements ArchiveStore {
+  _StartupStore({
+    bool holdTables = false,
+    bool holdState = false,
+    this.failChannel,
+  }) {
+    if (!holdTables) tableGate.complete();
+    if (!holdState) stateGate.complete();
+  }
+
+  String? failChannel;
+  final tableGate = Completer<void>();
+  final stateGate = Completer<void>();
+  final _tableEntered = <String, Completer<void>>{};
+  final _stateEntered = <String, Completer<void>>{};
+  final _tables = <String, UserTables>{};
+  final tableOrder = <String>[];
+  final stateOrder = <String>[];
+  var activeTables = 0;
+  var activeStates = 0;
+  var maxActiveTables = 0;
+  var maxActiveStates = 0;
+  bool closed = false;
+
+  @override
+  Set<String> Function(String channel)? heldEdits;
+
+  @override
+  Set<int> Function(String channel)? heldStates;
+
+  @override
+  bool Function(String channel)? writing;
+
+  Future<void> tableStarted(String channel) =>
+      _tableEntered.putIfAbsent(channel, Completer<void>.new).future;
+
+  Future<void> stateStarted(String channel) =>
+      _stateEntered.putIfAbsent(channel, Completer<void>.new).future;
+
+  @override
+  Future<UserTables> tables(String channel) async {
+    final cached = _tables[channel];
+    if (cached != null) return cached;
+    tableOrder.add(channel);
+    final entered = _tableEntered.putIfAbsent(channel, Completer<void>.new);
+    if (!entered.isCompleted) entered.complete();
+    activeTables++;
+    if (activeTables > maxActiveTables) maxActiveTables = activeTables;
+    await tableGate.future;
+    activeTables--;
+    return _tables[channel] = UserTables();
+  }
+
+  @override
+  Future<List<StoredBlock>> newestBlocks(String channel, int rows) async {
+    stateOrder.add(channel);
+    final entered = _stateEntered.putIfAbsent(channel, Completer<void>.new);
+    if (!entered.isCompleted) entered.complete();
+    activeStates++;
+    if (activeStates > maxActiveStates) maxActiveStates = activeStates;
+    await stateGate.future;
+    activeStates--;
+    if (channel == failChannel) throw StateError('startup load failed');
+    return const [];
+  }
+
+  @override
+  Future<void> appendBlock({
+    required String channel,
+    required int startTs,
+    required int endTs,
+    required int count,
+    required Uint8List data,
+    required Map<int, int> minutes,
+    Map<String, String> emoteDefs = const {},
+    Map<String, ThreadRootRef> refs = const {},
+    Set<String>? words,
+    Set<int>? senders,
+    Set<int>? states,
+  }) async {}
+
+  @override
+  Future<int> pruneIfDue() async => 0;
+
+  @override
+  Future<void> close() async {
+    closed = true;
+  }
+
+  @override
+  dynamic noSuchMethod(Invocation invocation) => super.noSuchMethod(invocation);
+}
+
 String _id(int i) =>
     '${i.toRadixString(16).padLeft(8, '0')}-0b7d-4c55-9a10-6d2e8f4b7a01';
 
 TwitchMessage _msg(
   int i, {
   String login = 'alice',
+  String? channel,
   int? tsMs,
   String? replyToUser,
   String? replyToText,
@@ -63,7 +159,7 @@ TwitchMessage _msg(
   login: login,
   text: 'message number $i',
   messageId: _id(i),
-  channel: _channel,
+  channel: channel ?? _channel,
   userId: '${1000 + login.length}',
   color: '#FF4500',
   replyToUser: replyToUser,
@@ -97,6 +193,12 @@ ArchiveWriter _writer(
     timers?.add(t);
     return t;
   },
+  encode: (rows) async => ArchiveBlock.encode(rows),
+);
+
+ArchiveWriter _startupWriter(_StartupStore store) => ArchiveWriter(
+  Future.value(store),
+  createTimer: (d, cb) => _ManualTimer(cb),
   encode: (rows) async => ArchiveBlock.encode(rows),
 );
 
@@ -1050,6 +1152,78 @@ void main() {
     await store.close();
   });
 
+  test(
+    'writer bounds whole startup loads and drains them on dispose',
+    () async {
+      final store = _StartupStore(holdTables: true, holdState: true);
+      final writer = _startupWriter(store);
+      final channels = [for (var i = 0; i < 6; i++) 'startup$i'];
+      for (var i = 0; i < channels.length; i++) {
+        writer.add(channels[i], _msg(i, channel: channels[i]));
+      }
+
+      await store.tableStarted(channels[0]);
+      await store.tableStarted(channels[1]);
+      expect(
+        store.tableOrder,
+        channels.take(2),
+        reason: 'table scans fanned out',
+      );
+
+      store.tableGate.complete();
+      await store.stateStarted(channels[0]);
+      await store.stateStarted(channels[1]);
+      expect(
+        store.stateOrder,
+        channels.take(2),
+        reason: 'loads lost FIFO order',
+      );
+      expect(store.maxActiveTables, 2);
+      expect(store.maxActiveStates, 2, reason: 'the permit covered only SQL');
+
+      final disposed = writer.dispose();
+      expect(store.closed, isFalse, reason: 'dispose left queued loads behind');
+      store.stateGate.complete();
+      await disposed;
+      expect(store.closed, isTrue);
+      expect(store.tableOrder, channels);
+      expect(store.stateOrder, channels);
+      writer.add('late', _msg(10, channel: 'late'));
+      expect(
+        store.tableOrder,
+        channels,
+        reason: 'a disposed writer loaded again',
+      );
+    },
+  );
+
+  test(
+    'a failed startup load releases its permit and retries in order',
+    () async {
+      final store = _StartupStore(failChannel: 'bad');
+      final writer = _startupWriter(store);
+      writer.add('bad', _msg(0, channel: 'bad'));
+      writer.add('good', _msg(1, channel: 'good'));
+      await writer.settled();
+      expect(store.tableOrder, ['bad', 'good']);
+      expect(store.stateOrder, ['bad', 'good']);
+      expect([for (final m in writer.unsealed('bad')) m.messageId], [_id(0)]);
+
+      store.failChannel = null;
+      writer.add('bad', _msg(2, channel: 'bad'));
+      await writer.settled();
+      expect(store.tableOrder, ['bad', 'good']);
+      expect(store.stateOrder, ['bad', 'good', 'bad']);
+      expect(
+        [for (final m in writer.unsealed('bad')) m.messageId],
+        [_id(0), _id(2)],
+        reason: 'a retry lost or reordered parked rows',
+      );
+      await writer.dispose();
+      expect(store.closed, isTrue);
+    },
+  );
+
   test('retention keeps pinned ranges and recent blocks', () async {
     var now = DateTime.utc(2026, 10, 1);
     final store = await _open(_newPath(), now: () => now);
@@ -1273,17 +1447,26 @@ void main() {
     await store.close();
   });
 
-  test('an older database gains the end time index on open', () async {
+  test('an older database gains the read indexes on open', () async {
     final path = _newPath();
-    final store = await _open(path);
+    final fromTs = _t0.millisecondsSinceEpoch;
+    final store = await _open(path, now: _keptNow);
+    await store.addModeration(_channel, 'troll', fromTs, fromTs + 1000);
     await store.close();
     // Roll the schema back to 13 as an older build left it.
     final db = await databaseFactoryFfi.openDatabase(path);
     await db.execute('DROP INDEX blocks_by_time');
+    await db.execute('DROP INDEX blocks_by_span');
+    await db.execute('DROP INDEX moderation_by_range');
     await db.execute('PRAGMA user_version = 13');
     await db.close();
 
-    final again = await _open(path);
+    final again = await _open(path, now: _keptNow);
+    expect(
+      await again.moderation(_channel, fromTs, fromTs + 1000),
+      hasLength(1),
+      reason: 'the index migration lost moderation rows',
+    );
     final check = await databaseFactoryFfi.openDatabase(
       path,
       options: OpenDatabaseOptions(singleInstance: false),
@@ -1297,6 +1480,14 @@ void main() {
       'WHERE channel = ?',
       [_channel],
     );
+    final moderation = await check.rawQuery(
+      'EXPLAIN QUERY PLAN SELECT login, from_ts, to_ts, at_ts FROM moderation '
+      'WHERE channel = ? AND to_ts >= ? AND from_ts <= ?',
+      [_channel, fromTs, fromTs + 1000],
+    );
+    final columns = await check.rawQuery(
+      'PRAGMA index_info(moderation_by_range)',
+    );
     await check.close();
     await again.close();
     expect(
@@ -1308,6 +1499,15 @@ void main() {
       [for (final r in span) r['detail']],
       contains(contains('blocks_by_span')),
       reason: 'a read scans every block row without the covering index',
+    );
+    expect(
+      [for (final r in columns) r['name']],
+      ['channel', 'to_ts', 'from_ts', 'login', 'at_ts'],
+    );
+    expect(
+      [for (final r in moderation) r['detail']],
+      contains(contains('USING COVERING INDEX moderation_by_range')),
+      reason: 'a moderation read scans the channel without the range index',
     );
   });
 
@@ -2300,6 +2500,27 @@ void main() {
     final rows = await again.observations('emote', 's', 'src');
     expect(rows, hasLength(2));
     expect(rows.last.added, {'old': '{"b":2}'});
+    await again.addObservation(
+      'badge',
+      'global',
+      'twitch',
+      SetObservation(
+        atMs: 3,
+        seenMs: 3,
+        full: true,
+        added: {'sub/0': '{"url":"badge"}'},
+        removed: [],
+        hash: 'h3',
+      ),
+    );
+    final emote = (kind: 'emote', scope: 's', source: 'src');
+    final badge = (kind: 'badge', scope: 'global', source: 'twitch');
+    final missing = (kind: 'emote', scope: 'missing', source: 'src');
+    final batch = await again.observationsFor([emote, badge, missing, emote]);
+    expect([for (final row in batch[emote]!) row.atMs], [1, 2]);
+    expect(batch[badge]!.single.added, {'sub/0': '{"url":"badge"}'});
+    expect(batch[missing], isEmpty);
+    expect(await again.observationsFor(const []), isEmpty);
     await again.close();
     final check = await databaseFactoryFfi.openDatabase(path);
     final types = await check.rawQuery(

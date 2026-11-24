@@ -10,6 +10,7 @@ import '../archive/archive_users.dart';
 import '../archive/archive_words.dart';
 import '../models/twitch_message.dart';
 import '../util/log.dart';
+import '../util/semaphore.dart';
 import 'archive_adapter.dart';
 import 'archive_store.dart';
 import 'fake_chat_feed.dart';
@@ -87,6 +88,12 @@ class ArchiveWriter {
   /// growing the queue without limit.
   static const int maxWaiting = 1024;
 
+  /// A cold load scans whole user tables and decodes recent ids off-isolate.
+  /// Bound the whole operation so a channel fan-out cannot flood SQLite or
+  /// isolate work at once.
+  static const _maxLoads = 2;
+  final _loadGate = Semaphore(_maxLoads);
+
   final Future<ArchiveStore?> _store;
   final int sealCount;
   final Duration sealAfter;
@@ -120,7 +127,7 @@ class ArchiveWriter {
       } else if (c.dropped++ == 0) {
         logDebug('[ArchiveWriter] $channel parked $maxWaiting rows, dropping');
       }
-      c.loading ??= _load(channel, c);
+      c.loading ??= _loadGate.withPermit(() => _load(channel, c));
       return;
     }
     _append(channel, c, msg);
