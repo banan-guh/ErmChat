@@ -2025,6 +2025,36 @@ void main() {
       expect(subs.map((e) => e.code), isNot(contains('PrimePride')));
     });
 
+    test('owner-less followers never become global unlocks', () async {
+      final auth = TwitchAuth()
+        ..accessToken = 'tok'
+        ..userId = 'me';
+      final follower = makeTestEmote(
+        id: 'f1',
+        code: 'FollowA',
+        type: EmoteType.twitch,
+        tier: '1',
+        emoteType: 'follower',
+        scope: EmoteScope.global,
+      );
+      final manager = EmoteManager(
+        fetchStagger: Duration.zero,
+        fetchUserEmotes: (userId, {accessToken}) async => {
+          '': [unlockedEmote(), follower],
+        },
+        resolveOwnerLogins: (a, ids) async => {},
+      );
+
+      await manager.loadUserEmotes(auth, {'chanA': 'ownerA'});
+
+      expect(manager.byCode('chanA')?.byCode['PrimePride']?.id, 'u1');
+      expect(manager.byCode('chanA')?.byCode['FollowA'], isNull);
+      expect(
+        manager.globalEmotesByProvider()['Twitch']!.map((e) => e.code),
+        isNot(contains('FollowA')),
+      );
+    });
+
     test(
       'loadUserEmoteSets routes owned standard grants to global unlocks',
       () async {

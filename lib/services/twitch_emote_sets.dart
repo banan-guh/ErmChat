@@ -130,8 +130,9 @@ class TwitchEmoteSets {
       _fetchedSubEmotesByOwner.clear();
       for (final entry in byOwner.entries) {
         if (entry.key.isEmpty) {
-          // Owner-less sets are global unlocks, not channel subs.
-          unlocked.addAll(entry.value);
+          // Owner-less sets are global unlocks, not channel subs. A follower
+          // without an owner cannot be scoped safely, so it never goes global.
+          unlocked.addAll(entry.value.where((e) => !isTwitchFollower(e)));
         } else {
           // Status-gated emotes fan out per channel; word-matchable grants
           // are account unlocks usable everywhere and join the global

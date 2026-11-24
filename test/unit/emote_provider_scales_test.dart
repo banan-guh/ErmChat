@@ -406,7 +406,9 @@ void main() {
         data: [
           item('s', 'Sub', tier: '3', emoteType: 'subscriptions'),
           item('f', 'Follower', emoteType: 'follower'),
+          item('ft', 'FollowerTier', tier: '1', emoteType: 'follower'),
           item('b', 'Bits', emoteType: 'bitstier'),
+          item('bt', 'BitsTier', tier: '1', emoteType: 'bitstier'),
           item('p', 'Prime', emoteType: 'prime'),
           item('h', 'HypeTrain', emoteType: 'hypetrain'),
           item('d', 'Default'),
@@ -423,7 +425,11 @@ void main() {
       expect(metaOf('Sub').kind, TwitchEmoteKind.sub);
       expect(metaOf('Sub').subTier, 3);
       expect(metaOf('Follower').kind, TwitchEmoteKind.follower);
+      expect(metaOf('FollowerTier').kind, TwitchEmoteKind.follower);
+      expect(metaOf('FollowerTier').subTier, isNull);
       expect(metaOf('Bits').kind, TwitchEmoteKind.bits);
+      expect(metaOf('BitsTier').kind, TwitchEmoteKind.bits);
+      expect(metaOf('BitsTier').subTier, isNull);
       expect(metaOf('Prime').kind, TwitchEmoteKind.standard);
       expect(metaOf('HypeTrain').kind, TwitchEmoteKind.standard);
       expect(metaOf('HypeTrain').hypeTrain, isTrue);
@@ -496,6 +502,7 @@ void main() {
               'scale': ['1.0', '2.0', '3.0'],
               'theme_mode': ['light'],
               'emote_type': 'follower',
+              'tier': '1',
             },
           ],
         }),

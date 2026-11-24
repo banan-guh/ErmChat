@@ -348,9 +348,6 @@ class EmoteStore {
       e.meta is TwitchMeta &&
       (e.meta as TwitchMeta).kind != TwitchEmoteKind.standard;
 
-  static TwitchEmoteKind? _kindOf(Emote e) =>
-      e.meta is TwitchMeta ? (e.meta as TwitchMeta).kind : null;
-
   /// Fallback image URL for a Twitch emote id the API map does not contain.
   static String twitchFallbackUrl(String id) =>
       'https://static-cdn.jtvnw.net/emoticons/v2/$id/default/dark/3.0';
@@ -501,7 +498,7 @@ class EmoteStore {
       if (entry.key == channel) continue;
       for (final e in entry.value.twitchSubs) {
         final meta = e.meta;
-        if (meta is! TwitchMeta || meta.kind == TwitchEmoteKind.follower) {
+        if (meta is! TwitchMeta || isTwitchFollower(e)) {
           continue;
         }
         if (merged == null) {
@@ -592,7 +589,7 @@ class EmoteStore {
       final list = entry.value
           .where(
             (e) =>
-                !_isFollower(e) ||
+                !isTwitchFollower(e) ||
                 _followerOwner(e, entry.key).toLowerCase() == lower,
           )
           .toList();
@@ -602,10 +599,6 @@ class EmoteStore {
     if (pinned == null) return filtered;
     return {channel: pinned, ...filtered};
   }
-
-  static bool _isFollower(Emote e) =>
-      e.meta is TwitchMeta &&
-      (e.meta as TwitchMeta).kind == TwitchEmoteKind.follower;
 
   static String _followerOwner(Emote e, String groupKey) {
     final meta = e.meta as TwitchMeta;
@@ -617,7 +610,7 @@ class EmoteStore {
   ) {
     final result = <String, List<Emote>>{};
     for (final entry in grouped.entries) {
-      final list = entry.value.where((e) => !_isFollower(e)).toList();
+      final list = entry.value.where((e) => !isTwitchFollower(e)).toList();
       if (list.isNotEmpty) result[entry.key] = list;
     }
     return result;
@@ -927,9 +920,7 @@ class EmoteStore {
     final twitchNonSub = fetch.byProvider[EmoteType.twitch];
     if (twitchNonSub != null) {
       final subs = catalog.twitchSubs
-          .where(
-            (e) => isTwitchSub(e) || _kindOf(e) == TwitchEmoteKind.follower,
-          )
+          .where((e) => isTwitchSub(e) || isTwitchFollower(e))
           .toList();
       catalog = catalog.copyWith(
         twitchSubs: [...subs, ...twitchNonSub.where(isTwitchLocked)],

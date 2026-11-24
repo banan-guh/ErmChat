@@ -30,12 +30,8 @@ class TwitchEmoteProvider {
       channel: false,
       accessToken: accessToken,
     );
-    return emotes.where((e) => !_isFollower(e)).toList();
+    return emotes.where((e) => !isTwitchFollower(e)).toList();
   }
-
-  static bool _isFollower(Emote e) =>
-      e.meta is TwitchMeta &&
-      (e.meta as TwitchMeta).kind == TwitchEmoteKind.follower;
 
   static Future<List<Emote>> fetchChannel(
     String broadcasterId, {
@@ -204,10 +200,9 @@ class TwitchEmoteProvider {
     };
   }
 
-  /// Builds the Twitch meta, mapping the API's tier/emote_type into the render
-  /// status gate. A blank tier is no tier: some global unlocks send `""`, and
-  /// treating that as a sub would stop them word-matching. An unparseable
-  /// tier keeps the emote locked, as a tier was clearly sent.
+  /// Builds Twitch render metadata. Explicit emote_type wins over tier so
+  /// followers and Bits grants cannot become subs. Blank tiers are no tier;
+  /// unparseable nonblank tiers stay locked.
   static TwitchMeta _metaFor({
     required Map<String, dynamic> item,
     String? ownerChannel,
@@ -217,18 +212,20 @@ class TwitchEmoteProvider {
     final hasTier = tier != null && tier.isNotEmpty;
     final emoteType = (item['emote_type'] ?? item['emoteType']) as String?;
     final TwitchEmoteKind kind;
-    if (hasTier || emoteType == 'subscriptions') {
-      kind = TwitchEmoteKind.sub;
-    } else if (emoteType == 'follower') {
+    if (emoteType == 'follower') {
       kind = TwitchEmoteKind.follower;
     } else if (emoteType == 'bitstier') {
       kind = TwitchEmoteKind.bits;
+    } else if (hasTier || emoteType == 'subscriptions') {
+      kind = TwitchEmoteKind.sub;
     } else {
       kind = TwitchEmoteKind.standard;
     }
     return TwitchMeta(
       kind: kind,
-      subTier: hasTier ? int.tryParse(tier) : null,
+      subTier: kind == TwitchEmoteKind.sub && hasTier
+          ? int.tryParse(tier)
+          : null,
       ownerChannel: ownerChannel,
       ownerId: ownerId,
       hypeTrain: emoteType == 'hypetrain',

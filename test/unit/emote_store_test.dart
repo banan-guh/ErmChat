@@ -341,6 +341,38 @@ void main() {
     expect(store.byCode('b')?.byCode.containsKey('FollowB'), isTrue);
   });
 
+  test('public channel followers stay out of other channels and subs', () {
+    final store = EmoteStore();
+    store.commitChannel(
+      'a',
+      store.channelEpoch('a'),
+      ChannelEmoteFetch(
+        byProvider: {
+          EmoteType.twitch: [
+            _followerEmote('f1', 'FollowA', 'a'),
+            _lockedTwitchSub('s1', 'SubA'),
+          ],
+        },
+      ),
+    );
+
+    expect(store.byCode('a')?.byCode.containsKey('FollowA'), isTrue);
+    expect(store.byCode('a')?.byCode.containsKey('SubA'), isTrue);
+    expect(store.byCode('b')?.byCode.containsKey('FollowA'), isFalse);
+    expect(store.byCode('b')?.byCode.containsKey('SubA'), isTrue);
+    expect(
+      store.sendableEmotes('b').map((e) => e.code),
+      isNot(contains('FollowA')),
+      reason: 'autocomplete must not suggest another channel follower',
+    );
+    final subs = store.subsGrouped(pinnedChannel: 'b');
+    expect(subs.values.expand((e) => e).map((e) => e.code), contains('SubA'));
+    expect(
+      subs.values.expand((e) => e).map((e) => e.code),
+      isNot(contains('FollowA')),
+    );
+  });
+
   test('shared subs follow a bits commit and an authoritative empty fetch', () {
     final store = EmoteStore();
     expect(store.byCode('late')?.byCode.containsKey('Bits'), isNot(true));

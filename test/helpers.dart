@@ -3,11 +3,11 @@ import 'package:ermchat/emotes/emote.dart';
 /// Twitch render status from the API tier/emote_type pair, mirroring the
 /// provider mapping.
 TwitchEmoteKind twitchKindOf(String? tier, String? emoteType) {
-  if (tier != null || emoteType == 'subscriptions') {
-    return TwitchEmoteKind.sub;
-  }
+  final value = tier?.trim();
+  final hasTier = value != null && value.isNotEmpty;
   if (emoteType == 'follower') return TwitchEmoteKind.follower;
   if (emoteType == 'bitstier') return TwitchEmoteKind.bits;
+  if (hasTier || emoteType == 'subscriptions') return TwitchEmoteKind.sub;
   return TwitchEmoteKind.standard;
 }
 
@@ -30,7 +30,11 @@ Emote makeTestEmote({
   meta: switch (type) {
     EmoteType.twitch => TwitchMeta(
       kind: twitchKindOf(tier, emoteType),
-      subTier: tier == null ? null : int.tryParse(tier),
+      subTier:
+          twitchKindOf(tier, emoteType) == TwitchEmoteKind.sub &&
+              (tier?.trim().isNotEmpty ?? false)
+          ? int.tryParse(tier!.trim())
+          : null,
       ownerChannel: ownerChannel,
       ownerId: ownerId,
     ),

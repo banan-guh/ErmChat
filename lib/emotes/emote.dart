@@ -206,6 +206,12 @@ bool isTwitchSub(Emote e) => switch (e.meta) {
   _ => false,
 };
 
+/// Follower emotes are usable only in their owning channel.
+bool isTwitchFollower(Emote e) => switch (e.meta) {
+  TwitchMeta(kind: TwitchEmoteKind.follower) => true,
+  _ => false,
+};
+
 /// Provider-specific facts for an [Emote]. [type] identifies the provider;
 /// [owner] is the display name of the creator when one is known.
 sealed class EmoteMeta {
