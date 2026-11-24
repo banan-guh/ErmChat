@@ -2367,6 +2367,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
               // Keyboard room only decides whether a stacked player hides.
               bodyReadsKeyboard: _streamPlayer.currentChannel != null,
               composerInPane: _stream.chatInPane(context),
+              hideFooterOnKeyboard: spec.compact,
               bodyBuilder:
                   (
                     context, {
@@ -2505,7 +2506,6 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
                       dragTick: _panelDragTick,
                       modeRow: modeRow,
                       classic: spec.composer == ComposerStyle.classic,
-                      compact: spec.compact,
                     )
                   : null,
               // Send runs down the island's side while the row stays up.

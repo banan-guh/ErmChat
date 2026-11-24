@@ -5,7 +5,6 @@ import 'package:flutter/rendering.dart' show OverflowBoxFit;
 import '../panels/mod_panel.dart';
 import '../panels/search.dart';
 import '../util/chrome_theme.dart';
-import '../widgets/island_metrics.dart';
 import '../widgets/media_upload_controller.dart';
 import '../widgets/message_input.dart';
 import '../widgets/send_hold.dart';
@@ -534,7 +533,6 @@ class ComposerStatusRow extends StatelessWidget {
     required this.dragTick,
     this.modeRow = false,
     this.classic = false,
-    this.compact = false,
   });
 
   final ComposerController controller;
@@ -550,10 +548,6 @@ class ComposerStatusRow extends StatelessWidget {
   /// and eases in over a longer beat.
   final bool classic;
 
-  /// Compact layouts snap the footer while the keyboard is up, so it follows
-  /// the IME without a second animation. Keyboard down keeps the normal ease.
-  final bool compact;
-
   @override
   Widget build(BuildContext context) => ListenableBuilder(
     listenable: _enabledInputs(controller, mod, dragTick),
@@ -564,7 +558,6 @@ class ComposerStatusRow extends StatelessWidget {
         selectedTabIndex: selectedTabIndex,
         modeRow: modeRow,
         classic: classic,
-        compact: compact,
       );
     },
   );
@@ -666,42 +659,26 @@ class _StatusRow extends StatelessWidget {
     required this.selectedTabIndex,
     required this.modeRow,
     required this.classic,
-    required this.compact,
   });
 
   final ComposerController controller;
   final ValueListenable<int> selectedTabIndex;
   final bool modeRow;
   final bool classic;
-  final bool compact;
 
   @override
-  Widget build(BuildContext context) {
-    final keyboard = IslandScope.maybeOf(context)?.metrics.keyboardEngaged;
-    if (keyboard == null) return _listener(false);
-    return ValueListenableBuilder<bool>(
-      valueListenable: keyboard,
-      builder: (context, up, _) => _listener(up),
-    );
-  }
-
-  Widget _listener(bool keyboardUp) => _ChannelListener(
+  Widget build(BuildContext context) => _ChannelListener(
     controller: controller,
     selectedTabIndex: selectedTabIndex,
     builder: (context) {
       final channel = controller.selectedChannel;
-      final child = channel == null
-          ? const SizedBox.shrink()
-          : _lines(context, channel);
-      // Compact with the keyboard up snaps, so the footer tracks the IME
-      // without a second animation on top of the OS resize. Keyboard down
-      // keeps the normal ease.
-      if (compact && keyboardUp) return child;
       return AnimatedSize(
         duration: Motion.fast,
         curve: Motion.move,
         alignment: Alignment.topCenter,
-        child: child,
+        child: channel == null
+            ? const SizedBox.shrink()
+            : _lines(context, channel),
       );
     },
   );

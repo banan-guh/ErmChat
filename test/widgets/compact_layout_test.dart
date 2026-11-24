@@ -107,7 +107,7 @@ void main() {
     }
   });
 
-  testWidgets('compact splash keeps the chat still', (tester) async {
+  testWidgets('compact splash hides while the keyboard is up', (tester) async {
     await pumpJoined(tester, density: LayoutDensity.compact);
     final prefs = await Prefs.load();
     final spec = ChromeTheme.ermchat.spec.copyWith(compact: true);
@@ -166,30 +166,29 @@ void main() {
     expect(find.text('Live with 7 viewers'), findsOneWidget);
     expect(clearance(), closeTo(live, 0.5));
 
-    // The same holds with the keyboard open.
+    // With the keyboard up the footer, and its splash, are gone entirely.
     await tester.pump();
     for (final kb in <double>[100, 200, 300]) {
       tester.view.viewInsets = FakeViewPadding(bottom: kb);
       await tester.pump(const Duration(milliseconds: 16));
     }
     await tester.pump(const Duration(milliseconds: 400));
+    expect(find.text('Live with 7 viewers'), findsNothing);
     final open = clearance();
-    expect(
-      find.ancestor(
-        of: find.text('Live with 7 viewers'),
-        matching: find.byType(AnimatedSize),
-      ),
-      findsNothing,
-      reason: 'keyboard up snaps the footer instead of easing it',
-    );
     info.setStatus('Live with 7 viewers for 2h 3m', live: true);
     await tester.pump(const Duration(milliseconds: 300));
+    expect(find.text('Live with 7 viewers for 2h 3m'), findsNothing);
     expect(tester.getSize(input).height, inputH);
-    expect(clearance(), closeTo(open, 0.5));
+    expect(
+      clearance(),
+      closeTo(open, 0.5),
+      reason: 'no splash means no channel offset while the keyboard is up',
+    );
 
-    // Closing the keyboard brings the ease back.
+    // Closing the keyboard brings the splash and its ease back.
     tester.view.viewInsets = FakeViewPadding.zero;
     await tester.pump(const Duration(milliseconds: 400));
+    expect(find.text('Live with 7 viewers for 2h 3m'), findsOneWidget);
     expect(
       find.ancestor(
         of: find.text('Live with 7 viewers for 2h 3m'),

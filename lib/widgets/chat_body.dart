@@ -92,6 +92,7 @@ class ChatBody extends StatefulWidget {
     this.isInPip = false,
     this.bodyReadsKeyboard = true,
     this.composerInPane = false,
+    this.hideFooterOnKeyboard = false,
     this.pagesKey,
   });
 
@@ -168,6 +169,10 @@ class ChatBody extends StatefulWidget {
   /// the full height. Overlays anchored to the composer follow it.
   final bool composerInPane;
 
+  /// Drops the status footer while the keyboard is up, so no channel carries
+  /// a splash-driven offset. Compact layouts use this.
+  final bool hideFooterOnKeyboard;
+
   /// Reply target card floated above the composer. Null when not replying.
   final Widget? replyHeader;
 
@@ -242,12 +247,6 @@ class _ChatBodyState extends State<ChatBody>
   // the Scaffold already moves the body with the keyboard, so an ease on top
   // reads as a bounce.
   bool _keyboardEngaged = false;
-
-  void _engageKeyboard(bool engaged) {
-    if (_keyboardEngaged == engaged) return;
-    _keyboardEngaged = engaged;
-    _metrics.keyboardEngaged.value = engaged;
-  }
 
   // Keyboard height the decisions read: the learned open height from the
   // first tick of an open, the real one once it settles, zero once closed.
@@ -324,7 +323,7 @@ class _ChatBodyState extends State<ChatBody>
     if (identical(view, _boundView)) return;
     _boundView = view;
     _rawH = _readRawH();
-    if (_rawH > 0.5) _engageKeyboard(true);
+    if (_rawH > 0.5) _keyboardEngaged = true;
     if (_rawH > 0.5 && _liftH == 0) {
       _liftH = _rawH;
       _learnedH = _rawH;
@@ -338,7 +337,6 @@ class _ChatBodyState extends State<ChatBody>
     _keyboardPump.dispose();
     _bottomPad.dispose();
     _presence.dispose();
-    _metrics.keyboardEngaged.dispose();
     super.dispose();
   }
 
@@ -359,7 +357,7 @@ class _ChatBodyState extends State<ChatBody>
     }
     _opening = raw > _rawH;
     _rawH = raw;
-    if (raw > 0.5) _engageKeyboard(true);
+    if (raw > 0.5) _keyboardEngaged = true;
     _settleTimer?.cancel();
     if (!_keyboardPump.isActive) _keyboardPump.start();
     if (raw <= 0.5) {
@@ -380,7 +378,7 @@ class _ChatBodyState extends State<ChatBody>
       // Unfocusing mid-animation races the IME and the next open overshoots,
       // so it waits for the close to settle; a reopen cancels it.
       if (_rawH <= 0.5) {
-        _engageKeyboard(false);
+        _keyboardEngaged = false;
         final before = _focusAtClose;
         _focusAtClose = null;
         final now = FocusManager.instance.primaryFocus;
@@ -577,10 +575,16 @@ class _ChatBodyState extends State<ChatBody>
     // the shell from below as the keyboard rises, so its rim and corners
     // reshape around what is left instead of being cut off.
     // The footer resizes on its own (a channel switch swaps the status) and
-    // reports its height to the island's layout.
-    final footer = widget.islandFooter == null
-        ? null
-        : _Report(slot: _footerH, child: widget.islandFooter!);
+    // reports its height to the island's layout. With the keyboard up it is
+    // dropped entirely, so no channel carries a splash-driven offset.
+    final footer = _Report(
+      slot: _footerH,
+      child:
+          widget.islandFooter == null ||
+              (_keyboardEngaged && widget.hideFooterOnKeyboard)
+          ? const SizedBox.shrink()
+          : widget.islandFooter!,
+    );
     // Edge to edge, one line carries the busy motion or an upload's progress.
     final busyLine = _busyLine(layout);
     final island = _outer(
@@ -601,7 +605,7 @@ class _ChatBodyState extends State<ChatBody>
                   flowComposer,
                   ?busyLine,
                   ?widget.bottomBar,
-                  ?footer,
+                  footer,
                 ] else
                   // The side action runs the island's full height, so its
                   // ink reaches the rim. The column sets the height and the
@@ -627,7 +631,7 @@ class _ChatBodyState extends State<ChatBody>
                               ],
                             ),
                           ),
-                          ?footer,
+                          footer,
                         ],
                       ),
                       Positioned(
@@ -756,8 +760,14 @@ class _ChatBodyState extends State<ChatBody>
                               // toward the list's gap.
                               trim: layout.classic ? MessageInput.labelRoom : 0,
                               // Pages add their own channel's footer, so a
-                              // switch moves only the island.
-                              footerFor: widget.islandFooterHeightFor,
+                              // switch moves only the island. With the
+                              // keyboard up the footer is gone, so every
+                              // page predicts zero and none carries an offset.
+                              footerFor:
+                                  _keyboardEngaged &&
+                                      widget.hideFooterOnKeyboard
+                                  ? (String _) => 0.0
+                                  : widget.islandFooterHeightFor,
                               footer: widget.islandFooter == null
                                   ? null
                                   : _footerH,
