@@ -66,14 +66,33 @@ final apnsPushProvider = Provider<ApnsPush>((ref) {
   final pings = ref.read(pingManagerProvider);
   final ignores = ref.read(ignoreManagerProvider);
   final session = ref.read(channelSessionProvider);
+  final auth = ref.read(twitchAuthProvider);
+  final readyWaiters = <Completer<void>>[];
+  bool isReady() => ref.read(chatReadyProvider) && !session.channelsPending;
+  void checkReady() {
+    if (!isReady()) return;
+    for (final waiter in readyWaiters) {
+      if (!waiter.isCompleted) waiter.complete();
+    }
+    readyWaiters.clear();
+  }
+
+  Future<void> waitForReady() {
+    if (isReady()) return Future<void>.value();
+    final waiter = Completer<void>();
+    readyWaiters.add(waiter);
+    return waiter.future;
+  }
+
   final push = ApnsPush(
     active:
         defaultTargetPlatform == TargetPlatform.iOS &&
         !kIsWeb &&
         PushConfig.endpoint.isNotEmpty,
     endpoint: PushConfig.endpoint,
+    ready: waitForReady,
     registration: () async {
-      final token = ref.read(twitchAuthProvider).accessToken;
+      final token = auth.accessToken;
       if (token == null) return null;
       return (
         token: token,
@@ -92,6 +111,31 @@ final apnsPushProvider = Provider<ApnsPush>((ref) {
     },
   );
   if (push.active) {
+    session.addListener(checkReady);
+    ref.listen(chatReadyProvider, (_, next) {
+      if (next) checkReady();
+    });
+    ref.onDispose(() => session.removeListener(checkReady));
+    var waitingForReady = false;
+    void syncPush({bool unregisterFirst = false}) {
+      final enabled = ref.read(mentionPushProvider);
+      if (unregisterFirst) unawaited(push.sync(push: false));
+      if (!enabled) return;
+      if (ref.read(chatReadyProvider)) {
+        unawaited(push.sync(push: true));
+        return;
+      }
+      if (waitingForReady) return;
+      waitingForReady = true;
+      late final ProviderSubscription<bool> sub;
+      sub = ref.listen(chatReadyProvider, (_, next) {
+        if (!next) return;
+        waitingForReady = false;
+        sub.close();
+        unawaited(push.sync(push: true));
+      });
+    }
+
     // The server's copy follows the rules, channels and mute; an unchanged
     // registration is never resent.
     final refresh = push.refresh;
@@ -100,6 +144,22 @@ final apnsPushProvider = Provider<ApnsPush>((ref) {
     session.addListener(refresh);
     ref.listen(blockedLoginsProvider, (_, _) => refresh());
     ref.listen(notificationPauseProvider, (_, _) => refresh());
+    ref.listen(mentionPushProvider, (_, _) => syncPush());
+    Object? identity = auth.userId ?? auth.login ?? auth.accessToken;
+    ref.listen(twitchAuthTickProvider, (_, _) {
+      // Let every auth listener apply its account-scoped reset first.
+      scheduleMicrotask(() {
+        final next = auth.userId ?? auth.login ?? auth.accessToken;
+        final switched = identity != null && identity != next;
+        identity = next;
+        if (switched) unawaited(push.clearNotifications());
+        syncPush(unregisterFirst: switched);
+      });
+    });
+    final connectivity = ref.read(connectivityServiceProvider);
+    ref.listen(connectivityTickProvider, (_, _) {
+      if (connectivity.isOnline) push.retry();
+    });
     ref.onDispose(() {
       pings.removeListener(refresh);
       ignores.removeListener(refresh);

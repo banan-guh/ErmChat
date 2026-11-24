@@ -210,14 +210,19 @@ class NotificationService {
 
   /// Cancels mention notifications (all or per-channel).
   Future<void> clearMentionNotifications([String? channel]) async {
-    Iterable<int> ids;
     if (channel == null) {
-      ids = List.of(_postedIds);
+      // Session ids disappear on process death, but delivered notifications
+      // do not. Every local notification belongs to this feature.
       _idsByChannel.clear();
-    } else {
-      ids = List.of(_idsByChannel[channel] ?? const <int>[]);
-      _idsByChannel.remove(channel);
+      _postedIds.clear();
+      _summaryOrder.clear();
+      _summaryLineById.clear();
+      _summaryTotal = 0;
+      await _plugin.cancelAll();
+      return;
     }
+    final ids = List.of(_idsByChannel[channel] ?? const <int>[]);
+    _idsByChannel.remove(channel);
     final removedFromSummary = <int>{};
     for (final id in ids) {
       await _plugin.cancel(id: id);
@@ -227,12 +232,8 @@ class NotificationService {
     if (removedFromSummary.isNotEmpty) {
       _summaryOrder.removeWhere(removedFromSummary.contains);
     }
-    if (channel == null) {
-      _summaryTotal = 0;
-    } else {
-      _summaryTotal -= ids.length;
-      if (_summaryTotal < 0) _summaryTotal = 0;
-    }
+    _summaryTotal -= ids.length;
+    if (_summaryTotal < 0) _summaryTotal = 0;
     if (_summaryOrder.isEmpty) {
       await _plugin.cancel(id: _summaryId);
     } else if (ids.isNotEmpty) {

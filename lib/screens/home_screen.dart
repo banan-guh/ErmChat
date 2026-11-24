@@ -178,6 +178,9 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
       ref.read(notificationServiceProvider);
   StreamSubscription<String>? _notificationTapSub;
   StreamSubscription<String>? _apnsTapSub;
+  String? _pendingNotificationChannel;
+  bool _pendingNotificationFromApns = false;
+  static final _notificationChannelName = RegExp(r'^[a-z0-9_]{1,25}$');
   bool _backgroundService = false;
   bool _whisperNotify = true;
 
@@ -1113,8 +1116,10 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
     if (!apns.active) return;
     _apnsTapSub ??= apns.onTap.listen(_onNotificationTap);
     unawaited(
-      apns.takeLaunchChannel().then((channel) {
-        if (channel != null && mounted) _navigateToChannel(channel);
+      apns.launchChannel().then((channel) {
+        if (channel != null && mounted) {
+          _queueNotificationTap(channel, fromApns: true);
+        }
       }),
     );
     unawaited(apns.sync(push: push));
@@ -1166,7 +1171,6 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
     if (ref.read(mentionPushProvider) == value) return;
     ref.read(mentionPushProvider.notifier).set(value);
     setState(() {});
-    unawaited(ref.read(apnsPushProvider).sync(push: value));
     if (!Platform.isAndroid) return;
     if (value) {
       requestForegroundPermissions();
@@ -2080,8 +2084,39 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
     child: child,
   );
 
-  void _onNotificationTap(String channel) {
-    _navigateToChannel(channel);
+  void _onNotificationTap(String channel) =>
+      _queueNotificationTap(channel, fromApns: false);
+
+  void _queueNotificationTap(String channel, {required bool fromApns}) {
+    final name = channel.trim().toLowerCase();
+    if (!_notificationChannelName.hasMatch(name)) {
+      if (fromApns) unawaited(ref.read(apnsPushProvider).clearLaunchChannel());
+      return;
+    }
+    _pendingNotificationChannel = name;
+    _pendingNotificationFromApns = fromApns;
+    _routePendingNotificationTap();
+  }
+
+  void _routePendingNotificationTap() {
+    final channel = _pendingNotificationChannel;
+    if (!mounted || channel == null) return;
+    final index = _chat.names.indexOf(channel);
+    if (index < 0) {
+      if (!_channelManager.session.channelsPending) {
+        _discardPendingNotificationTap();
+      }
+      return;
+    }
+    _discardPendingNotificationTap();
+    _channels.onChannelChanged(index);
+  }
+
+  void _discardPendingNotificationTap() {
+    final fromApns = _pendingNotificationFromApns;
+    _pendingNotificationChannel = null;
+    _pendingNotificationFromApns = false;
+    if (fromApns) unawaited(ref.read(apnsPushProvider).clearLaunchChannel());
   }
 
   void _navigateToChannel(String channel) {

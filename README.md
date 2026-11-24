@@ -72,7 +72,7 @@
 - Stream player with picture-in-picture
 - Image uploads with EXIF stripping
 - Chat history on join, slow mode / timeout countdown, live channel status
-- Backgrounding and mention notifications (Android only, iOS coming soon)
+- Backgrounding and mention notifications (Android and iOS)
 - Themes, true black, accent colors, timestamp formats
 - Lots of customizability in settings
 
@@ -88,7 +88,7 @@ No account needed to read chat anonymously, but signing in is recommended for th
 
 ## Privacy
 
-ErmChat communicates directly with Twitch servers, and uses (anonymous) emote providers / recent-messages for chat history. Media uploader is third-party. Details: [privacy policy](https://banan-guh.github.io/ErmChat/).
+ErmChat communicates directly with Twitch servers, and uses (anonymous) emote providers / recent-messages for chat history. Media uploader is third-party. Optional iOS push notifications send the data needed to match mentions. Details: [privacy policy](https://banan-guh.github.io/ErmChat/).
 
 ## Translate
 

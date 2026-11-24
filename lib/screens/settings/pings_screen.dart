@@ -25,8 +25,8 @@ import '../../util/haptics.dart';
 import '../../widgets/app_snack.dart';
 import '../../util/settings.dart';
 
-/// Per-rule notify levels ride the Android foreground-service path; iOS has
-/// none.
+/// Per-rule notify levels ride the Android foreground-service path or the
+/// iOS push server.
 final _pushSupported = !kIsWeb && !Platform.isIOS;
 
 /// iOS pushes through ermchat-notify, which mirrors the rules that notify.
@@ -173,6 +173,7 @@ class _PingsScreenState extends ConsumerState<PingsScreen> {
           Settings.backgroundService,
           Settings.highlightOpacity,
           ref.read(apnsPushProvider).blocked,
+          ref.read(apnsPushProvider).failed,
         ]),
         builder: (context, _) {
           if (!manager.loaded) {
@@ -272,16 +273,18 @@ class _PingsScreenState extends ConsumerState<PingsScreen> {
   void _toggleMutePanel() =>
       setState(() => _muteChoice = _muteChoice == null ? _defaultMute : null);
 
-  /// The line under the notifications row: off, blocked, muted until
+  /// The line under the notifications row: off, blocked, failed, muted until
   /// [mutedUntil], or on.
   String _statusText({
     required bool pushOn,
     required bool blocked,
+    required bool failed,
     required DateTime? mutedUntil,
   }) {
     final l = context.l10n;
     if (!pushOn) return l.off;
     if (blocked) return l.notificationsBlockedIos;
+    if (failed) return l.notificationsRegistrationFailed;
     if (mutedUntil == null) return l.on;
     final time = MaterialLocalizations.of(
       context,
@@ -300,9 +303,11 @@ class _PingsScreenState extends ConsumerState<PingsScreen> {
     final canMute = _keepAlive && pushOn;
     final apns = ref.read(apnsPushProvider);
     final blocked = pushOn && apns.blocked.value;
+    final failed = pushOn && apns.failed.value;
     final status = _statusText(
       pushOn: pushOn,
       blocked: blocked,
+      failed: failed,
       mutedUntil: showMute ? until : null,
     );
     final choosing = _muteChoice != null;
@@ -1006,11 +1011,14 @@ bool _canNotify(PingRule rule) =>
         const {'username', 'reply', 'thread'}.contains(rule.type);
 
 /// Stops on [rule]'s switch. A list rule can reach @mentions without push.
-int _levelCount(PingRule rule) => _pushSupported && _canNotify(rule)
-    ? 5
-    : _isListRule(rule)
-    ? 3
-    : 2;
+int _levelCount(PingRule rule) =>
+    pingRuleLevelCount(rule, push: _pushSupported || _serverPush);
+
+/// Notification stops exist wherever mention push can run.
+int pingRuleLevelCount(PingRule rule, {required bool push}) {
+  if (push && _canNotify(rule)) return 5;
+  return _isListRule(rule) ? 3 : 2;
+}
 
 /// 0 off, 1 highlight, 2 mention, 3 notify, 4 notify without the tint.
 int _levelOf(PingRule rule) => !rule.enabled

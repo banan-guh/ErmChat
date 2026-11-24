@@ -30,7 +30,7 @@ Picked for a mobile chat client from Chatterino, DankChat, Chatsen, Frosty, Lime
 - [+] **Dual-pane view** - read two channels side by side.
 - [ ] **Stream title / category edit** - for streamers using ermchat as a mod tool.
 
-Skipped from the survey: emoji picker (the keyboard has one), follow/unfollow, prediction betting, poll voting, auto-claim (private API only), revealing deleted messages, desktop-only tools (file logging, keyboard mod mode, JSON themes, filter languages), video-app features (VOD downloads, casting, multiview, native quality player).
+Skipped from the survey: emoji picker (the keyboard has one), follow/unfollow (Twitch's write API is decommissioned), prediction betting, poll voting, auto-claim (private API only), revealing deleted messages, desktop-only tools (file logging, keyboard mod mode, JSON themes, filter languages), video-app features (VOD downloads, casting, multiview, native quality player).
 
 ## History archive (docs/HISTORY.md)
 
@@ -55,6 +55,8 @@ Skipped from the survey: emoji picker (the keyboard has one), follow/unfollow, p
 
 ## Bugs
 
+- [ ] **Archive scroll jumps** - exact restore below markers and heavily folded slivers remain.
+- [ ] **Reconcile open archive streams** - a channel never polled again can stay live forever.
 - [-] **Emotes aren't rendered as text** - when emotes aren't loaded yet, show the emote as text first (0-width not shown as text unless overlapping something), then swap in the image when loaded. Not high-priority but would be nice to fix. (SKIPPED)
 - [-] **Invalid argument(s): string is not well-formed UTF-16** - I believe it's a problem with specific characters in the chat messages. Not a crash btw.
 - [+] **EventSub emote fragment false-match** - `twitch_eventsub.dart` fragment position parsing used `indexOf` substring search which could misfire when a fragment's text appeared earlier in the message as a substring. Replaced with a running cursor (fragments arrive in order and reconstruct the message). Observed symptom: emote (`vedalSurprise`) rendering as a shorter garbled name (`vedalS`) with leftover text spilling out. Cannot confirm the cursor logic resolves that exact case - if it recurs, add raw fragment payload logging.
@@ -72,12 +74,12 @@ Skipped from the survey: emoji picker (the keyboard has one), follow/unfollow, p
 
 ## Low Priority / Future
 
-- [+] **OS notifications + background** - background finished, notifs finished for android only, not apple.
+- [*] **OS notifications + background** - Android and iOS basic mention push implemented, iOS hardening pending.
 - [*] **Mod View history** - investigate feasibility of history of mod actions
 - [ ] **Mod View: Channel Points reward CRUD** - create/edit/delete UI plus new TwitchApi write verbs (PATCH title/cost, POST create, DELETE). Read-only hardening already landed (cost/age rows, refund confirm, foreign 403 copy, pause notice).
 - [+] **Shared Chat** - mirror-only marking, sharedchatnotice unwrap/drop, source-channel emote scoping, lazy participant fetch, ping dedup
 - [ ] **VOD / clip chat replay** - past broadcasts + clips with synced read-only chat.
-- [ ] **iOS mention push** - android works, apple server doesn't exist yet.
+- [ ] **iOS mention push hardening** - server durability, filter parity, privacy redaction, whisper support.
 - [ ] **Notification tuning** - quiet hours, per-channel mutes, sender cooldowns, collapse sub train bursts.
 - [ ] **Home screen widget / Live Activity** - track last watched channel.
 - [+] **Injectable TwitchBadgeService** - injected like EventSubService/IrcService (TwitchChatApp/HomeScreen params).
@@ -103,7 +105,6 @@ Skipped from the survey: emoji picker (the keyboard has one), follow/unfollow, p
 
 - borders flicker white when tabbing in -
 - ios: tapping "replying to" highlights only that block, not the whole row
-- notifs don't matter if no foreground in android (ios push notifs, change if server) - DO NOT do, adding server soon
 - emotes too eager to diff - lingering issue, rarer now
 - integrate ermchat-server better (retry)
 

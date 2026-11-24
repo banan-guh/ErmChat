@@ -534,6 +534,7 @@
   "turnOff": "Turn off",
   "notificationsOff": "Notifications are off",
   "notificationsBlockedIos": "Blocked in iOS Settings",
+  "notificationsRegistrationFailed": "Couldn't register for notifications",
   "addKeyword": "Add keyword",
   "addUser": "Add user",
   "none": "None",

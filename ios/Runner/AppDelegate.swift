@@ -8,6 +8,7 @@ import UserNotifications
   private var apnsChannel: FlutterMethodChannel?
   private var tokenResults: [FlutterResult] = []
   private var launchChannel: String?
+  private var lastToken: String?
   private var dartReady = false
 
   override func application(
@@ -37,11 +38,15 @@ import UserNotifications
       if prompt {
         UNUserNotificationCenter.current().requestAuthorization(
           options: [.alert, .sound, .badge]
-        ) { _, _ in
-          // The token comes either way; without permission alerts just
-          // don't show.
+        ) { _, error in
           DispatchQueue.main.async {
-            UIApplication.shared.registerForRemoteNotifications()
+            if let error {
+              self.finishToken(nil, error: error)
+            } else {
+              // The token comes either way; without permission alerts just
+              // don't show.
+              UIApplication.shared.registerForRemoteNotifications()
+            }
           }
         }
       } else {
@@ -49,7 +54,9 @@ import UserNotifications
       }
     case "blocked":
       UNUserNotificationCenter.current().getNotificationSettings { settings in
-        let denied = settings.authorizationStatus == .denied
+        let denied = settings.authorizationStatus == .denied ||
+          (settings.authorizationStatus == .authorized &&
+            settings.alertSetting == .disabled)
         DispatchQueue.main.async { result(denied) }
       }
     case "openSettings":
@@ -57,26 +64,52 @@ import UserNotifications
         UIApplication.shared.open(url)
       }
       result(nil)
-    case "takeLaunchChannel":
+    case "launchChannel":
       dartReady = true
       result(launchChannel)
+    case "clearLaunchChannel":
       launchChannel = nil
+      result(nil)
+    case "clearNotifications":
+      UNUserNotificationCenter.current().removeAllDeliveredNotifications()
+      UIApplication.shared.applicationIconBadgeNumber = 0
+      result(nil)
     default:
       result(FlutterMethodNotImplemented)
     }
   }
 
-  private func finishToken(_ token: String?) {
+  private func finishToken(_ token: String?, error: Error? = nil) {
     let results = tokenResults
     tokenResults = []
-    for result in results { result(token) }
+    for result in results {
+      if let error {
+        result(FlutterError(
+          code: "apns_token",
+          message: error.localizedDescription,
+          details: nil))
+      } else {
+        result(token)
+      }
+    }
+  }
+
+  private func publishToken(_ token: String) {
+    let previous = lastToken
+    lastToken = token
+    apnsChannel?.invokeMethod("token", arguments: [
+      "token": token,
+      "previous": previous ?? "",
+    ])
   }
 
   override func application(
     _ application: UIApplication,
     didRegisterForRemoteNotificationsWithDeviceToken deviceToken: Data
   ) {
-    finishToken(deviceToken.map { String(format: "%02x", $0) }.joined())
+    let token = deviceToken.map { String(format: "%02x", $0) }.joined()
+    publishToken(token)
+    finishToken(token)
     super.application(application, didRegisterForRemoteNotificationsWithDeviceToken: deviceToken)
   }
 
@@ -86,7 +119,10 @@ import UserNotifications
     _ application: UIApplication,
     didFailToRegisterForRemoteNotificationsWithError error: Error
   ) {
-    finishToken(nil)
+    if tokenResults.isEmpty {
+      apnsChannel?.invokeMethod("tokenError", arguments: error.localizedDescription)
+    }
+    finishToken(nil, error: error)
     super.application(application, didFailToRegisterForRemoteNotificationsWithError: error)
   }
 
