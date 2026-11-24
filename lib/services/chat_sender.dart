@@ -192,6 +192,21 @@ class ChatSender {
     return wait;
   }
 
+  // ---- Macros --------------------------------------------------------------
+
+  /// [text] after the leading macro trigger expands, null when no macro
+  /// matches. [send] and [isCommandText] share this one expansion step.
+  String? _macroExpanded(String text) {
+    final macros = getMacros?.call();
+    if (macros == null || macros.isEmpty) return null;
+    return expandMacro(text, macros);
+  }
+
+  /// Whether [text] reaches the wire as a slash command after macro expansion.
+  /// Spam must never repeat one: commands bypass the rate gates.
+  bool isCommandText(String text) =>
+      (_macroExpanded(text) ?? text).startsWith('/');
+
   // ---- Send ----------------------------------------------------------------
 
   Future<void> send(
@@ -205,13 +220,10 @@ class ChatSender {
 
     // Local macro triggers expand before anything else: a macro may resolve
     // to a slash command or plain chat text alike.
-    final macros = getMacros?.call();
-    if (macros != null && macros.isNotEmpty) {
-      final expanded = expandMacro(text, macros);
-      if (expanded != null) {
-        text = expanded;
-        onFocusComposer?.call();
-      }
+    final expanded = _macroExpanded(text);
+    if (expanded != null) {
+      text = expanded;
+      onFocusComposer?.call();
     }
 
     if (text.startsWith('/')) {

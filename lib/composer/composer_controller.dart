@@ -368,14 +368,14 @@ class ComposerController {
 
   /// Re-sends the field's text, or the last sent text when the field is
   /// empty, to the selected channel at the pace Twitch accepts, until
-  /// [stopSpam]. Commands never repeat.
+  /// [stopSpam]. Commands, including macro-expanded ones, never repeat.
   void startSpam() {
     if (_spamTimer != null || !_canSpam) return;
     final channel = getSelectedChannel();
     final typed = messageController.text.trim();
     final text = typed.isNotEmpty ? typed : _lastSentText;
     if (channel == null || text == null || text.isEmpty) return;
-    if (text.startsWith('/')) return;
+    if (chatConn.isCommandText(text)) return;
     _spamText = text;
     _spamChannel = channel;
     _spamTimer = Timer(
@@ -396,6 +396,11 @@ class ComposerController {
       stopSpam();
       return;
     }
+    // A macro edited mid-spam can turn the text into a command.
+    if (chatConn.isCommandText(text)) {
+      stopSpam();
+      return;
+    }
     // The pace can tighten after scheduling (slow mode, a send elsewhere).
     final wait = chatConn.repeatDelay(
       channel,
@@ -413,14 +418,18 @@ class ComposerController {
     }
     chatConn.doSendMessage(text, channel);
     Haptics.major();
-    _spamTimer = Timer(
-      chatConn.repeatDelay(
-        channel,
-        gap: _gapOf(spamIntervalMs()),
-        privilegedGap: _gapOf(spamIntervalModMs()),
-      ),
-      _spamTick,
+    // A send that never reached the wire (write socket down) leaves the pace
+    // at zero, so re-arming at once would spin.
+    final next = chatConn.repeatDelay(
+      channel,
+      gap: _gapOf(spamIntervalMs()),
+      privilegedGap: _gapOf(spamIntervalModMs()),
     );
+    if (next <= Duration.zero) {
+      stopSpam();
+      return;
+    }
+    _spamTimer = Timer(next, _spamTick);
   }
 
   void stopSpam() {

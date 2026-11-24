@@ -22,6 +22,23 @@ class EventSubDecoder {
   late final StreamSubscription<Map<String, dynamic>> _subscription;
   final _channelUserIds = <String, String>{};
 
+  /// EventSub delivers at least once, so a redelivery repeats the metadata
+  /// message id. Keeps the newest [_recentMessageIdCap] ids, first in first out.
+  static const _recentMessageIdCap = 512;
+  final _recentMessageIds = <String>{};
+
+  /// True when [meta] carries a message id this decoder already emitted. An
+  /// empty id is never treated as a duplicate.
+  bool _isRedelivered(Map meta) {
+    final id = meta['message_id'];
+    if (id is! String || id.isEmpty) return false;
+    if (!_recentMessageIds.add(id)) return true;
+    if (_recentMessageIds.length > _recentMessageIdCap) {
+      _recentMessageIds.remove(_recentMessageIds.first);
+    }
+    return false;
+  }
+
   final _moderationController = StreamController<ModerationEvent>.broadcast(
     sync: true,
   );
@@ -185,6 +202,7 @@ class EventSubDecoder {
     final payload = msg['payload'];
     final event = payload is Map ? payload['event'] : null;
     if (meta is! Map || event is! Map<String, dynamic>) return;
+    if (_isRedelivered(meta)) return;
     final type = meta['subscription_type'] as String? ?? '';
     final channel = _channelFromPayload(msg);
 
@@ -563,6 +581,7 @@ class EventSubDecoder {
       baseAction = action.substring('shared_chat_'.length);
     }
 
+    String? targetLogin;
     String? targetName;
     String? reason;
     int? durationSeconds;
@@ -582,14 +601,17 @@ class EventSubDecoder {
       case ModerationAction.vip:
       case ModerationAction.unvip:
       case ModerationAction.untimeout:
+        targetLogin = metaObj?['user_login'] as String?;
         targetName = metaObj?['user_name'] as String?;
         reason = metaObj?['reason'] as String?;
         break;
       case ModerationAction.warn:
+        targetLogin = metaObj?['user_login'] as String?;
         targetName = metaObj?['user_name'] as String?;
         reason = metaObj?['reason'] as String?;
         break;
       case ModerationAction.timeout:
+        targetLogin = metaObj?['user_login'] as String?;
         targetName = metaObj?['user_name'] as String?;
         reason = metaObj?['reason'] as String?;
         final expiresAt = metaObj?['expires_at'] as String?;
@@ -604,6 +626,7 @@ class EventSubDecoder {
         }
         break;
       case ModerationAction.delete:
+        targetLogin = metaObj?['user_login'] as String?;
         targetName = metaObj?['user_name'] as String?;
         messageId = metaObj?['message_id'] as String?;
         messageBody = metaObj?['message_body'] as String?;
@@ -621,6 +644,7 @@ class EventSubDecoder {
       case ModerationAction.denyUnbanRequest:
         final requestObj =
             event['unban_request'] as Map<String, dynamic>? ?? metaObj;
+        targetLogin = requestObj?['user_login'] as String?;
         targetName = requestObj?['user_name'] as String?;
         reason = requestObj?['moderator_message'] as String?;
         break;
@@ -649,6 +673,7 @@ class EventSubDecoder {
         action: kind,
         rawAction: baseAction,
         moderatorName: moderatorName,
+        targetLogin: targetLogin,
         targetName: targetName,
         reason: reason,
         durationSeconds: durationSeconds,

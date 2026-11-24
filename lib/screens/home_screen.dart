@@ -218,6 +218,10 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
   final _channelNotifier = ValueNotifier<List<String>>([]);
   final _tileCache = <String, Map<String?, Widget>>{};
   bool _blocksFetched = false;
+  bool _blocksLoading = false;
+  int _blocksLoadGen = 0;
+  int _blocksRetryAttempt = 0;
+  Timer? _blocksRetryTimer;
   final _scrollControllers = <String, ScrollController>{};
   final _atBottomNotifiers = <String, ValueNotifier<bool>>{};
   ChatNoticeController get _chatNotice => ref.read(chatNoticeProvider);
@@ -948,11 +952,16 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
     _sevenTvSettings.addListener(_applySevenTvSettings);
     Settings.animateGifs.addListener(_applyAnimateGifs);
     unawaited(_threads.loadSaved());
+    // Saved channels restore after local config, independently of Helix. A
+    // failed block-list fetch must not erase the push server's channel watch.
     unawaited(
       _channelManager.loadRecentMessagesConfig().then((_) {
-        if (mounted) _ensureBlockedUsersLoaded();
+        if (mounted) unawaited(_channelManager.loadChannels());
       }),
     );
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) unawaited(_ensureBlockedUsersLoaded());
+    });
     unawaited(_pingManager.load());
     unawaited(_ignoreManager.load());
     unawaited(_linkWhitelist.load());
@@ -1290,30 +1299,83 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
     WidgetsBinding.instance.addPostFrameCallback((_) => _syncSystemUiMode());
   }
 
+  // Backoff for a failed block-list fetch. The last delay repeats, so a
+  // dead network never spins and a later recovery still loads the list.
+  static const _blocksRetryDelays = <Duration>[
+    Duration(seconds: 2),
+    Duration(seconds: 4),
+    Duration(seconds: 8),
+    Duration(seconds: 16),
+    Duration(seconds: 32),
+    Duration(seconds: 60),
+  ];
+
   Future<void> _ensureBlockedUsersLoaded() async {
-    if (_blocksFetched) return;
+    if (_blocksFetched || _blocksLoading) return;
     final userId = _twitchAuth.userId;
     if (userId == null) {
+      _blocksRetryTimer?.cancel();
+      _blocksRetryTimer = null;
+      _blocksRetryAttempt = 0;
       ref.read(chatReadyProvider.notifier).set(true);
-      _channelManager.loadChannels();
       return;
     }
-    _blocksFetched = true;
-    var blocked = <String>{};
+    final load = ++_blocksLoadGen;
+    _blocksLoading = true;
+    _blocksRetryTimer?.cancel();
+    _blocksRetryTimer = null;
+    Set<String>? blocked;
     try {
-      blocked = await _twitchApi
-          .getBlockedUsers(_twitchAuth)
-          .timeout(const Duration(seconds: 5));
+      blocked = await _fetchBlockedUsers();
     } catch (e) {
       logDebug('[HomeScreen] failed to fetch blocked users: $e');
     }
+    if (!mounted || load != _blocksLoadGen) return;
+    _blocksLoading = false;
     // A switch mid-fetch re-runs this for the new account; the old list and
     // its ready flag must not land in the new account's chat.
-    if (!mounted || _twitchAuth.userId != userId) return;
+    if (_twitchAuth.userId != userId) return;
+    if (blocked == null) {
+      _scheduleBlocksRetry();
+      return;
+    }
+    _blocksFetched = true;
+    _blocksRetryAttempt = 0;
     ref.read(blockedLoginsProvider.notifier).addAll(blocked);
     ref.read(chatReadyProvider.notifier).set(true);
-    _channelManager.loadChannels();
     setState(() {});
+  }
+
+  /// Fetches the block list in its own error scope. Null means the call failed,
+  /// since an empty set is a valid result and failures come back empty too.
+  Future<Set<String>?> _fetchBlockedUsers() =>
+      _twitchApi.isolateErrors(() async {
+        final blocked = await _twitchApi.getBlockedUsers(_twitchAuth);
+        return _twitchApi.lastError == null ? blocked : null;
+      });
+
+  void _scheduleBlocksRetry() {
+    final index = _blocksRetryAttempt;
+    final delay =
+        _blocksRetryDelays[index < _blocksRetryDelays.length
+            ? index
+            : _blocksRetryDelays.length - 1];
+    _blocksRetryAttempt = index + 1;
+    _blocksRetryTimer?.cancel();
+    _blocksRetryTimer = Timer(delay, () {
+      _blocksRetryTimer = null;
+      if (mounted) unawaited(_ensureBlockedUsersLoaded());
+    });
+  }
+
+  /// Drops the current account's block load, in-flight result and retry state.
+  void _resetBlocksLoad() {
+    _blocksLoadGen++;
+    _blocksLoading = false;
+    _blocksFetched = false;
+    _blocksRetryAttempt = 0;
+    _blocksRetryTimer?.cancel();
+    _blocksRetryTimer = null;
   }
 
   /// Re-renders visible tiles after the link whitelist or the chat filter
@@ -1504,6 +1566,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
       _mutationListeners.remove(name);
       _mutationAllListeners.remove(name);
     }
+    _routePendingNotificationTap();
   }
 
   void _dropChannelSubs() {
@@ -1572,11 +1635,13 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
       // chat state. The remaining resets are HomeScreen side effects.
       _session.clear();
       _chat.clearAccountScopedState();
+      // Pins and their refresh timers belong to the previous account.
+      _chatConn.clearPinsForAccountSwitch();
       _pingManager.setAccount(null);
       // The block / mention caches are per-account: reset them so blocks are
       // re-fetched, the retroactive mention scan re-runs, and channels
       // re-resolve emotes with the new token.
-      _blocksFetched = false;
+      _resetBlocksLoad();
       // Fail closed until the new account's block list arrives; without this
       // chat unhides immediately and the old account's list briefly filters.
       ref.read(chatReadyProvider.notifier).set(false);
@@ -1586,6 +1651,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
       _channelManager.rearmMentionScan();
       // Whispers and the mentions feed belong to the previous account.
       _mentions.clearForAccountSwitch();
+      unawaited(_notificationService.clearMentionNotifications());
       ref.read(replyToProvider.notifier).set(null);
       _channelManager.scanHistoryForMentions();
       unawaited(_ensureBlockedUsersLoaded());
@@ -1773,6 +1839,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
     _dropChannelSubs();
     _channelManager.dispose();
     _channelNotifier.dispose();
+    _blocksRetryTimer?.cancel();
     _session.version.removeListener(_onSessionApplied);
     _notificationTapSub?.cancel();
     _apnsTapSub?.cancel();

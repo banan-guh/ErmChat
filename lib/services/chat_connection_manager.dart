@@ -438,6 +438,8 @@ class ChatConnectionManager {
     onStreamSeen: config.sinks.onArchiveStreamSeen,
     onStreamEnded: config.sinks.onArchiveStreamEnded,
     onSubscribed: syncPin,
+    onIdentityResolved: () =>
+        unawaited(Future<void>.microtask(() => connect())),
   );
   final _ingestionSubs = <StreamSubscription<void>>[];
 
@@ -515,6 +517,15 @@ class ChatConnectionManager {
     onPinned(event);
   }
 
+  /// Drops account-scoped pin cards and their refresh timers through the sink.
+  void clearPinsForAccountSwitch() {
+    for (final channel in config.chat.names) {
+      config.sinks.onPinned?.call(
+        PinnedMessageEvent(channel: channel, id: '', removed: true),
+      );
+    }
+  }
+
   void dispose() {
     _lifecycle.dispose();
     _liveness.dispose();
@@ -540,7 +551,7 @@ class ChatConnectionManager {
 
   void stopChatStatusTimer(String channel) {
     _channelSetup.stopChatStatusTimer(channel);
-    readDecoder.selfBadges.remove(channel);
+    readDecoder.clearSelfBadgesFor(channel);
   }
 
   /// Drops per-channel subscription state (channel left); the next join
@@ -548,6 +559,7 @@ class ChatConnectionManager {
   void forgetChannel(String channel) {
     // Invalidate an in-flight pin read: it must not repaint a left channel.
     _pinRequests[channel] = (_pinRequests[channel] ?? 0) + 1;
+    _readiness.forgetChannel(channel);
     _sender.forgetChannel(channel);
     config.services.pubSub?.forgetChannel(channel);
     _channelSetup.forgetChannel(channel);
@@ -634,6 +646,9 @@ class ChatConnectionManager {
     String channel, {
     TwitchMessage? replyTo,
   }) => _sender.send(text, channel, replyTo: replyTo);
+
+  /// Whether [text] expands to a slash command, so it must never be spammed.
+  bool isCommandText(String text) => _sender.isCommandText(text);
 
   /// Whether both IRC sockets are up. The write socket alone can deliver a
   /// PRIVMSG, but without the read socket the local echo has no ride. The

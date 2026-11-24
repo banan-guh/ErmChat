@@ -61,18 +61,42 @@ class ChatStatusComposer {
   final _streamStatusParts = <String, List<String>>{};
   Timer? _chatStatusTimer;
   final _chatStatusChannels = <String>{};
+  final _statusGenerations = <String, int>{};
+
+  /// Latest request per channel, so a slower older poll cannot apply.
+  final _requestGenerations = <String, int>{};
+  int _nextStatusGeneration = 0;
+  int _nextRequestGeneration = 0;
   bool _fetchScheduled = false;
+  bool _disposed = false;
   static const _chatStatusInterval = Duration(seconds: 30);
 
+  bool _isCurrent(String channel, int generation) =>
+      !_disposed && _statusGenerations[channel] == generation;
+
+  bool _isLatest(String channel, int generation, int request) =>
+      _isCurrent(channel, generation) &&
+      _requestGenerations[channel] == request;
+
   void dispose() {
+    _disposed = true;
     _chatStatusTimer?.cancel();
     _chatStatusTimer = null;
     _chatStatusChannels.clear();
+    _statusGenerations.clear();
+    _requestGenerations.clear();
+    _roomStateTags.clear();
+    _streamStatusParts.clear();
+    _offlinePolls.clear();
+    _endedStreams.clear();
+    _refinedEnds.clear();
+    _endRefineAfter.clear();
     roomStateVersion.dispose();
   }
 
   /// Merges partial ROOMSTATE tags for [channel] and recomposes its status.
   void onRoomState(String channel, Map<String, String> tags) {
+    if (_disposed) return;
     _roomStateTags[channel] = {...?_roomStateTags[channel], ...tags};
     roomStateVersion.value++;
     _composeChatStatus(channel);
@@ -80,7 +104,9 @@ class ChatStatusComposer {
 
   /// Starts the periodic status fetch for [channel] and arms the timer.
   void startFor(String channel) {
+    if (_disposed) return;
     _chatStatusChannels.add(channel);
+    _statusGenerations[channel] = ++_nextStatusGeneration;
     _startChatStatusTimer();
     _scheduleFetch();
   }
@@ -92,13 +118,23 @@ class ChatStatusComposer {
     _fetchScheduled = true;
     scheduleMicrotask(() {
       _fetchScheduled = false;
+      if (_disposed) return;
       unawaited(fetchAllChatStatus());
     });
   }
 
   /// Stops tracking [channel] and drops its accumulated status bits.
   void stopFor(String channel) {
+    if (_disposed) return;
+    final userId = chat.channelFor(channel)?.info.broadcasterId;
+    if (userId != null) {
+      _endedStreams.remove(userId);
+      _refinedEnds.remove(userId);
+      _endRefineAfter.remove(userId);
+    }
     _chatStatusChannels.remove(channel);
+    _statusGenerations.remove(channel);
+    _requestGenerations.remove(channel);
     if (_chatStatusChannels.isEmpty) {
       _chatStatusTimer?.cancel();
       _chatStatusTimer = null;
@@ -120,6 +156,9 @@ class ChatStatusComposer {
       Map.of(_roomStateTags[channel] ?? const {});
 
   Future<void> fetchChatStatus(String channel) async {
+    final generation = _statusGenerations[channel];
+    if (generation == null) return;
+    final request = _requestGenerations[channel] = ++_nextRequestGeneration;
     final auth = twitchAuth;
     if (!auth.isConfigured) return;
 
@@ -135,15 +174,27 @@ class ChatStatusComposer {
       logDebug('[ChatConn] fetchChatStatus failed for $channel: $e');
       return;
     }
+    if (!_isLatest(channel, generation, request)) return;
     _applyStreamStatus(channel, stream);
-    await _applyStreamMarkers({userId: (channel, stream)});
+    await _applyStreamMarkers({userId: (channel, generation, request, stream)});
   }
 
   Future<void> fetchAllChatStatus() async {
+    if (_disposed) return;
+    final generations = <String, int>{};
+    final requests = <String, int>{};
+    for (final channel in _chatStatusChannels) {
+      final generation = _statusGenerations[channel];
+      if (generation == null) continue;
+      final request = ++_nextRequestGeneration;
+      generations[channel] = generation;
+      requests[channel] = request;
+      _requestGenerations[channel] = request;
+    }
     final auth = twitchAuth;
     if (!auth.isConfigured) return;
     final ids = <String>[];
-    for (final channel in _chatStatusChannels) {
+    for (final channel in generations.keys) {
       final userId = chat.channelFor(channel)?.info.broadcasterId;
       if (userId != null) ids.add(userId);
     }
@@ -155,14 +206,21 @@ class ChatStatusComposer {
       logDebug('[ChatConn] fetchAllChatStatus failed: $e');
       return;
     }
-    for (final channel in _chatStatusChannels) {
+    if (_disposed) return;
+    for (final MapEntry(key: channel, value: generation)
+        in generations.entries) {
+      if (!_isLatest(channel, generation, requests[channel]!)) continue;
       final userId = chat.channelFor(channel)?.info.broadcasterId;
       _applyStreamStatus(channel, userId != null ? streams[userId] : null);
     }
-    final polls = <String, (String, Map<String, dynamic>?)>{};
-    for (final channel in _chatStatusChannels) {
+    final polls = <String, (String, int, int, Map<String, dynamic>?)>{};
+    for (final MapEntry(key: channel, value: generation)
+        in generations.entries) {
+      if (!_isLatest(channel, generation, requests[channel]!)) continue;
       final id = chat.channelFor(channel)?.info.broadcasterId;
-      if (id != null) polls[id] = (channel, streams[id]);
+      if (id != null) {
+        polls[id] = (channel, generation, requests[channel]!, streams[id]);
+      }
     }
     await _applyStreamMarkers(polls);
   }
@@ -170,6 +228,13 @@ class ChatStatusComposer {
   // Consecutive offline polls per broadcaster. Helix can briefly list a live
   // stream as gone, so an end needs two.
   final _offlinePolls = <String, int>{};
+
+  /// Ended ids independent of buffer residency, so a truncated marker can
+  /// still gain the archive's real end time.
+  final _endedStreams = <String, String>{};
+  final _refinedEnds = <String, ({String id, DateTime endedAt})>{};
+  final _endRefineAfter = <String, DateTime>{};
+  static const _endRefineRetry = Duration(minutes: 5);
 
   static String _markerKey(String userId) => 'stream_marker.$userId';
 
@@ -180,7 +245,7 @@ class ChatStatusComposer {
   /// `started_at` position even when that is older than the buffer;
   /// truncation drops it with the other old rows.
   Future<void> _applyStreamMarkers(
-    Map<String, (String, Map<String, dynamic>?)> polls,
+    Map<String, (String, int, int, Map<String, dynamic>?)> polls,
   ) async {
     final SharedPreferences prefs;
     try {
@@ -189,22 +254,38 @@ class ChatStatusComposer {
       logDebug('[ChatConn] stream markers skipped: $e');
       return;
     }
+    if (_disposed) return;
     final now = _now();
-    for (final MapEntry(key: userId, value: (channel, stream))
+    for (final MapEntry(
+          key: userId,
+          value: (channel, generation, request, stream),
+        )
         in polls.entries) {
+      if (!_isLatest(channel, generation, request)) continue;
       final target = chat.channelFor(channel);
       if (target == null) continue;
       final saved = _readMarker(prefs, userId);
       final id = stream?['id'] as String?;
       final live = stream != null && stream['type'] == 'live' && id != null;
       if (!live) {
-        if (saved == null || saved.ended) continue;
+        if (saved == null) continue;
+        if (saved.ended) {
+          _endedStreams[userId] = saved.id;
+          final refined = _refinedEnds[userId];
+          if (refined?.id == saved.id) continue;
+          final after = _endRefineAfter[userId];
+          if (after == null || !now.isBefore(after)) {
+            _scheduleEndRefine(channel, userId, saved.id, generation);
+          }
+          continue;
+        }
         final polls = (_offlinePolls[userId] ?? 0) + 1;
         _offlinePolls[userId] = polls;
         if (polls < 2) continue;
         _offlinePolls.remove(userId);
+        _endedStreams[userId] = saved.id;
         _writeEnded(target, saved);
-        unawaited(_refineEnd(channel, userId, saved.id));
+        _scheduleEndRefine(channel, userId, saved.id, generation);
         await prefs.setString(
           _markerKey(userId),
           jsonEncode({
@@ -217,13 +298,14 @@ class ChatStatusComposer {
         continue;
       }
       _offlinePolls.remove(userId);
+      _endedStreams.remove(userId);
+      _refinedEnds.remove(userId);
       if (saved != null && saved.id != id && !saved.ended) {
+        _endedStreams[userId] = saved.id;
         _writeEnded(target, saved);
-        unawaited(_refineEnd(channel, userId, saved.id));
+        _scheduleEndRefine(channel, userId, saved.id, generation);
       }
-      if (saved != null && saved.id == id && saved.ended) {
-        target.messages.removeSystem('sys_stream:$id:end');
-      }
+      target.messages.removeSystem('sys_stream:$id:end');
       final startedAt = DateTime.tryParse(
         stream['started_at'] as String? ?? '',
       );
@@ -303,15 +385,26 @@ class ChatStatusComposer {
     );
   }
 
-  /// Moves the end of [streamId] to the real end from its archive video,
-  /// which Twitch lists a little after the stream stops. One best-effort
-  /// attempt: a failure, a video not ready yet or a video for another
-  /// stream keeps the last-poll estimate and its row.
+  void _scheduleEndRefine(
+    String channel,
+    String userId,
+    String streamId,
+    int generation,
+  ) {
+    _endRefineAfter[userId] = _now().add(_endRefineRetry);
+    unawaited(_refineEnd(channel, userId, streamId, generation));
+  }
+
+  /// Moves [streamId]'s end to the archive video's real end when Twitch
+  /// publishes it. Failures, missing videos and reopened ids keep the
+  /// current row.
   Future<void> _refineEnd(
     String channel,
     String userId,
     String streamId,
+    int generation,
   ) async {
+    if (!_isCurrent(channel, generation)) return;
     final auth = twitchAuth;
     if (!auth.isConfigured) return;
     ({String vodId, String streamId, DateTime startedAt, DateTime endedAt})?
@@ -322,10 +415,15 @@ class ChatStatusComposer {
       logDebug('[ChatConn] archive end lookup failed for $channel: $e');
       return;
     }
+    if (!_isCurrent(channel, generation)) return;
     if (video == null || video.streamId != streamId) return;
     final target = chat.channelFor(channel);
-    if (target == null) return;
+    // Reopening the same id clears this state before removing its end row.
+    if (target == null || _endedStreams[userId] != streamId) return;
+    final refined = _refinedEnds[userId];
+    if (refined?.id == streamId && refined?.endedAt == video.endedAt) return;
     onStreamEnded?.call(streamId, video.endedAt);
+    _refinedEnds[userId] = (id: streamId, endedAt: video.endedAt);
     target.messages.removeSystem('sys_stream:$streamId:end');
     target.addSystemMessageAt(
       [
@@ -350,6 +448,7 @@ class ChatStatusComposer {
   }
 
   void _applyStreamStatus(String channel, Map<String, dynamic>? stream) {
+    if (_disposed || !_chatStatusChannels.contains(channel)) return;
     final parts = <String>[];
     if (stream != null && stream['type'] == 'live') {
       final viewers = (stream['viewer_count'] as num?)?.toInt() ?? 0;

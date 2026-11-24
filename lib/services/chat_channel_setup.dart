@@ -55,6 +55,7 @@ class ChatChannelSetup {
     this.onStreamSeen,
     this.onStreamEnded,
     this.onSubscribed,
+    this.onIdentityResolved,
   });
 
   static int _unboundedMessages() => 1 << 30;
@@ -107,6 +108,10 @@ class ChatChannelSetup {
   /// every join and resubscribe.
   final void Function(String channel)? onSubscribed;
 
+  /// Fires when a late Helix lookup fills an anonymous session, so the
+  /// manager re-runs connect and swaps justinfan sockets for authed ones.
+  final VoidCallback? onIdentityResolved;
+
   bool _disposed = false;
   final _httpClient = http.Client();
 
@@ -143,6 +148,19 @@ class ChatChannelSetup {
   bool _isStale(String channel, int epoch) =>
       _disposed || _epochOf(channel) != epoch;
 
+  // Per-join counter so a resubscribe re-runs setup while a late ROOMSTATE
+  // finishes an older join only once.
+  final _joinGenerations = <String, int>{};
+
+  // Highest join generation whose post-ID setup already ran.
+  final _postIdSetupGenerations = <String, int>{};
+
+  // Channels that JOINed but still need a broadcaster id before setup can run.
+  final _awaitingPostIdSetup = <String>{};
+
+  // Token whose late identity resolution already requested a reconnect.
+  String? _identityReconnectToken;
+
   // Channels a join-failure notice was displayed for. A later ROOMSTATE
   // confirmation clears the entry and announces the (late) success.
   final _joinFailureNotified = <String>{};
@@ -158,6 +176,9 @@ class ChatChannelSetup {
       }
     }
     _roomIdWaiters.clear();
+    _awaitingPostIdSetup.clear();
+    _joinGenerations.clear();
+    _postIdSetupGenerations.clear();
     _httpClient.close();
   }
 
@@ -183,6 +204,9 @@ class ChatChannelSetup {
   /// Drops per-channel state (channel left) and unsubscribes 7TV.
   void forgetChannel(String channel) {
     _leaveEpochs[channel] = _epochOf(channel) + 1;
+    _awaitingPostIdSetup.remove(channel);
+    _joinGenerations.remove(channel);
+    _postIdSetupGenerations.remove(channel);
     eventSubTopics.forgetChannel(channel);
     eventSubDecoder.forgetChannel(channel);
     // A rejoin may fail and say so again.
@@ -248,6 +272,9 @@ class ChatChannelSetup {
     // the read socket for the single JOIN slot per channel.
     ircRead.join(channelName);
     final epoch = _epochOf(channelName);
+    final generation = (_joinGenerations[channelName] ?? 0) + 1;
+    _joinGenerations[channelName] = generation;
+    _awaitingPostIdSetup.add(channelName);
 
     try {
       final auth = twitchAuth;
@@ -274,62 +301,89 @@ class ChatChannelSetup {
         }
       }
       if (channelUserId == null) return;
-      final channelId = channelUserId;
-      chat.channelFor(channelName)?.info.setBroadcasterId(channelId);
-      // Unauthenticated redemptions and chat widgets for every viewer.
-      // Never awaits: a dead edge degrades to the IRC highlight path.
-      try {
-        pubSub?.listen(channelName, channelId);
-      } catch (_) {
-        logDebug('[ChatConn] pubsub listen failed for $channelName');
-      }
-      onSubscribed?.call(channelName);
-      // The first join fetches the account's own emotes; later joins
-      // attach the fetched ones to this channel.
-      unawaited(emoteManager.loadUserEmotes(auth, {channelName: channelId}));
-      // Map before any await below: a resubscribe completing in the gap
-      // would otherwise deliver events with no channel and drop them.
-      eventSubDecoder.setChannelMapping(channelId, channelName);
-      _trackedLoad(
-        channelName,
-        'badges',
-        () => badgeService.fetchChannelBadges(auth, channelId, channelName),
-      );
-
-      emoteManager.accessToken = auth.accessToken;
-      Future<void>? emoteResolve;
-      if (!emoteManager.emotesResolved(channelName)) {
-        emoteManager.markEmotesResolved(channelName);
-        emoteResolve = _trackedLoad(
-          channelName,
-          'emotes',
-          () => emoteManager.resolveEmotes(channelName, channelId),
-        );
-      }
-
-      unawaited(
-        _resolveSevenTvAndSubscribe(
-          channelName,
-          channelId,
-          epoch,
-          emoteResolve,
-        ),
-      );
-
-      if (session.login == null && auth.accessToken != null) {
-        final token = auth.accessToken;
-        final currentUser = await ensureCurrentUser(auth);
-        // A switch during the lookup must not overwrite the new identity.
-        if (currentUser != null && auth.accessToken == token) {
-          session.apply(currentUser['login'], userId: currentUser['id']);
-        }
-        if (_isStale(channelName, epoch)) return;
-      }
-
-      eventSubTopics.subscribeChannel(channelName, channelId);
+      await _setupChannelData(channelName, channelUserId, epoch, generation);
     } catch (_) {
       logDebug('[ChatConn] subscribeChannel failed for $channelName');
     }
+  }
+
+  /// Runs a joined channel's per-channel data setup once its broadcaster id
+  /// is known. The join generation keeps the normal path and a late ROOMSTATE
+  /// from running the same setup twice while a resubscribe still re-runs it.
+  Future<void> _setupChannelData(
+    String channelName,
+    String channelId,
+    int epoch,
+    int generation,
+  ) async {
+    if (_isStale(channelName, epoch)) return;
+    if ((_postIdSetupGenerations[channelName] ?? -1) >= generation) return;
+    _postIdSetupGenerations[channelName] = generation;
+    _awaitingPostIdSetup.remove(channelName);
+
+    final auth = twitchAuth;
+    chat.channelFor(channelName)?.info.setBroadcasterId(channelId);
+    // Unauthenticated redemptions and chat widgets for every viewer.
+    // Never awaits: a dead edge degrades to the IRC highlight path.
+    try {
+      pubSub?.listen(channelName, channelId);
+    } catch (_) {
+      logDebug('[ChatConn] pubsub listen failed for $channelName');
+    }
+    onSubscribed?.call(channelName);
+    // The first join fetches the account's own emotes; later joins
+    // attach the fetched ones to this channel.
+    unawaited(emoteManager.loadUserEmotes(auth, {channelName: channelId}));
+    // Map before any await below: a resubscribe completing in the gap
+    // would otherwise deliver events with no channel and drop them.
+    eventSubDecoder.setChannelMapping(channelId, channelName);
+    _trackedLoad(
+      channelName,
+      'badges',
+      () => badgeService.fetchChannelBadges(auth, channelId, channelName),
+    );
+
+    emoteManager.accessToken = auth.accessToken;
+    Future<void>? emoteResolve;
+    if (!emoteManager.emotesResolved(channelName)) {
+      emoteManager.markEmotesResolved(channelName);
+      emoteResolve = _trackedLoad(
+        channelName,
+        'emotes',
+        () => emoteManager.resolveEmotes(channelName, channelId),
+      );
+    }
+
+    unawaited(
+      _resolveSevenTvAndSubscribe(channelName, channelId, epoch, emoteResolve),
+    );
+
+    if (session.login == null && auth.accessToken != null) {
+      final token = auth.accessToken;
+      Map<String, dynamic>? currentUser;
+      try {
+        currentUser = await ensureCurrentUser(auth);
+      } catch (_) {
+        logDebug(
+          '[ChatConn] getCurrentUser failed during setup for $channelName',
+        );
+      }
+      // A switch during the lookup must not overwrite the new identity.
+      if (currentUser != null &&
+          auth.accessToken == token &&
+          !auth.isActiveExpired) {
+        session.apply(currentUser['login'], userId: currentUser['id']);
+        // The connect-time lookup failed, so the sockets are still anonymous.
+        // Ask the manager to re-run connect with this resolved login.
+        if (_identityReconnectToken != token) {
+          _identityReconnectToken = token;
+          onIdentityResolved?.call();
+        }
+      }
+      if (_isStale(channelName, epoch)) return;
+    }
+
+    eventSubTopics.subscribeChannel(channelName, channelId);
     connectionStateNotifier.value++;
     _status.startFor(channelName);
   }
@@ -609,6 +663,19 @@ class ChatChannelSetup {
     final roomId = event.tags['room-id'];
     if (roomId != null && roomId.isNotEmpty) {
       _completeRoomId(event.channel, roomId);
+      final generation = _joinGenerations[event.channel];
+      // The id wait can time out before ROOMSTATE lands. Finish this join's
+      // setup here so a late id still wires the channel's data.
+      if (generation != null && _awaitingPostIdSetup.contains(event.channel)) {
+        unawaited(
+          _setupChannelData(
+            event.channel,
+            roomId,
+            _epochOf(event.channel),
+            generation,
+          ),
+        );
+      }
     }
     return true;
   }

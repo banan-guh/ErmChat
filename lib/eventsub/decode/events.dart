@@ -76,6 +76,11 @@ class ModerationEvent {
   /// Wire action; feeds the string-based activity model.
   final String rawAction;
   final String moderatorName;
+
+  /// Target's login, the identity key for bans, warnings and roster edits.
+  final String? targetLogin;
+
+  /// Target's display name, for formatted copy only.
   final String? targetName;
   final String? reason;
   final int? durationSeconds;
@@ -88,6 +93,7 @@ class ModerationEvent {
     required this.action,
     required this.rawAction,
     required this.moderatorName,
+    this.targetLogin,
     this.targetName,
     this.reason,
     this.durationSeconds,

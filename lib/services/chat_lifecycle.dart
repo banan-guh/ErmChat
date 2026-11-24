@@ -112,6 +112,8 @@ class ChatLifecycle {
   String? _expiredToken;
   bool _lastIrcAnonymous = true;
   String? _lastValidatedToken;
+  Timer? _tokenValidationTimer;
+  static const _tokenValidationInterval = Duration(hours: 1);
   bool _disposed = false;
 
   StreamSubscription<EventSubStatus>? statusSub;
@@ -136,6 +138,8 @@ class ChatLifecycle {
 
   void dispose() {
     _disposed = true;
+    _tokenValidationTimer?.cancel();
+    _tokenValidationTimer = null;
     statusSub?.cancel();
     ircStatusSub?.cancel();
     ircReadStatusSub?.cancel();
@@ -161,7 +165,7 @@ class ChatLifecycle {
     // Attribute the resolution to the credential it was made with, so a late
     // result after an account switch is dropped along with its answer.
     final fetch = twitchApi.getCurrentUser(auth).then((user) {
-      if (auth.accessToken != tokenAtStart) return null;
+      if (auth.accessToken != tokenAtStart || auth.isActiveExpired) return null;
       if (user != null) {
         auth.setUser(
           user['login'],
@@ -179,6 +183,33 @@ class ChatLifecycle {
       _currentUserFetch = null;
       _currentUserFetchToken = null;
     });
+  }
+
+  Future<void> _validateToken(TwitchAuth auth, String token) async {
+    try {
+      final outcome = await twitchApi.isolateErrors(() async {
+        final result = await twitchApi.validateToken(auth);
+        return (
+          result: result,
+          expired: result == null && twitchApi.lastErrorStatus == 401,
+        );
+      });
+      if (_disposed || auth.accessToken != token || auth.isActiveExpired) {
+        return;
+      }
+      final result = outcome.result;
+      if (outcome.expired) _handleExpiredToken();
+      if (result != null &&
+          TwitchOAuth.missingScopes(result.scopes).isNotEmpty) {
+        auth.markScopeStale();
+      }
+      // Only definitive outcomes stop the next startup validation.
+      if (outcome.result != null || outcome.expired) {
+        _lastValidatedToken = token;
+      }
+    } catch (_) {
+      // Network error - proceed normally.
+    }
   }
 
   /// Posts the per-channel "Connected" once, when the channel becomes fully
@@ -433,34 +464,21 @@ class ChatLifecycle {
       // listener chain (notifyListeners -> connect rerun) or the IRC
       // login-failure NOTICE.
       final validatedToken = auth.accessToken;
-      if (hasToken && _lastValidatedToken != validatedToken) {
-        unawaited(() async {
-          try {
-            final result = await twitchApi.validateToken(auth);
-            if (result == null && twitchApi.lastErrorStatus == 401) {
-              // Attribute the verdict to the credential being validated: if
-              // the active account changed while the request was in flight,
-              // the 401 says nothing about the new token.
-              if (auth.accessToken == validatedToken) {
-                _handleExpiredToken();
-              }
-            }
-            if (result != null && auth.accessToken == validatedToken) {
-              // Grant predates scopes added after login: prompt re-login
-              // instead of failing Tier 3 calls with 403s.
-              if (TwitchOAuth.missingScopes(result.scopes).isNotEmpty) {
-                auth.markScopeStale();
-              }
-            }
-            // Only update _lastValidatedToken on definitive outcomes (success
-            // or 401). Network errors re-trigger validation next time.
-            if (result != null || twitchApi.lastErrorStatus == 401) {
-              _lastValidatedToken = validatedToken;
-            }
-          } catch (_) {
-            // Network error - proceed normally.
+      if (hasToken) {
+        _tokenValidationTimer ??= Timer.periodic(_tokenValidationInterval, (_) {
+          final currentAuth = twitchAuth;
+          final token = currentAuth.accessToken;
+          if (_disposed || token == null || currentAuth.isActiveExpired) {
+            return;
           }
-        }());
+          unawaited(_validateToken(currentAuth, token));
+        });
+        if (_lastValidatedToken != validatedToken) {
+          unawaited(_validateToken(auth, validatedToken!));
+        }
+      } else {
+        _tokenValidationTimer?.cancel();
+        _tokenValidationTimer = null;
       }
 
       final Future<void> eventSubFuture;
@@ -510,7 +528,8 @@ class ChatLifecycle {
       // never applied and the old account's credentials never ride the new
       // token; the queued retry re-runs with the new account.
       if (auth.accessToken != validatedToken) return;
-      if (currentUser != null) {
+      if (auth.isActiveExpired) hasToken = false;
+      if (currentUser != null && hasToken) {
         session.apply(currentUser['login'], userId: currentUser['id']);
         unawaited(eventSubTopics.subscribeWhispers());
       }

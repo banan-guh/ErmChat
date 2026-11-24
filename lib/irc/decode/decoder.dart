@@ -70,6 +70,8 @@ class IrcChatDecoder {
 
   void clearSelfBadges() => selfBadges.clear();
 
+  void clearSelfBadgesFor(String? channel) => selfBadges.remove(channel);
+
   /// Test hook into the same handler the raw stream uses.
   @visibleForTesting
   void feed(IrcMessage msg) => _handle(msg);
@@ -207,7 +209,7 @@ class IrcChatDecoder {
     if (badges == null) {
       // An empty badge set clears the stored one, so a lost mod or sub badge
       // stops bypassing slow mode.
-      selfBadges.remove(channel);
+      clearSelfBadgesFor(channel);
       return;
     }
     selfBadges[channel] = badges.map((b) => b.setId).toSet();

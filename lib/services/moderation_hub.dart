@@ -240,11 +240,12 @@ class ModerationHub {
 
     final mod = event.moderatorName;
     final target = event.targetName;
+    final targetLogin = event.targetLogin;
     final selfLogin = session.login?.toLowerCase();
     final isSelfTarget =
-        target != null &&
+        targetLogin != null &&
         selfLogin != null &&
-        target.toLowerCase() == selfLogin;
+        targetLogin.toLowerCase() == selfLogin;
     final reason = (event.reason != null && event.reason!.isNotEmpty)
         ? strings().quotedSuffix(event.reason!)
         : '';
@@ -300,9 +301,9 @@ class ModerationHub {
           event.channel,
           event.action == ModerationAction.timeout,
         );
-        if (target != null) {
-          _archiveClear(event.channel, target);
-          chat.channelFor(event.channel)?.messages.markUserDeleted(target);
+        if (targetLogin != null) {
+          _archiveClear(event.channel, targetLogin);
+          chat.channelFor(event.channel)?.messages.markUserDeleted(targetLogin);
           chat
               .channelFor(event.channel)
               ?.moderation
@@ -310,7 +311,7 @@ class ModerationHub {
                 BanEntry(
                   at: _now(),
                   channel: event.channel,
-                  login: target,
+                  login: targetLogin,
                   expiresAt:
                       event.action == ModerationAction.timeout &&
                           event.durationSeconds != null
@@ -351,8 +352,8 @@ class ModerationHub {
       case ModerationAction.unban:
       case ModerationAction.untimeout:
         if (isSelfTarget) onSelfTimeoutCleared(event.channel);
-        if (target != null) {
-          chat.channelFor(event.channel)?.moderation.removeBan(target);
+        if (targetLogin != null) {
+          chat.channelFor(event.channel)?.moderation.removeBan(targetLogin);
         }
         onSystemMessage(
           event.channel,
@@ -391,7 +392,7 @@ class ModerationHub {
         feed();
         break;
       case ModerationAction.warn:
-        if (target != null && target.isNotEmpty) {
+        if (targetLogin != null && targetLogin.isNotEmpty) {
           chat
               .channelFor(event.channel)
               ?.moderation
@@ -399,7 +400,7 @@ class ModerationHub {
                 WarnEntry(
                   at: _now(),
                   channel: event.channel,
-                  target: target,
+                  target: targetLogin,
                   moderator: mod,
                   reason: event.reason,
                 ),
