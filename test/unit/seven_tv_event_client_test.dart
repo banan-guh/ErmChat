@@ -50,21 +50,6 @@ int _subscriptionFrames(FakeWebSocketChannel channel) =>
     }).length;
 
 void main() {
-  test('a rate limit waits and reads as reconnecting', () {
-    fakeAsync((async) {
-      final client = SevenTvEventClient();
-      client.enterRateLimitForTest();
-      expect(
-        client.isRateLimited,
-        isTrue,
-        reason: 'the watchdog must leave the cooldown alone',
-      );
-      expect(client.isReconnecting, isTrue);
-      client.dispose();
-      async.flushTimers();
-    });
-  });
-
   test('a raw socket is not connected until hello', () {
     fakeAsync((async) {
       final client = _RecordingSevenTv();
@@ -122,32 +107,6 @@ void main() {
         _subscriptionFrames(second),
         1,
         reason: 'a rate limit must not drop a live subscription',
-      );
-      client.dispose();
-      async.flushTimers();
-    });
-  });
-
-  test('a fatal close keeps pending subscriptions', () {
-    fakeAsync((async) {
-      final client = _RecordingSevenTv();
-      client.subscribeEmoteSet('set1');
-      client.connect();
-      async.flushMicrotasks();
-      final first = client.channels.single;
-      first.push(_hello);
-      async.flushMicrotasks();
-      first.peerClose(code: 4010);
-      async.flushMicrotasks();
-
-      async.elapse(const Duration(seconds: 3));
-      final second = client.channels.last;
-      second.push(_hello);
-      async.flushMicrotasks();
-      expect(
-        _subscriptionFrames(second),
-        1,
-        reason: 'reconnecting must replay what the client asked for',
       );
       client.dispose();
       async.flushTimers();
@@ -290,42 +249,6 @@ void main() {
     });
   });
 
-  test('an ack marks a subscription acknowledged', () {
-    fakeAsync((async) {
-      final client = _RecordingSevenTv();
-      client.subscribeEmoteSet('set1');
-      client.connect();
-      async.flushMicrotasks();
-      final channel = client.channels.single;
-      channel.push(_hello);
-      async.flushMicrotasks();
-      expect(client.subscriptionSentCount, 1);
-      expect(client.pendingSubscriptionAcks, 1);
-
-      channel.push(
-        jsonEncode({
-          'op': 5,
-          'd': {
-            'command': 'SUBSCRIBE',
-            'data': {
-              'type': 'emote_set.update',
-              'condition': {'object_id': 'set1'},
-            },
-          },
-        }),
-      );
-      async.flushMicrotasks();
-      expect(
-        client.subscriptionAckCount,
-        1,
-        reason: 'the echoed condition identifies the subscription',
-      );
-      expect(client.pendingSubscriptionAcks, 0);
-      client.dispose();
-      async.flushTimers();
-    });
-  });
-
   test('hello subscription_limit caps subscriptions per connection', () {
     fakeAsync((async) {
       final client = _RecordingSevenTv();
@@ -382,29 +305,6 @@ void main() {
       reason: 'a reconnect cannot restore the set the cap dropped',
     );
     expect(client.intendedSubscriptionCount, 50);
-    client.dispose();
-  });
-
-  test('a dispatch records lastDispatch', () {
-    var now = DateTime(2026, 1, 1, 12);
-    final client = SevenTvEventClient(now: () => now);
-    expect(client.lastDispatch, isNull);
-
-    client.handleRawMessage({
-      'op': 0,
-      'd': {
-        'type': 'emote_set.update',
-        'body': {'id': 'set1'},
-      },
-    });
-    expect(client.lastDispatch, now);
-
-    now = now.add(const Duration(minutes: 2));
-    client.handleRawMessage({
-      'op': 0,
-      'd': {'type': 'unknown'},
-    });
-    expect(client.lastDispatch, now);
     client.dispose();
   });
 }

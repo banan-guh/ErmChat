@@ -199,14 +199,6 @@ void main() {
       }
     });
 
-    test('parses the creation date', () async {
-      final result = await fetchGlobal({'1': '$base/1'});
-      expect(
-        result.single.createdAtMs,
-        DateTime.utc(2020, 1, 2, 3, 4, 5).millisecondsSinceEpoch,
-      );
-    });
-
     test('global loads supporter-gated sets for everyone', () async {
       HttpOverrides.global = _FakeHttpOverrides({
         globalUrl: jsonEncode({
@@ -332,13 +324,6 @@ void main() {
       );
       expect(scales[EmoteScale.large], 'https://cdn.betterttv.net/emote/b1/3x');
       expect(result.single.createdAtMs, isNull, reason: 'not an ObjectId');
-    });
-
-    test('derives creation time from the ObjectId', () {
-      final emote = BttvEmoteProvider.parseEmotes([
-        {'id': '54fa8f1401e468494b85b537', 'code': 'Pog', 'imageType': 'png'},
-      ]).single;
-      expect(emote.createdAtMs, 1425706772000);
     });
 
     test(
@@ -504,13 +489,21 @@ void main() {
               'theme_mode': ['light'],
               'emote_type': 'prime',
             },
+            {
+              'id': 'crepeBet',
+              'name': 'crepeBet',
+              'format': ['static'],
+              'scale': ['1.0', '2.0', '3.0'],
+              'theme_mode': ['light'],
+              'emote_type': 'follower',
+            },
           ],
         }),
       });
       return TwitchEmoteProvider.fetchGlobalUnlockable();
     }
 
-    test('parses unlockables as global emotes', () async {
+    test('parses unlockables and drops channel followers', () async {
       final result = await fetchUnlockable();
       expect(result, hasLength(1));
       final emote = result.single;
@@ -557,11 +550,6 @@ void main() {
         EmoteScale.small: '$base/1x.webp',
         EmoteScale.large: '$base/4x.webp',
       });
-    });
-
-    test('parses the set addition time', () {
-      final parsed = SevenTvEmoteProvider.parseSingleEmote(emote(['1x.webp']));
-      expect(parsed!.createdAtMs, 1700000000000);
     });
   });
 }

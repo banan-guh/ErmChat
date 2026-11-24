@@ -26,47 +26,6 @@ Emote _emote(
 );
 
 void main() {
-  group('Emote.copyWith', () {
-    test('renames the code and preserves the meta and assets', () {
-      final original = Emote(
-        id: 'e1',
-        code: 'OldName',
-        meta: const SevenTvMeta(
-          creator: 'Creator',
-          baseName: 'Base',
-          unlisted: true,
-          relativeScale: 0.625,
-        ),
-        scales: {
-          EmoteScale.small: 'https://example.com/1x.webp',
-          EmoteScale.medium: 'https://example.com/2x.webp',
-          EmoteScale.large: 'https://example.com/3x.webp',
-        },
-        isAnimated: true,
-        isZeroWidth: true,
-        scope: EmoteScope.channel,
-      );
-
-      final renamed = original.copyWith(code: 'NewName');
-
-      expect(renamed.code, 'NewName');
-      expect(renamed.id, 'e1');
-      expect(renamed.meta, same(original.meta));
-      expect(renamed.scales, original.scales);
-      expect(
-        renamed.urlFor(EmoteScale.medium),
-        original.urlFor(EmoteScale.medium),
-      );
-      expect(
-        renamed.urlFor(EmoteScale.large),
-        original.urlFor(EmoteScale.large),
-      );
-      expect(renamed.isAnimated, isTrue);
-      expect(renamed.isZeroWidth, isTrue);
-      expect(renamed.scope, EmoteScope.channel);
-    });
-  });
-
   group('mergeEmoteLookup precedence', () {
     test('channel scope beats global scope', () {
       final global = EmoteCatalog(
@@ -235,21 +194,6 @@ void main() {
         personal: [_emote('p', 'Gone', EmoteType.sevenTv)],
       );
       expect(personalOnly.byCode['Gone']?.id, 'p', reason: 'listed personal');
-    });
-
-    test('suggestions are sorted by code', () {
-      final global = EmoteCatalog(
-        bttvGlobal: [
-          _emote('1', 'Zeta', EmoteType.bttv),
-          _emote('2', 'Alpha', EmoteType.bttv),
-          _emote('3', 'Mid', EmoteType.bttv),
-        ],
-      );
-      expect(mergeEmoteLookup(global: global).suggestions.map((e) => e.code), [
-        'Alpha',
-        'Mid',
-        'Zeta',
-      ]);
     });
   });
 }

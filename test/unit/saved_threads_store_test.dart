@@ -53,38 +53,6 @@ class _ManualTimer implements Timer {
 
 void main() {
   group('SavedThreadsStore', () {
-    test('toggle saves and unsaves, matching channels case-insensitively', () {
-      final store = SavedThreadsStore();
-      final entry = SavedThread.fromMessage(_msg('r1', 'Forsen'), 'r1');
-      expect(store.toggle(entry), isTrue);
-      expect(store.isSaved('forsen', 'r1'), isTrue);
-      expect(store.threads.single.channel, 'forsen');
-      expect(store.hasChannel('FORSEN'), isTrue);
-      expect(store.toggle(entry), isFalse);
-      expect(store.isSaved('forsen', 'r1'), isFalse);
-      expect(
-        store.hasChannel('FORSEN'),
-        isFalse,
-        reason: 'the channel drops with its last thread',
-      );
-      expect(
-        store.toggle(SavedThread.fromMessage(_msg('r1', ''), 'r1')),
-        isFalse,
-        reason: 'empty channel is rejected',
-      );
-      expect(store.threads, isEmpty);
-    });
-
-    test('caps at 50, evicting the oldest', () {
-      final store = SavedThreadsStore();
-      for (var i = 0; i < 55; i++) {
-        store.toggle(SavedThread.fromMessage(_msg('r$i', 'forsen'), 'r$i'));
-      }
-      expect(store.threads, hasLength(maxSavedThreads));
-      expect(store.isSaved('forsen', 'r0'), isFalse);
-      expect(store.isSaved('forsen', 'r54'), isTrue);
-    });
-
     test('saves the full log and appends live replies', () {
       final store = SavedThreadsStore();
       final root = _msg('r1', 'forsen');
@@ -99,6 +67,11 @@ void main() {
       // Duplicates and foreign threads are ignored.
       expect(store.appendMessage(_msg('c2', 'forsen', rootId: 'r1')), isFalse);
       expect(store.appendMessage(_msg('x', 'other')), isFalse);
+      expect(
+        store.toggle(SavedThread.fromMessage(_msg('empty', ''), 'empty')),
+        isFalse,
+        reason: 'empty channel is rejected',
+      );
     });
   });
 

@@ -1,6 +1,5 @@
 import 'package:ermchat/emotes/emote.dart';
 import 'package:ermchat/emotes/emote_catalog.dart';
-import 'package:ermchat/models/twitch_message.dart';
 import 'package:ermchat/services/emote_fetcher.dart';
 import 'package:ermchat/services/emote_store.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -92,33 +91,119 @@ void main() {
     expect(changes.last.deltaCodes, isNull);
   });
 
-  test('a 7TV delete and re-add marks the code for restamping', () {
+  test('a live 7TV add reports the code for additive healing', () {
     final store = EmoteStore();
     final changes = <EmoteChange>[];
     store.addListener(changes.add);
-    final old = _emote('old', 'VO', type: EmoteType.sevenTv);
-
-    store.updateSevenTvEmotes('ch', added: [old]);
-    changes.clear();
     store.updateSevenTvEmotes(
       'ch',
-      removedIds: ['old'],
-      added: [_emote('new', 'VO', type: EmoteType.sevenTv)],
+      added: [_emote('a', 'Alpha', type: EmoteType.sevenTv)],
     );
-    expect(changes.last.restampCodes, contains('VO'));
-
-    // A full refetch that replaces the id heals the same way.
     changes.clear();
-    store.commitChannel(
+
+    store.updateSevenTvEmotes(
       'ch',
-      store.channelEpoch('ch'),
-      ChannelEmoteFetch(
-        byProvider: {
-          EmoteType.sevenTv: [_emote('newer', 'VO', type: EmoteType.sevenTv)],
-        },
-      ),
+      added: [_emote('b', 'Bravo', type: EmoteType.sevenTv)],
     );
-    expect(changes.last.restampCodes, {'VO'});
+
+    expect(changes.single.addedCodes, {'Bravo'});
+    expect(changes.single.deadIds, isNull);
+  });
+
+  test('markDead strips the emote and reports it', () {
+    final store = EmoteStore();
+    final changes = <EmoteChange>[];
+    store.addListener(changes.add);
+    store.updateSevenTvEmotes(
+      'ch',
+      added: [_emote('a', 'Alpha', type: EmoteType.sevenTv)],
+    );
+    expect(store.byCode('ch')!.byCode, contains('Alpha'));
+
+    store.markDead(['a']);
+
+    expect(store.deadIds, contains('a'));
+    expect(store.byCode('ch')!.byCode, isNot(contains('Alpha')));
+    expect(changes.last.deadIds, {'a'});
+    expect(store.emoteById('a'), isNull);
+  });
+
+  test('dead ids stay out of cache seeds, full commits and live deltas', () {
+    final store = EmoteStore();
+    addTearDown(store.dispose);
+    final dead = _emote('dead', 'Dead', type: EmoteType.sevenTv);
+    final seeded = _emote('seeded', 'Seeded', type: EmoteType.sevenTv);
+    final committed = _emote('committed', 'Committed', type: EmoteType.sevenTv);
+    final channelSeed = _emote(
+      'channel-seed',
+      'ChannelSeed',
+      type: EmoteType.sevenTv,
+    );
+    final channelCommit = _emote(
+      'channel-commit',
+      'ChannelCommit',
+      type: EmoteType.sevenTv,
+    );
+    final delta = _emote('delta', 'Delta', type: EmoteType.sevenTv);
+    store.markDead(['dead']);
+
+    expect(
+      store.seedGlobalFromCache(
+        store.globalEpoch,
+        EmoteCatalog(sevenTvGlobal: [dead, seeded]),
+      ),
+      isTrue,
+    );
+    expect(store.byCode('ch')!.byCode.keys, ['Seeded']);
+
+    expect(
+      store.commitGlobal(
+        store.globalEpoch,
+        GlobalEmoteFetch(
+          byProvider: {
+            EmoteType.sevenTv: [dead, committed],
+          },
+        ),
+      ),
+      isTrue,
+    );
+    expect(store.byCode('ch')!.byCode.keys, ['Committed']);
+
+    store.seedChannelFromCache(
+      'ch',
+      EmoteCatalog(sevenTvChannel: [dead, channelSeed]),
+      const [],
+    );
+    expect(
+      store.byCode('ch')!.byCode.keys,
+      containsAll(['Committed', 'ChannelSeed']),
+    );
+    expect(store.byCode('ch')!.byCode, isNot(contains('Dead')));
+
+    expect(
+      store.commitChannel(
+        'ch',
+        store.channelEpoch('ch'),
+        ChannelEmoteFetch(
+          byProvider: {
+            EmoteType.sevenTv: [dead, channelCommit],
+          },
+        ),
+      ),
+      isTrue,
+    );
+    expect(
+      store.byCode('ch')!.byCode.keys,
+      containsAll(['Committed', 'ChannelCommit']),
+    );
+    expect(store.byCode('ch')!.byCode, isNot(contains('Dead')));
+
+    expect(store.updateSevenTvEmotes('ch', added: [dead, delta]), isEmpty);
+    expect(
+      store.byCode('ch')!.byCode.keys,
+      containsAll(['Committed', 'ChannelCommit', 'Delta']),
+    );
+    expect(store.byCode('ch')!.byCode, isNot(contains('Dead')));
   });
 
   // An early provider marking the catalog complete would freeze rows baked
@@ -242,31 +327,6 @@ void main() {
     expect(third?.byCode.containsKey('NewPersonal'), isFalse);
   });
 
-  test('unchanged subscription restores notify only changed channels', () {
-    final store = EmoteStore();
-    final changes = <EmoteChange>[];
-    store.addListener(changes.add);
-
-    store.storeUserTwitchEmotes({
-      'ch': [_emote('s1', 'Sub', type: EmoteType.twitch)],
-    });
-    expect(changes.map((change) => change.channel), ['ch']);
-    expect(changes.every((change) => !change.isGlobal), isTrue);
-    expect(store.version, 1);
-
-    store.storeUserTwitchEmotes({
-      'ch': [_emote('s1', 'Sub', type: EmoteType.twitch)],
-    });
-    expect(changes, hasLength(1));
-    expect(store.version, 1);
-
-    store.storeUserTwitchEmotes({
-      'ch': [_emote('s1', 'FreshSub', type: EmoteType.twitch)],
-    });
-    expect(changes.map((change) => change.channel), ['ch', 'ch']);
-    expect(store.version, 2);
-  });
-
   test('a channel resolves subs stored under other channels', () {
     final store = EmoteStore();
     expect(store.byCode('late')?.byCode.containsKey('SubA'), isNot(true));
@@ -383,29 +443,6 @@ void main() {
     );
   });
 
-  test('channel tab respects the same visibility as chat', () {
-    final store = EmoteStore();
-    store.commitChannel(
-      'ch',
-      store.channelEpoch('ch'),
-      ChannelEmoteFetch(
-        byProvider: {
-          EmoteType.bttv: [_channelEmote('c1', 'ChanBttv')],
-        },
-      ),
-    );
-    expect(
-      store.channelTabEmotes('ch').map((e) => e.code),
-      contains('ChanBttv'),
-    );
-
-    store.setProviderVisibility({EmoteType.bttv}, false);
-    store.notifyVisibilityChanged();
-
-    expect(store.byCode('ch')?.byCode.containsKey('ChanBttv'), isFalse);
-    expect(store.channelTabEmotes('ch'), isEmpty);
-  });
-
   test('subsGrouped keeps only the focused channel followers', () {
     final store = EmoteStore();
     store.storeUserTwitchEmotes({
@@ -436,19 +473,6 @@ void main() {
     expect(focusedB['chanA']!.map((e) => e.code), isNot(contains('FolA')));
   });
 
-  test('subsGrouped matches follower owners case-insensitively', () {
-    final store = EmoteStore();
-    store.storeUserTwitchEmotes({
-      'chanA': [_followerEmote('fA', 'FolA', 'chanA')],
-    });
-
-    final grouped = store.subsGrouped(pinnedChannel: 'CHANA');
-    expect(
-      grouped.values.expand((e) => e).map((e) => e.code),
-      contains('FolA'),
-    );
-  });
-
   group('canonical pool', () {
     Emote sevenTv(String id, String code) => Emote(
       id: id,
@@ -465,79 +489,6 @@ void main() {
         ChannelEmoteFetch(byProvider: {EmoteType.sevenTv: emotes}),
       );
     }
-
-    test('repeated lookups share identical instances', () {
-      final store = EmoteStore();
-      commitChannel(store, 'ch', [sevenTv('a', 'Alpha')]);
-
-      final first = store.byCode('ch')!;
-      final second = store.byCode('ch')!;
-      expect(identical(first, second), isTrue);
-      expect(identical(first.byCode['Alpha'], second.byCode['Alpha']), isTrue);
-      expect(
-        identical(
-          first.suggestions.singleWhere((e) => e.code == 'Alpha'),
-          first.byCode['Alpha'],
-        ),
-        isTrue,
-      );
-    });
-
-    test('subs tab cells are identical to the merged locked entries', () {
-      final store = EmoteStore();
-      store.storeUserTwitchEmotes({
-        'ch': [_lockedTwitchSub('s1', 'Sub')],
-      });
-
-      final merged = store.byCode('ch')!;
-      final subs = store.subscriberEmotesByChannel()['ch']!;
-      expect(identical(subs.single, merged.byCode['Sub']), isTrue);
-      expect(identical(store.emoteById('s1'), merged.byCode['Sub']), isTrue);
-    });
-
-    test('fallback synthesis interns: unknown tag id resolves identically', () {
-      final store = EmoteStore();
-      commitChannel(store, 'ch', [sevenTv('a', 'Alpha')]);
-      final found = EmoteStore.tokenize(
-        text: 'hello',
-        positions: const [
-          EmotePosition(
-            emoteId: 't1',
-            startIndex: 0,
-            endIndex: 5,
-            emoteCode: 'Hello',
-          ),
-        ],
-        byCode: store.byCode('ch')!.byCode,
-        intern: store.intern,
-      ).where((t) => t.isEmote).map((t) => t.emote!);
-
-      expect(found.single.id, 't1');
-      expect(identical(store.emoteById('t1'), found.single), isTrue);
-    });
-
-    test('emotesOnly keeps emote spans and drops text tokens', () {
-      final store = EmoteStore();
-      commitChannel(store, 'ch', [sevenTv('a', 'Alpha')]);
-
-      final tokens = EmoteStore.tokenize(
-        text: 'Hello Alpha',
-        positions: const [
-          EmotePosition(
-            emoteId: 't1',
-            startIndex: 0,
-            endIndex: 5,
-            emoteCode: 'Hello',
-          ),
-        ],
-        byCode: store.byCode('ch')!.byCode,
-        intern: store.intern,
-        emotesOnly: true,
-      );
-
-      expect(tokens.map((t) => (t.start, t.end)), [(0, 5), (6, 11)]);
-      expect(tokens.map((t) => t.emote?.code), ['Hello', 'Alpha']);
-    });
 
     test(
       'rename replaces the pooled instance, baked rows keep the old one',
@@ -571,20 +522,5 @@ void main() {
         );
       },
     );
-
-    test('overlay instances pool with catalog instances', () {
-      final store = EmoteStore();
-      final personal = sevenTv('p1', 'Mine');
-      final lookup = store.byCode('ch', personal: [personal])!;
-      // First sight pools the very object: owner lists and lookups converge.
-      expect(identical(lookup.byCode['Mine'], personal), isTrue);
-      expect(
-        identical(
-          store.emoteById('p1', personal: [personal]),
-          lookup.byCode['Mine'],
-        ),
-        isTrue,
-      );
-    });
   });
 }

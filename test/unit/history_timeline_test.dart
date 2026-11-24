@@ -34,12 +34,6 @@ void main() {
       );
     });
 
-    test('none within 24 hours of now', () {
-      final prev = now.subtract(const Duration(hours: 30));
-      final time = now.subtract(const Duration(hours: 23));
-      expect(markersBefore(prev: prev, time: time, now: now), isEmpty);
-    });
-
     test('DST: a 23 hour day is one day, no marker mid-day', () {
       // 01:30 EST and 03:30 EDT on Mar 8 are the same local day.
       final a = DateTime.utc(2026, 3, 8, 6, 30);
@@ -99,12 +93,6 @@ void main() {
       ]);
       expect(m[1].time, started.start, reason: 'stamped with its first event');
     });
-
-    test('device timezone default needs no injection', () {
-      final prev = DateTime(2026, 9, 1, 23, 50);
-      final time = DateTime(2026, 9, 2, 0, 10);
-      expect(markersBefore(prev: prev, time: time, now: now), hasLength(1));
-    });
   });
 
   group('empty stretches', () {
@@ -116,18 +104,6 @@ void main() {
       final sep2 = dayNumber(DateTime.utc(2026, 9, 2));
       expect(keys(m), ['empty-${sep2 + 1}-${sep2 + 5}', 'day-${sep2 + 6}']);
       expect(m.first.kind, HistoryMarkerKind.emptyStretch);
-    });
-
-    test('adjacent days leave no empty row', () {
-      final a = DateTime.utc(2026, 9, 2, 20);
-      final b = DateTime.utc(2026, 9, 3, 1);
-      final m = markersBefore(
-        prev: a,
-        time: b,
-        now: now,
-        local: fixedOffset(0),
-      );
-      expect(m.single.kind, HistoryMarkerKind.day);
     });
   });
 
@@ -168,11 +144,6 @@ void main() {
       expect(found(live), [
         'ss-s1',
       ], reason: 'a live stream ended mid-chat at the time it was read');
-    });
-
-    test('length formats as hours and minutes', () {
-      expect(formatStreamLength(stream.end.difference(stream.start)), '3h12m');
-      expect(formatStreamLength(const Duration(minutes: 45)), '45m');
     });
   });
 

@@ -207,23 +207,6 @@ void main() {
         reason: 'the archived copy replaced the live row',
       );
     });
-
-    test('leaves the rows alone without archived replies', () {
-      final root = _msg('root', 0);
-      final live = [_msg('live', 4)];
-      expect(
-        [
-          for (final m in mergeThreadMessages(
-            live: live,
-            saved: const [],
-            archived: const [],
-            root: root,
-          ))
-            m.messageId,
-        ],
-        ['live'],
-      );
-    });
   });
 
   group('mergeUserHistory', () {

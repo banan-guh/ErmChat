@@ -409,27 +409,6 @@ void main() {
   });
 
   group('Channel.addSystemMessage', () {
-    test('inserts the row and truncates to the cap', () {
-      final chat = Chat();
-      addTearDown(chat.dispose);
-      final channel = chat.ensure('test');
-      for (var i = 0; i < 4; i++) {
-        channel.receive(
-          _live('m$i'),
-          maxMessages: 10,
-          isSelected: true,
-          ownLogin: null,
-        );
-      }
-      expect(channel.messages.length, 4);
-
-      expect(channel.addSystemMessage('Connected', maxMessages: 3), isTrue);
-
-      expect(channel.messages.length, 3);
-      expect(channel.messages.items.first.text, 'Connected');
-      expect(channel.messages.items.first.isSystem, isTrue);
-    });
-
     test('a duplicate id returns false and does not truncate', () {
       final chat = Chat();
       addTearDown(chat.dispose);

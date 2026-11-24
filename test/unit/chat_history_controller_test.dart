@@ -141,7 +141,7 @@ void main() {
     expect(controller.runs, 3, reason: 'the second call for a channel joins');
   });
 
-  test('a live 7TV delta does not heal history', () {
+  test('a live 7TV add heals buffered rows but not archive rows', () {
     final chat = Chat();
     addTearDown(chat.dispose);
     chat.ensure('ch');
@@ -150,15 +150,22 @@ void main() {
     final controller = _controller(chat, emotes);
     addTearDown(controller.dispose);
 
-    controller.mergeHistory('ch', [historyRow('h1', 'Alpha')]);
-    final row = chat.channelFor('ch')!.messages.byId('h1')!;
+    final live = historyRow('h1', 'Alpha');
+    final archived = historyRow('h2', 'Alpha')..emotesFromArchive = true;
+    controller.mergeHistory('ch', [live, archived]);
+    archived.emoteTokens = const [];
 
     emotes.updateSevenTvEmotes('ch', added: [sevenTv('a', 'Alpha')]);
 
-    expect(row.emoteTokens, isEmpty);
+    expect(live.emoteTokens!.single.emote!.id, 'a');
+    expect(
+      archived.emoteTokens,
+      isEmpty,
+      reason: 'an archive row keeps the emotes of its time',
+    );
   });
 
-  test('a 7TV re-add heals a row that baked the deleted emote', () {
+  test('a confirmed-dead emote drops from buffered rows', () {
     final chat = Chat();
     addTearDown(chat.dispose);
     chat.ensure('ch');
@@ -167,20 +174,15 @@ void main() {
     final controller = _controller(chat, emotes);
     addTearDown(controller.dispose);
 
-    emotes.updateSevenTvEmotes('ch', added: [sevenTv('old', 'VO')]);
     final row = historyRow('h1', 'VO');
     controller.mergeHistory('ch', [row]);
     row.emoteTokens = [
       EmoteToken(emote: sevenTv('old', 'VO'), text: 'VO', start: 0, end: 2),
     ];
 
-    emotes.updateSevenTvEmotes(
-      'ch',
-      removedIds: ['old'],
-      added: [sevenTv('new', 'VO')],
-    );
+    emotes.store.markDead(['old']);
 
-    expect(row.emoteTokens!.single.emote!.id, 'new');
+    expect(row.emoteTokens, isEmpty);
   });
 
   test('a full commit heals partial rows and leaves complete rows frozen', () {
@@ -613,6 +615,47 @@ void main() {
     expect(row.emoteTokens?.map((t) => t.emote?.id), [
       '01F6',
     ], reason: 'the restore re-parsed over the stored emotes');
+  });
+
+  test('archive reads skip an emote confirmed dead', () async {
+    sqfliteFfiInit();
+    final dir = await Directory.systemTemp.createTemp('dead');
+    addTearDown(() => dir.delete(recursive: true));
+    final store = await ArchiveStore.open(
+      '${dir.path}/archive.db',
+      factory: databaseFactoryFfi,
+    );
+    addTearDown(store.close);
+    final archive = Archive(Future.value(store));
+    await archive.sets.observeEmotes('ch', EmoteType.sevenTv, [
+      sevenTv('old', 'VO'),
+    ], at: DateTime.utc(2026, 10, 15, 11));
+    archive.writer.add(
+      'ch',
+      TwitchMessage(
+          login: 'alice',
+          text: 'VO',
+          messageId: '00000001-0b7d-4c55-9a10-6d2e8f4b7a02',
+          channel: 'ch',
+          timestamp: DateTime.utc(2026, 10, 15, 12),
+        )
+        ..emoteTokens = [
+          EmoteToken(emote: sevenTv('old', 'VO'), text: 'VO', start: 0, end: 2),
+        ],
+    );
+    await archive.writer.flush();
+    archive.reader.deadIds = () => {'old'};
+
+    final emotes = EmoteManager();
+    addTearDown(emotes.dispose);
+    final chat = Chat();
+    addTearDown(chat.dispose);
+    chat.ensure('ch');
+    final controller = _controller(chat, emotes, archive: archive);
+    addTearDown(controller.dispose);
+    await controller.restoreFromArchive('ch');
+
+    expect(chat.channelFor('ch')!.messages.items.single.emoteTokens, isEmpty);
   });
 
   test('dispose detaches the catalog listener', () {

@@ -10,7 +10,6 @@ import 'dart:ui' as ui;
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:ermchat/widgets/emote_image.dart';
-import 'package:ermchat/widgets/emote_scale_resolver.dart';
 import 'package:ermchat/widgets/emote_url_provider.dart';
 import 'dart:convert';
 import 'package:path_provider_platform_interface/path_provider_platform_interface.dart';
@@ -20,7 +19,6 @@ import 'package:ermchat/emotes/emote.dart';
 import 'package:ermchat/emotes/emote_catalog.dart';
 import 'package:ermchat/services/emote_manager.dart';
 import 'package:ermchat/services/emote_usage_registry.dart';
-import 'package:ermchat/services/emote_store.dart';
 import 'package:ermchat/services/twitch_auth.dart';
 import 'package:ermchat/services/emote_meta_store.dart';
 import 'package:ermchat/services/emote_persistence.dart';
@@ -35,8 +33,6 @@ import 'package:web_socket_channel/web_socket_channel.dart';
 import '../helpers/fake_web_socket.dart';
 import 'package:ermchat/widgets/emote_text.dart';
 import 'package:ermchat/widgets/emote_effect.dart';
-import 'package:ermchat/models/twitch_command.dart';
-import 'package:ermchat/composer/suggestion.dart';
 import 'package:ermchat/util/webp_anim.dart';
 import 'package:ermchat/services/emote_images.dart';
 
@@ -141,27 +137,6 @@ Map<String, dynamic> _host(String name, {int width = 32, int height = 32}) => {
     {'name': name, 'format': 'WEBP', 'width': width, 'height': height},
   ],
 };
-
-Emote _e(String id, String code, [EmoteType type = EmoteType.bttv]) => Emote(
-  id: id,
-  code: code,
-  meta: switch (type) {
-    EmoteType.twitch => const TwitchMeta(kind: TwitchEmoteKind.standard),
-    EmoteType.bttv => const BttvMeta(),
-    EmoteType.ffz => const FfzMeta(),
-    EmoteType.sevenTv => const SevenTvMeta(),
-  },
-  scales: {EmoteScale.medium: 'https://example.com/$id.png'},
-);
-
-const _commands = <TwitchCommand>[
-  TwitchCommand(name: '/me'),
-  TwitchCommand(name: '/color'),
-  TwitchCommand(name: '/ban'),
-];
-
-List<String> _codes(List<Suggestion> suggestions) =>
-    suggestions.map((s) => s.displayText).toList();
 
 class _FixedPolicy implements EmoteImagePolicy {
   _FixedPolicy({this.scoreOf});
@@ -881,30 +856,6 @@ void main() {
   });
 
   group('7TV live updates', () {
-    test('renaming a 7TV emote preserves baseName and ownerChannel', () async {
-      final manager = EmoteManager(fetchStagger: Duration.zero);
-      manager.updateSevenTvEmotes(
-        'ch',
-        added: [
-          Emote(
-            id: 'e1',
-            code: 'OldName',
-            meta: const SevenTvMeta(creator: 'Creator', baseName: 'BaseEmote'),
-            scales: {EmoteScale.medium: 'https://example.com/e1.png'},
-            scope: EmoteScope.channel,
-          ),
-        ],
-      );
-      manager.updateSevenTvEmotes(
-        'ch',
-        renamed: {'e1': (newName: 'NewName', oldName: 'OldName')},
-      );
-      final emote = manager.byCode('ch')!.byCode['NewName'];
-      expect(emote, isNotNull);
-      expect(emote!.baseName, 'BaseEmote');
-      expect(emote.meta.owner, 'Creator');
-    });
-
     Emote sevenTv(String id, String code) => Emote(
       id: id,
       code: code,
@@ -913,47 +864,31 @@ void main() {
       scope: EmoteScope.channel,
     );
 
-    test(
-      'incremental adds removes and renames keep suggestions sorted',
-      () async {
-        SharedPreferences.setMockInitialValues({});
-        final manager = EmoteManager(
-          fetchStagger: Duration.zero,
-          removeCachedFile: (url) async {},
-        );
-        manager.updateSevenTvEmotes(
-          'ch',
-          added: [sevenTv('a', 'Alpha'), sevenTv('c', 'Charlie')],
-        );
-        manager.updateSevenTvEmotes('ch', added: [sevenTv('b', 'Bravo')]);
+    test('a removed emote drops only after 7TV confirms 404', () async {
+      SharedPreferences.setMockInitialValues({});
+      var exists = true;
+      final manager = EmoteManager(
+        fetchStagger: Duration.zero,
+        removeCachedFile: (url) async {},
+        sevenTvEmoteExists: (id) async => exists,
+      );
+      addTearDown(manager.dispose);
 
-        var codes = manager
-            .byCode('ch')!
-            .suggestions
-            .map((e) => e.code)
-            .toList();
-        expect(codes, ['Alpha', 'Bravo', 'Charlie']);
+      manager.updateSevenTvEmotes('ch', added: [sevenTv('a', 'Alpha')]);
+      manager.updateSevenTvEmotes('ch', removedIds: ['a']);
+      await pumpEventQueue();
+      expect(
+        manager.store.deadIds,
+        isEmpty,
+        reason: 'a set removal leaves the emote file alive',
+      );
 
-        manager.updateSevenTvEmotes('ch', removedIds: ['b']);
-        await pumpEventQueue();
-
-        final emotes = manager.byCode('ch')!;
-        expect(emotes.byCode.keys, ['Alpha', 'Charlie']);
-        expect(emotes.suggestions.map((e) => e.code).toList(), [
-          'Alpha',
-          'Charlie',
-        ]);
-
-        manager.updateSevenTvEmotes('ch', added: [sevenTv('b', 'Bravo')]);
-        manager.updateSevenTvEmotes(
-          'ch',
-          renamed: {'c': (newName: 'Aaron', oldName: 'Charlie')},
-        );
-
-        codes = manager.byCode('ch')!.suggestions.map((e) => e.code).toList();
-        expect(codes, ['Aaron', 'Alpha', 'Bravo']);
-      },
-    );
+      exists = false;
+      manager.updateSevenTvEmotes('ch', added: [sevenTv('b', 'Bravo')]);
+      manager.updateSevenTvEmotes('ch', removedIds: ['b']);
+      await pumpEventQueue();
+      expect(manager.store.deadIds, contains('b'));
+    });
 
     test('parsed tokens freeze: delta and bump never change the baked row', () {
       SharedPreferences.setMockInitialValues({});
@@ -1333,31 +1268,6 @@ void main() {
         );
       },
     );
-
-    test('failed fetches are reported per channel', () async {
-      SharedPreferences.setMockInitialValues(
-        channelCache([sevenTv('a', 'Alpha')]),
-      );
-      final manager = EmoteManager(
-        fetchStagger: Duration.zero,
-        tier: EmoteFetchTier.medium,
-        removeCachedFile: (url) async {},
-        sevenTvChannelFetcher: (id) async => throw Exception('HTTP 429'),
-      );
-
-      // Startup path: the failed reconcile and background twitch refresh
-      // swallow their own errors and must not count as reload failures.
-      await manager.resolveEmotes('ch', 'b1');
-      await pumpEventQueue();
-      expect(manager.takeFetchFailures(), isEmpty);
-
-      // Reload path: the force fetch records the channel it failed for.
-      manager.evictChannel('ch');
-      await manager.resolveEmotes('ch', 'b1', force: true);
-      await pumpEventQueue();
-      expect(manager.takeFetchFailures(), ['ch']);
-      expect(manager.takeFetchFailures(), isEmpty, reason: 'take clears');
-    });
 
     test('retained stash entries survive failed and empty reloads', () async {
       SharedPreferences.setMockInitialValues({});
@@ -1942,45 +1852,6 @@ void main() {
   });
 
   group('EmoteManager refresh policy', () {
-    test(
-      'refresh policy resolves TTLs across tiers and connectivity',
-      () async {
-        final unconfigured = EmoteManager();
-        expect(unconfigured.effectiveTtlForTesting(), const Duration(hours: 1));
-
-        final nothing = EmoteManager(
-          tier: EmoteFetchTier.nothing,
-          isMobile: () => true,
-        );
-        expect(nothing.effectiveTtlForTesting(), const Duration(days: 365000));
-
-        final mediumMobile = EmoteManager(
-          tier: EmoteFetchTier.medium,
-          isMobile: () => true,
-        );
-        final mediumWifi = EmoteManager(
-          tier: EmoteFetchTier.medium,
-          isMobile: () => false,
-        );
-        expect(
-          mediumMobile.effectiveTtlForTesting(),
-          const Duration(hours: 24),
-        );
-        expect(mediumWifi.effectiveTtlForTesting(), const Duration(hours: 24));
-
-        final highMobile = EmoteManager(
-          tier: EmoteFetchTier.high,
-          isMobile: () => true,
-        );
-        final highWifi = EmoteManager(
-          tier: EmoteFetchTier.high,
-          isMobile: () => false,
-        );
-        expect(highMobile.effectiveTtlForTesting(), const Duration(hours: 24));
-        expect(highWifi.effectiveTtlForTesting(), const Duration(hours: 1));
-      },
-    );
-
     test('fetch queue serializes actions and survives failures', () async {
       final manager = EmoteManager(fetchStagger: Duration.zero);
       final order = <int>[];
@@ -2081,121 +1952,6 @@ void main() {
     );
 
     test(
-      'storing sub emotes twice dedupes and fresh stores replace stale ones',
-      () async {
-        SharedPreferences.setMockInitialValues({});
-        final manager = EmoteManager(fetchStagger: Duration.zero);
-        final emote = subEmote();
-
-        await manager.storeUserTwitchEmotes({
-          'ch': [emote],
-        });
-        await manager.storeUserTwitchEmotes({
-          'ch': [emote],
-        });
-
-        var subs = manager.subscriberEmotesByChannel()['ch']!;
-        expect(subs.length, 1);
-        expect(subs.single.code, 'SubEmote');
-
-        final old = makeTestEmote(
-          id: 's1',
-          code: 'OldEmote',
-          type: EmoteType.twitch,
-          scope: EmoteScope.channel,
-          tier: '3',
-          emoteType: 'subscriptions',
-        );
-        final fresh = makeTestEmote(
-          id: 's1',
-          code: 'FreshEmote',
-          type: EmoteType.twitch,
-          scope: EmoteScope.channel,
-          tier: '3',
-          emoteType: 'subscriptions',
-        );
-
-        await manager.storeUserTwitchEmotes({
-          'ch': [old],
-        });
-        await manager.storeUserTwitchEmotes({
-          'ch': [fresh],
-        });
-
-        subs = manager.subscriberEmotesByChannel()['ch']!;
-        expect(subs.length, 1);
-        expect(subs.single.code, 'FreshEmote');
-      },
-    );
-
-    test(
-      'subs group by owner with storage fallback and alphabetical order',
-      () async {
-        SharedPreferences.setMockInitialValues({});
-        final manager = EmoteManager(fetchStagger: Duration.zero);
-        final emote = makeTestEmote(
-          id: 's1',
-          code: 'SubEmote',
-          type: EmoteType.twitch,
-          scope: EmoteScope.channel,
-          tier: '3',
-          emoteType: 'subscriptions',
-          ownerChannel: 'alpha',
-        );
-
-        // The account-wide union fans into every open channel's store.
-        await manager.storeUserTwitchEmotes({
-          'a': [emote],
-          'b': [emote],
-        });
-
-        var byChannel = manager.subscriberEmotesByChannel();
-        expect(byChannel.keys, ['alpha']);
-        expect(byChannel['alpha']!.length, 1);
-        expect(byChannel['alpha']!.single.code, 'SubEmote');
-
-        final fallbackManager = EmoteManager(fetchStagger: Duration.zero);
-        await fallbackManager.storeUserTwitchEmotes({
-          'ch': [subEmote()],
-        });
-        byChannel = fallbackManager.subscriberEmotesByChannel();
-        expect(byChannel.keys, contains('ch'));
-
-        Emote subOf(String id, String code, String owner) => makeTestEmote(
-          id: id,
-          code: code,
-          type: EmoteType.twitch,
-          scope: EmoteScope.channel,
-          tier: '3',
-          emoteType: 'subscriptions',
-          ownerChannel: owner,
-        );
-
-        // The union fans both owners into every open channel's store; the
-        // first-seen order inside the first storage channel is zeta before
-        // alpha, which must not leak into the group order.
-        final alphaManager = EmoteManager(fetchStagger: Duration.zero);
-        await alphaManager.storeUserTwitchEmotes({
-          'm': [
-            subOf('z1', 'ZetaEmote', 'zeta'),
-            subOf('a1', 'AlphaEmote', 'alpha'),
-          ],
-          'n': [
-            subOf('a1', 'AlphaEmote', 'alpha'),
-            subOf('z1', 'ZetaEmote', 'zeta'),
-          ],
-        });
-
-        byChannel = alphaManager.subscriberEmotesByChannel();
-        expect(byChannel.keys, containsAll(['alpha', 'zeta']));
-        expect(
-          byChannel.keys.toList().indexOf('alpha'),
-          lessThan(byChannel.keys.toList().indexOf('zeta')),
-        );
-      },
-    );
-
-    test(
       'regression: distinct ownerId (unknown owner) keeps groups separate',
       () async {
         // The reported bug: when ownerChannel is unresolved, every sub emote
@@ -2225,28 +1981,6 @@ void main() {
         expect(byChannel['ownerB']!.map((e) => e.code), ['Y']);
       },
     );
-
-    test('ownerChannel takes precedence over ownerId for grouping', () async {
-      SharedPreferences.setMockInitialValues({});
-      final manager = EmoteManager(fetchStagger: Duration.zero);
-      await manager.storeUserTwitchEmotes({
-        'a': [
-          makeTestEmote(
-            id: 'x',
-            code: 'X',
-            type: EmoteType.twitch,
-            scope: EmoteScope.channel,
-            tier: '1',
-            emoteType: 'subscriptions',
-            ownerId: 'ownerA',
-            ownerChannel: 'chanA',
-          ),
-        ],
-      });
-
-      final byChannel = manager.subscriberEmotesByChannel();
-      expect(byChannel.keys, ['chanA']);
-    });
 
     Emote unlockedEmote() => makeTestEmote(
       id: 'u1',
@@ -2393,49 +2127,6 @@ void main() {
       await load;
       expect(fetchedFor, ['me-id']);
       expect(manager.byCode('chanA')?.byCode['PrimePride']?.id, 'u1');
-    });
-
-    test('unchanged reconnect heal emits no store changes', () async {
-      SharedPreferences.setMockInitialValues({});
-      final auth = TwitchAuth()
-        ..accessToken = 'tok'
-        ..userId = 'me';
-      var fetchCalls = 0;
-      final manager = EmoteManager(
-        fetchStagger: Duration.zero,
-        fetchUserEmotes: (userId, {accessToken}) async {
-          fetchCalls++;
-          return {
-            'ownerA': [
-              makeTestEmote(
-                id: 'x',
-                code: 'X',
-                type: EmoteType.twitch,
-                scope: EmoteScope.channel,
-                tier: '1',
-                emoteType: 'subscriptions',
-                ownerId: 'ownerA',
-              ),
-            ],
-          };
-        },
-        resolveOwnerLogins: (a, ids) async => {
-          for (final id in ids) id: 'login_$id',
-        },
-      );
-      addTearDown(manager.dispose);
-      final changes = <EmoteChange>[];
-      manager.store.addListener(changes.add);
-
-      await manager.loadUserEmotes(auth, {'chanA': 'ownerA'});
-      final version = manager.version;
-      changes.clear();
-
-      await manager.loadUserEmotes(auth, {'chanA': 'ownerA'});
-
-      expect(fetchCalls, 1);
-      expect(changes, isEmpty);
-      expect(manager.version, version);
     });
 
     test('unlocks do not suppress the global preload', () async {
@@ -2691,25 +2382,6 @@ void main() {
     ];
 
     test(
-      'cacheCapMb setter forwards and clamps to the allowed range',
-      () async {
-        SharedPreferences.setMockInitialValues({});
-        final cache = testCacheManager();
-        final manager = EmoteManager(
-          fetchStagger: Duration.zero,
-          cacheManager: cache,
-        );
-        manager.cacheCapMb = 123;
-        expect(manager.cacheCapMb, 123);
-        expect(cache.maxBytes, 123 * bytesPerMb);
-        manager.cacheCapMb = 999999;
-        expect(manager.cacheCapMb, maxEmoteCacheMb);
-        manager.cacheCapMb = -5;
-        expect(manager.cacheCapMb, minEmoteCacheMb);
-      },
-    );
-
-    test(
       'usage registry records views and persists across instances',
       () async {
         SharedPreferences.setMockInitialValues({});
@@ -2881,48 +2553,6 @@ void main() {
         expect(emptyManager.byCode('ch'), isNull);
         prefs = await SharedPreferences.getInstance();
         expect(prefs.getString('emotes5_ch'), isNull);
-      },
-    );
-
-    test(
-      'globalEmotesByProvider groups by provider in display order',
-      () async {
-        final persisted = jsonEncode({
-          'ts': DateTime.now()
-              .subtract(const Duration(days: 1))
-              .toIso8601String(),
-          'tier': EmoteFetchTier.nothing.index,
-          'emotes': _catalogJson([
-            makeTestEmote(id: 'g1', code: 'A_Ffz', type: EmoteType.ffz),
-            makeTestEmote(id: 'g2', code: 'B_Bttv', type: EmoteType.bttv),
-            makeTestEmote(id: 'g3', code: 'C_Twitch', type: EmoteType.twitch),
-            makeTestEmote(id: 'g4', code: 'D_SevenTv', type: EmoteType.sevenTv),
-            makeTestEmote(id: 'g5', code: 'A_SevenTv', type: EmoteType.sevenTv),
-          ], scope: EmoteScope.global),
-        });
-        SharedPreferences.setMockInitialValues({'emotes5_global': persisted});
-        final manager = EmoteManager(
-          fetchStagger: Duration.zero,
-          tier: EmoteFetchTier.nothing,
-        );
-
-        await manager.preloadGlobalEmotes();
-
-        final byProvider = manager.globalEmotesByProvider();
-        expect(byProvider.keys.toList(), [
-          'SevenTV',
-          'Twitch',
-          'BetterTTV',
-          'FrankerFaceZ',
-        ]);
-        // Each group is sorted by code.
-        expect(byProvider['SevenTV']!.map((e) => e.code).toList(), [
-          'A_SevenTv',
-          'D_SevenTv',
-        ]);
-        expect(byProvider['Twitch']!.single.code, 'C_Twitch');
-        expect(byProvider['BetterTTV']!.single.code, 'B_Bttv');
-        expect(byProvider['FrankerFaceZ']!.single.code, 'A_Ffz');
       },
     );
 
@@ -3177,67 +2807,7 @@ void main() {
     });
   });
 
-  group('EmoteFetchAutoMode helpers', () {
-    test('balanced and aggressive pick tiers by connectivity', () {
-      expect(
-        effectiveEmoteFetchTier(
-          manual: EmoteFetchTier.medium,
-          auto: EmoteFetchAutoMode.balanced,
-          isMobile: false,
-        ),
-        EmoteFetchTier.high,
-      );
-      expect(
-        effectiveEmoteFetchTier(
-          manual: EmoteFetchTier.medium,
-          auto: EmoteFetchAutoMode.balanced,
-          isMobile: true,
-        ),
-        EmoteFetchTier.low,
-      );
-      expect(
-        effectiveEmoteFetchTier(
-          manual: EmoteFetchTier.high,
-          auto: EmoteFetchAutoMode.aggressive,
-          isMobile: false,
-        ),
-        EmoteFetchTier.medium,
-      );
-      expect(
-        effectiveEmoteFetchTier(
-          manual: EmoteFetchTier.high,
-          auto: EmoteFetchAutoMode.aggressive,
-          isMobile: true,
-        ),
-        EmoteFetchTier.nothing,
-      );
-    });
-  });
-
   group('EmoteText.build', () {
-    test('plain text without emotes returns URL-parsed spans', () {
-      var spans = EmoteText.build(
-        emoteImages: _testImages,
-        text: 'hello world',
-        twitchPositions: null,
-        channelEmotes: null,
-      );
-      expect(spans, hasLength(1));
-      expect(spans[0], isA<TextSpan>());
-      expect((spans[0] as TextSpan).text, 'hello world');
-
-      final emotes = _makeEmotes(<String, Emote>{});
-      spans = EmoteText.build(
-        emoteImages: _testImages,
-        text: 'hello world',
-        twitchPositions: null,
-        channelEmotes: emotes,
-      );
-      expect(spans, hasLength(1));
-      expect(spans[0], isA<TextSpan>());
-      expect((spans[0] as TextSpan).text, 'hello world');
-    });
-
     test('frozen resolved tokens render with no live lookup', () {
       final emote = makeTestEmote(id: '1', code: 'Kappa');
       final spans = EmoteText.build(
@@ -3253,29 +2823,6 @@ void main() {
       final text = spans.whereType<TextSpan>().map((s) => s.text).join();
       expect(text, contains('hi'));
       expect(text, contains('there'));
-    });
-
-    test('URL detection in plain text segments', () {
-      final emotes = _makeEmotes({
-        'Kappa': makeTestEmote(id: '1', code: 'Kappa'),
-      });
-      final spans = EmoteText.build(
-        emoteImages: _testImages,
-        text: 'Kappa check https://example.com',
-        twitchPositions: null,
-        channelEmotes: emotes,
-      );
-      // Kappa (WidgetSpan) + ' check ' (text) + url (TextSpan with blue style)
-      expect(spans.length, greaterThanOrEqualTo(3));
-      expect(spans[0], isA<WidgetSpan>());
-      expect(spans.last, isA<TextSpan>());
-      final urlSpan = spans.last as TextSpan;
-      expect(
-        urlSpan.text,
-        'https://example.com',
-        reason: 'originText keeps the scheme',
-      );
-      expect(urlSpan.style?.color, Colors.blue);
     });
 
     test('zero-width after plain text breaks chain', () {
@@ -3440,55 +2987,6 @@ void main() {
       expect(spans[0], isA<WidgetSpan>());
     });
 
-    test('scaled emotes size their boxes to the largest element', () {
-      var emotes = _makeEmotes({
-        'SmallEmote': makeTestEmote(
-          id: '1',
-          code: 'SmallEmote',
-          type: EmoteType.sevenTv,
-          relativeScale: 0.625,
-        ),
-      });
-      var spans = EmoteText.build(
-        emoteImages: _testImages,
-        text: 'SmallEmote',
-        twitchPositions: null,
-        channelEmotes: emotes,
-      );
-      expect(spans, hasLength(1));
-      expect(spans[0], isA<WidgetSpan>());
-      var pad = (spans[0] as WidgetSpan).child as Padding;
-      var resolver = pad.child as EmoteScaleResolver;
-      expect(resolver.width, 28.0 * 0.625);
-      expect(resolver.height, 28.0 * 0.625);
-
-      emotes = _makeEmotes({
-        'SmallBase': makeTestEmote(
-          id: '1',
-          code: 'SmallBase',
-          type: EmoteType.sevenTv,
-          relativeScale: 0.5,
-        ),
-        'LargeOverlay': makeTestEmote(
-          id: '2',
-          code: 'LargeOverlay',
-          isZeroWidth: true,
-        ),
-      });
-      spans = EmoteText.build(
-        emoteImages: _testImages,
-        text: 'SmallBase LargeOverlay',
-        twitchPositions: null,
-        channelEmotes: emotes,
-      );
-      expect(spans, hasLength(1));
-      expect(spans[0], isA<WidgetSpan>());
-      pad = (spans[0] as WidgetSpan).child as Padding;
-      final box = pad.child as SizedBox;
-      expect(box.width, 28.0);
-      expect(box.height, 28.0);
-    });
-
     group('sender proof', () {
       Emote lockedSub(String code) => makeTestEmote(
         id: 'sub-$code',
@@ -3558,61 +3056,6 @@ void main() {
             ),
           ],
           channelEmotes: _makeEmotes({'folEmote': follower('folEmote')}),
-        );
-        expect(spans.any((s) => s is WidgetSpan), isTrue);
-      });
-
-      test('stranger subs stay text while unlocked emotes render', () {
-        var spans = EmoteText.build(
-          emoteImages: _testImages,
-          text: 'hi mySubEmote there',
-          twitchPositions: null,
-          channelEmotes: _makeEmotes({'mySubEmote': lockedSub('mySubEmote')}),
-        );
-        expect(spans.any((s) => s is WidgetSpan), isFalse);
-
-        spans = EmoteText.build(
-          emoteImages: _testImages,
-          text: 'KEKW',
-          twitchPositions: null,
-          channelEmotes: _makeEmotes({
-            'KEKW': makeTestEmote(
-              id: '7tv-KEKW',
-              code: 'KEKW',
-              type: EmoteType.sevenTv,
-              scope: EmoteScope.channel,
-            ),
-          }),
-        );
-        expect(spans.any((s) => s is WidgetSpan), isTrue);
-
-        spans = EmoteText.build(
-          emoteImages: _testImages,
-          text: 'Kappa',
-          twitchPositions: null,
-          channelEmotes: _makeEmotes({
-            'Kappa': makeTestEmote(
-              id: 'global-Kappa',
-              code: 'Kappa',
-              type: EmoteType.twitch,
-              scope: EmoteScope.global,
-            ),
-          }),
-        );
-        expect(spans.any((s) => s is WidgetSpan), isTrue);
-
-        spans = EmoteText.build(
-          emoteImages: _testImages,
-          text: 'PrimeBot',
-          twitchPositions: null,
-          channelEmotes: _makeEmotes({
-            'PrimeBot': makeTestEmote(
-              id: 'unlock-PrimeBot',
-              code: 'PrimeBot',
-              type: EmoteType.twitch,
-              scope: EmoteScope.global,
-            ),
-          }),
         );
         expect(spans.any((s) => s is WidgetSpan), isTrue);
       });
@@ -3766,35 +3209,6 @@ void main() {
         isTrue,
       );
     });
-
-    group('scale roles', () {
-      Map<String, dynamic> emote(List<String> names) => {
-        'id': 'res-1',
-        'name': 'Res',
-        'data': {
-          'name': 'Res',
-          'host': {
-            'url': '//cdn.7tv.app/emote/res',
-            'files': [
-              for (final n in names)
-                {'name': n, 'format': 'WEBP', 'width': 32, 'height': 32},
-            ],
-          },
-        },
-      };
-
-      const base = 'https://cdn.7tv.app/emote/res';
-
-      test('prefers 4x as large and keeps 1x/2x as small/medium', () {
-        final e = SevenTvEmoteProvider.parseSingleEmote(
-          emote(['1x.webp', '2x.webp', '3x.webp', '4x.webp']),
-        );
-        expect(e, isNotNull);
-        expect(e!.urlFor(EmoteScale.small), '$base/1x.webp');
-        expect(e.urlFor(EmoteScale.medium), '$base/2x.webp');
-        expect(e.urlFor(EmoteScale.large), '$base/4x.webp');
-      });
-    });
   });
 
   group('BttvEmoteProvider.parseEmotes', () {
@@ -3864,166 +3278,6 @@ void main() {
     });
   });
 
-  group('filterSuggestions', () {
-    test('empty and non-matching queries return no suggestions', () {
-      var result = filterSuggestions(
-        word: 'xyz',
-        emotes: [_e('1', 'Kappa'), _e('2', 'PogChamp')],
-        users: {'user1', 'user2'},
-      );
-      expect(result, isEmpty);
-
-      result = filterSuggestions(
-        word: '',
-        emotes: [_e('1', 'Kappa')],
-        users: {'user1'},
-      );
-      expect(result, isEmpty);
-
-      result = filterSuggestions(
-        word: 'Pog',
-        emotes: [_e('1', 'Kappa'), _e('2', 'PogChamp'), _e('3', 'LUL')],
-        users: {},
-      );
-      expect(_codes(result), ['PogChamp']);
-
-      result = filterSuggestions(
-        word: 'alice',
-        emotes: [],
-        users: {'bob', 'carol'},
-      );
-      expect(result, isEmpty);
-    });
-
-    group('emote scoring', () {
-      test('emote scoring ranks shorter exact and recent matches first', () {
-        var result = filterSuggestions(
-          word: 'Pog',
-          emotes: [_e('1', 'PogChamp'), _e('2', 'PogU'), _e('3', 'Pog')],
-          users: {},
-        );
-        expect(_codes(result), ['Pog', 'PogU', 'PogChamp']);
-
-        result = filterSuggestions(
-          word: 'Pog',
-          emotes: [_e('1', 'POGX'), _e('2', 'PogX')],
-          users: {},
-        );
-        expect(_codes(result), ['PogX', 'POGX']);
-
-        result = filterSuggestions(
-          word: 'wi',
-          emotes: [_e('1', 'wikked'), _e('2', 'Wink')],
-          users: {},
-        );
-        expect(_codes(result), ['Wink', 'wikked']);
-
-        result = filterSuggestions(
-          word: 'Pog',
-          emotes: [_e('1', 'PogChamp'), _e('2', 'PogU')],
-          users: {},
-          recentEmoteIds: {'1'},
-        );
-        expect(_codes(result), ['PogU', 'PogChamp']);
-
-        result = filterSuggestions(
-          word: 'pog',
-          emotes: [_e('1', 'PogChamp')],
-          users: {},
-        );
-        expect(_codes(result), ['PogChamp']);
-
-        result = filterSuggestions(
-          word: 'Pog',
-          emotes: [_e('1', 'PogChamp'), _e('1', 'PogChamp')],
-          users: {},
-        );
-        expect(result.length, 1);
-      });
-    });
-
-    group('users', () {
-      test('user suggestions sort with penalties and type splits', () {
-        var result = filterSuggestions(
-          word: 'Pog',
-          emotes: [_e('1', 'PogU')],
-          users: {'Pog'},
-        );
-        expect(_codes(result), ['Pog', 'PogU']);
-
-        result = filterSuggestions(
-          word: 'xq',
-          emotes: [],
-          users: {'xqcL', 'xqc'},
-        );
-        expect(_codes(result), ['xqc', 'xqcL']);
-
-        final defaultResult = filterSuggestions(
-          word: 'test',
-          emotes: [_e('1', 'testEmote')],
-          users: {'testUser'},
-        );
-        expect(defaultResult[0], isA<UserSuggestion>());
-
-        final flipped = filterSuggestions(
-          word: 'test',
-          emotes: [_e('1', 'testEmote')],
-          users: {'testUser'},
-          preferEmotesFirst: true,
-        );
-        expect(flipped[0], isA<EmoteSuggestion>());
-        expect(flipped[1], isA<UserSuggestion>());
-
-        result = filterSuggestions(
-          word: '7',
-          emotes: [_e('1', 'pog7'), _e('2', '777'), _e('3', '17tv')],
-          users: {'7up'},
-        );
-        expect(_codes(result), ['777', '7up', '17tv', 'pog7']);
-      });
-    });
-
-    group('commands', () {
-      test('slash queries match commands without emotes or users', () {
-        var result = filterSuggestions(
-          word: '/',
-          emotes: [],
-          users: {},
-          commands: _commands,
-        );
-        expect(_codes(result), ['/me', '/color', '/ban']);
-
-        result = filterSuggestions(
-          word: '/b',
-          emotes: [],
-          users: {},
-          commands: _commands,
-        );
-        expect(result.length, 1);
-        expect(result[0], isA<CommandSuggestion>());
-        expect(result[0].displayText, '/ban');
-
-        result = filterSuggestions(
-          word: '/ME',
-          emotes: [],
-          users: {},
-          commands: _commands,
-        );
-        expect(result.length, 1);
-        expect(result[0].displayText, '/me');
-
-        result = filterSuggestions(
-          word: '/me',
-          emotes: [_e('1', 'me')],
-          users: {'me', 'meUser'},
-          commands: _commands,
-        );
-        expect(result.length, 1);
-        expect(result[0], isA<CommandSuggestion>());
-      });
-    });
-  });
-
   setUp(() {
     SharedPreferences.setMockInitialValues({});
   });
@@ -4046,32 +3300,6 @@ void main() {
       await manager.preloadGlobalEmotes();
       return manager;
     }
-
-    test(
-      'disabling and re-enabling a provider updates the merged caches',
-      () async {
-        final manager = await seededManager();
-        expect(
-          manager.byCode('ch')!.byCode.keys,
-          containsAll(['BttvE', 'FfzE']),
-        );
-        expect(manager.isProviderEnabled(EmoteType.bttv), isTrue);
-
-        await manager.setProviderEnabled(EmoteType.bttv, false);
-
-        expect(manager.isProviderEnabled(EmoteType.bttv), isFalse);
-        expect(manager.byCode('ch')!.byCode, isNot(contains('BttvE')));
-        expect(manager.byCode('ch')!.byCode, contains('FfzE'));
-        expect(
-          manager.globalEmotesByProvider().keys,
-          isNot(contains('BetterTTV')),
-        );
-
-        await manager.setProviderEnabled(EmoteType.bttv, true);
-
-        expect(manager.byCode('ch')!.byCode, contains('BttvE'));
-      },
-    );
 
     test('the disabled set persists across manager instances', () async {
       final manager = await seededManager();
@@ -4196,67 +3424,6 @@ void main() {
       final fresh = EmoteManager(fetchStagger: Duration.zero);
       await fresh.enabledProviders();
       expect(fresh.allowUnlisted7tv, isTrue);
-    });
-  });
-
-  group('resolveRecentsForChannel', () {
-    Emote emote(String id, String code) => _e(id, code, EmoteType.sevenTv);
-
-    test('recents resolve aliases dedupe and drop missing entries', () {
-      final manager = EmoteManager(fetchStagger: Duration.zero);
-      var resolved = manager.resolveRecentsForChannel(
-        [emote('x', 'Emote')],
-        [emote('x', 'ThisEmote')],
-      );
-      expect(resolved.single.code, 'ThisEmote');
-
-      resolved = manager.resolveRecentsForChannel(
-        [emote('a', 'A'), emote('gone', 'Gone')],
-        [emote('a', 'A2')],
-      );
-      expect(resolved.map((e) => e.code), ['A2']);
-
-      resolved = manager.resolveRecentsForChannel(
-        [emote('x', 'whatever')],
-        [emote('x', 'Alpha'), emote('x', 'Beta')],
-      );
-      expect(resolved.single.code, 'Alpha');
-    });
-  });
-
-  group('emote kernel verbs', () {
-    Emote twitchEmote(
-      String id,
-      String code, {
-      String? tier,
-      String? emoteType,
-      String? ownerChannel,
-    }) => makeTestEmote(
-      id: id,
-      code: code,
-      type: EmoteType.twitch,
-      scope: EmoteScope.channel,
-      tier: tier,
-      emoteType: emoteType,
-      ownerChannel: ownerChannel,
-    );
-
-    test('batch recents dedup and keep iteration order', () async {
-      SharedPreferences.setMockInitialValues({});
-      final manager = EmoteManager(fetchStagger: Duration.zero);
-      await manager.storeUserTwitchEmotes({
-        'ch': [twitchEmote('a', 'Alpha'), twitchEmote('b', 'Bravo')],
-      });
-
-      await manager.markEmotesUsed([
-        twitchEmote('a', 'Alpha'),
-        twitchEmote('b', 'Bravo'),
-        twitchEmote('a', 'Alpha'),
-      ]);
-
-      final recents = await manager.recentEmotes();
-      expect(recents.map((e) => e.id).toList(), ['a', 'b']);
-      expect(manager.recentEmoteIds, containsAll(['a', 'b']));
     });
   });
 

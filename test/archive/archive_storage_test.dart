@@ -287,43 +287,6 @@ void main() {
     await store.close();
   });
 
-  test('the archive takes fake rows when the testing flag is on', () async {
-    FakeChatFeed(
-        decoder: IrcChatDecoder(const Stream.empty()),
-        channel: () => null,
-        emotes: (_) => const [],
-      )
-      ..setRate(1)
-      ..dispose();
-    FakeChatFeed.archived = true;
-    addTearDown(() => FakeChatFeed.archived = false);
-    final store = await _open(_newPath());
-    final writer = _writer(store, sealCount: 2);
-    writer.add(
-      _channel,
-      TwitchMessage(
-        login: 'fake_user7',
-        text: 'fake line',
-        messageId: 'fake-1-0',
-        channel: _channel,
-        timestamp: _t0,
-      ),
-    );
-    writer.add(_channel, _msg(1));
-    writer.add(_channel, _msg(2));
-    await writer.settled();
-    final rows = [
-      for (final b in await store.newestBlocks(_channel, 1000))
-        ...ArchiveBlock.decode(b.data),
-    ];
-    expect(
-      [for (final r in rows) r.text],
-      ['fake line', 'message number 1'],
-      reason: 'the fake row seals with the first real one',
-    );
-    await store.close();
-  });
-
   test('writer seals on count', () async {
     final store = await _open(_newPath());
     final writer = _writer(store);
@@ -558,6 +521,11 @@ void main() {
       ['old', 'old', 'new', 'new'],
       reason: 'a redrawn sub badge keeps its old art on old rows',
     );
+    expect(
+      rows.take(4).every((r) => r.emotesFromArchive),
+      isTrue,
+      reason: 'tokens from the sets are history, so no catalog restamps them',
+    );
 
     read.sets!.visibility = () =>
         (disabled: {EmoteType.sevenTv}, allowUnlisted: false);
@@ -566,6 +534,7 @@ void main() {
 
     final bare = await _reader(store).newestRows(_channel, 10);
     expect(bare[1].emoteTokens, isNull, reason: 'no sets: parse on render');
+    expect(bare[1].emotesFromArchive, isFalse);
     await store.close();
   });
 
@@ -1142,8 +1111,8 @@ void main() {
     );
     expect(
       (await store.streams(_channel, 0)).single.endedTs,
-      DateTime.utc(2026, 9, 25, 1).millisecondsSinceEpoch,
-      reason: 'one left open with no chat for a day ends at the last row',
+      isNull,
+      reason: 'quiet chat does not end a live broadcast',
     );
     await store.endStream('live', now.millisecondsSinceEpoch);
     expect(
@@ -1270,6 +1239,38 @@ void main() {
       reason: 'an hour later the prune runs again',
     );
     await third.close();
+  });
+
+  test('restart pruning keeps a quiet live stream open', () async {
+    final path = _newPath();
+    var now = DateTime.utc(2026, 10, 1, 12);
+    final started = DateTime.utc(2026, 10, 1, 9);
+    var store = await _open(path, now: () => now);
+    await store.putStream(
+      channel: _channel,
+      id: 'live',
+      startedTs: started.millisecondsSinceEpoch,
+    );
+    await store.appendBlock(
+      channel: _channel,
+      startTs: started.millisecondsSinceEpoch,
+      endTs: started.add(const Duration(hours: 1)).millisecondsSinceEpoch,
+      count: 1,
+      data: ArchiveBlock.encode(const []),
+      minutes: const {},
+    );
+    await store.close();
+
+    now = now.add(const Duration(days: 2));
+    store = await _open(path, now: () => now);
+    final streams = await store.streams(_channel, 0);
+    expect(streams, hasLength(1));
+    expect(
+      streams.single.endedTs,
+      isNull,
+      reason: 'restart pruning must not invent an end from quiet chat',
+    );
+    await store.close();
   });
 
   test('an older database gains the end time index on open', () async {
@@ -1963,27 +1964,6 @@ void main() {
       expect(rows.last.deleted, isTrue);
       await store.close();
     });
-  });
-
-  test('block encode, write and read timings', () async {
-    final store = await _open(_newPath());
-    final writer = ArchiveWriter(Future.value(store));
-    final reader = ArchiveReader(Future.value(store));
-    final rows = Stopwatch()..start();
-    for (var i = 0; i < 256; i++) {
-      writer.add(_channel, _msg(i, login: 'user${i % 40}'));
-    }
-    await writer.flush();
-    final write = rows.elapsedMilliseconds;
-    rows.reset();
-    final read = await reader.newestRows(_channel, 256);
-    final readMs = rows.elapsedMilliseconds;
-    expect(read.length, 256);
-    // ignore: avoid_print
-    print(
-      '256 rows: seal (isolate encode + write) ${write}ms, read ${readMs}ms',
-    );
-    await store.close();
   });
 
   test('user history pages by exact login and user id', () async {

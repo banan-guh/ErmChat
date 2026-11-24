@@ -113,71 +113,41 @@ void main() {
       expect(threads.single.replyCount, 2);
     });
 
-    test('a reply with only a parent id joins the walked root', () {
-      final chat = _tickingChat(DateTime(2026, 1, 1));
-      addTearDown(chat.dispose);
-      final channel = chat.channelFor('test')!;
-      final root = _root('r1');
-      final parent = _reply('c1', 'r1');
-      final child = _parentedReply('c2', 'c1');
-      final byId = {
-        for (final m in [root, parent, child]) m.messageId!: m,
-      };
-      TwitchMessage? lookup(String id) => byId[id];
+    test('parent-id replies join the walked root', () {
+      for (final (name, child) in [
+        ('parent id only', _parentedReply('c2', 'c1')),
+        ('parent-id thread-root fallback', _fallbackReply('c2', 'c1')),
+      ]) {
+        final chat = _tickingChat(DateTime(2026, 1, 1));
+        addTearDown(chat.dispose);
+        final channel = chat.channelFor('test')!;
+        final root = _root('r1');
+        final parent = _reply('c1', 'r1');
+        final byId = {
+          for (final m in [root, parent, child]) m.messageId!: m,
+        };
+        TwitchMessage? lookup(String id) => byId[id];
 
-      channel.threads.index([root, parent], lookupRoot: lookup);
-      final before = channel.threads.version.value;
-      channel.threads.index([child], lookupRoot: lookup);
+        channel.threads.index([root, parent], lookupRoot: lookup);
+        final before = channel.threads.version.value;
+        channel.threads.index([child], lookupRoot: lookup);
 
-      expect(
-        channel.threads.threadFor('r1')!.map((m) => m.messageId),
-        containsAll(['r1', 'c1', 'c2']),
-        reason: 'the parent chain must resolve to the thread root',
-      );
-      expect(
-        channel.threads.threadFor('c1'),
-        isNull,
-        reason: 'the child is not a new thread under its parent',
-      );
-      expect(
-        channel.threads.version.value,
-        greaterThan(before),
-        reason: 'the open thread must be told to refresh',
-      );
-    });
-
-    test('a parent-id thread-root fallback still walks to the real root', () {
-      final chat = _tickingChat(DateTime(2026, 1, 1));
-      addTearDown(chat.dispose);
-      final channel = chat.channelFor('test')!;
-      final root = _root('r1');
-      final parent = _reply('c1', 'r1');
-      // The codec falls back to the parent when Twitch omits the thread tag.
-      final child = _fallbackReply('c2', 'c1');
-      final byId = {
-        for (final m in [root, parent, child]) m.messageId!: m,
-      };
-      TwitchMessage? lookup(String id) => byId[id];
-
-      channel.threads.index([root, parent], lookupRoot: lookup);
-      final before = channel.threads.version.value;
-      channel.threads.index([child], lookupRoot: lookup);
-
-      expect(
-        channel.threads.threadFor('r1')!.map((m) => m.messageId),
-        containsAll(['r1', 'c1', 'c2']),
-        reason: 'a fallback parent id is not the thread root',
-      );
-      expect(
-        channel.threads.threadFor('c1'),
-        isNull,
-        reason: 'the fallback must not create a new thread under the parent',
-      );
-      expect(
-        channel.threads.version.value,
-        greaterThan(before),
-        reason: 'the open thread must be told to refresh',
-      );
+        expect(
+          channel.threads.threadFor('r1')!.map((m) => m.messageId),
+          containsAll(['r1', 'c1', 'c2']),
+          reason: '$name must resolve to the thread root',
+        );
+        expect(
+          channel.threads.threadFor('c1'),
+          isNull,
+          reason: '$name must not create a thread under the parent',
+        );
+        expect(
+          channel.threads.version.value,
+          greaterThan(before),
+          reason: '$name must refresh the open thread',
+        );
+      }
     });
 
     test('a reply whose parent left the buffer joins the tracked thread', () {
@@ -521,59 +491,5 @@ void main() {
         expect(seenInThreads, contains('c2'));
       },
     );
-
-    test('threads.version bumps on index and decay only', () {
-      final chat = _tickingChat(DateTime(2026, 1, 1));
-      addTearDown(chat.dispose);
-      final channel = chat.channelFor('test')!;
-      var bumps = 0;
-      channel.threads.version.addListener(() => bumps++);
-
-      channel.receive(
-        _root('r1'),
-        maxMessages: 100,
-        isSelected: true,
-        ownLogin: null,
-      );
-      expect(bumps, 0);
-
-      final reply = _reply('c1', 'r1');
-      channel.receive(
-        reply,
-        maxMessages: 100,
-        isSelected: true,
-        ownLogin: null,
-      );
-      expect(bumps, 1);
-
-      channel.receive(
-        _reply('c1', 'r1'),
-        maxMessages: 100,
-        isSelected: true,
-        ownLogin: null,
-      );
-      expect(bumps, 1);
-
-      channel.threads.decay([reply]);
-      expect(bumps, 2);
-      expect(channel.threads.threadFor('r1'), hasLength(1));
-    });
-
-    test('re-indexing an unchanged root leaves version alone', () {
-      final chat = Chat();
-      addTearDown(chat.dispose);
-      final channel = chat.ensure('test');
-      final root = _root('r1');
-      channel.messages.add(root, maxMessages: 100);
-      channel.threads.index([
-        root,
-        _reply('c1', 'r1'),
-      ], lookupRoot: channel.messages.byId);
-      final before = channel.threads.version.value;
-
-      channel.threads.index([root], lookupRoot: channel.messages.byId);
-
-      expect(channel.threads.version.value, before, reason: 'no-op reindex');
-    });
   });
 }

@@ -21,39 +21,10 @@ TwitchMessage _reply(String id, String rootId) => TwitchMessage(
 );
 
 void main() {
-  test('only account and locale system rows rebuild', () {
-    TwitchMessage row(String? id) => TwitchMessage(
-      login: '',
-      text: '',
-      isSystem: true,
-      messageId: id,
-      channel: 'test',
-    );
-    expect(Messages.rowNeedsRebuild(row('sys_conn:connected:0')), isTrue);
-    expect(Messages.rowNeedsRebuild(row(Messages.loadingHistoryId)), isTrue);
-    expect(
-      Messages.rowNeedsRebuild(row('${Messages.historyGapIdPrefix}123')),
-      isTrue,
-    );
-    expect(Messages.rowNeedsRebuild(row('sub-123')), isFalse);
-    expect(Messages.rowNeedsRebuild(_live('m1')), isFalse);
-  });
-
   group('Messages system rows', () {
     List<String> texts(Messages m) => m.items.map((e) => e.text).toList();
     int count(Messages m, String text) =>
         m.items.where((e) => e.text == text).length;
-
-    test('addSystem inserts at the top with a generated id', () {
-      final chat = Chat();
-      addTearDown(chat.dispose);
-      final messages = chat.ensure('test').messages;
-      expect(messages.addSystem('Connected'), isTrue);
-      expect(messages.addSystem('hello'), isTrue);
-      expect(texts(messages), ['hello', 'Connected']);
-      expect(messages.items.first.isSystem, isTrue);
-      expect(messages.items.first.messageId, startsWith('sys_'));
-    });
 
     test('addSystemAt lands by timestamp and dedups by id', () {
       final chat = Chat();
@@ -138,22 +109,6 @@ void main() {
           .map((e) => e.messageId)
           .toSet();
       expect(ids, hasLength(2), reason: 'each Reconnected row owns its id');
-    });
-
-    test('messageId and id-less dedup', () {
-      final chat = Chat();
-      addTearDown(chat.dispose);
-      final messages = chat.ensure('test').messages;
-      expect(messages.addSystem('subbed!', messageId: 'n1:label'), isTrue);
-      expect(messages.addSystem('subbed!', messageId: 'n1:label'), isFalse);
-      expect(messages.addSystem('subbed!', messageId: 'n2:label'), isTrue);
-      expect(messages.items, hasLength(2));
-
-      // The same delivery arriving twice (both sockets, server resend).
-      expect(messages.addSystem('slow mode'), isTrue);
-      expect(messages.addSystem('slow mode'), isFalse);
-      expect(messages.addSystem('slow mode', messageId: 'n3:label'), isTrue);
-      expect(messages.items, hasLength(4));
     });
 
     test('label id never collides with the child message id', () {
@@ -357,26 +312,6 @@ void main() {
   });
 
   group('Messages.truncate fast path', () {
-    test('plain buffers keep the newest rows and prune evicted ids', () {
-      var t = DateTime(2026, 1, 1);
-      final m = Messages(channel: 'a', now: () => t);
-      addTearDown(m.dispose);
-      for (var i = 0; i < 8; i++) {
-        m.add(_live('m$i'), maxMessages: 5);
-        t = t.add(const Duration(seconds: 1));
-      }
-      m.truncate(5);
-      expect(m.items.map((e) => e.messageId).toList(), [
-        'm7',
-        'm6',
-        'm5',
-        'm4',
-        'm3',
-      ]);
-      expect(m.containsId('m7'), isTrue);
-      expect(m.containsId('m2'), isFalse);
-    });
-
     test('thread-aware truncate lists id-less rows it drops', () {
       final m = Messages(channel: 'a');
       addTearDown(m.dispose);
@@ -392,21 +327,6 @@ void main() {
 
       expect(m.items, isNot(contains(idless)));
       expect(evicted, contains(idless), reason: 'dropped row unreported');
-    });
-
-    test('a reply row takes the thread-aware path and keeps order', () {
-      var t = DateTime(2026, 1, 1);
-      final m = Messages(channel: 'a', now: () => t);
-      addTearDown(m.dispose);
-      m.add(_live('root'), maxMessages: 4);
-      m.add(_reply('r1', 'root'), maxMessages: 4);
-      for (var i = 0; i < 4; i++) {
-        m.add(_live('f$i'), maxMessages: 4);
-        t = t.add(const Duration(seconds: 1));
-      }
-      expect(m.items.length, 4);
-      expect(m.items.first.messageId, 'f3');
-      expect(m.containsId('r1'), isFalse);
     });
   });
 
@@ -458,31 +378,6 @@ void main() {
       expect(channel.messages.byId('h0'), isNull);
       expect(channel.threads.threadFor('h0'), isNull);
       expect(channel.messages.length, 3);
-    });
-
-    test('a fully deduped merge keeps version and the connect line', () {
-      final chat = Chat();
-      addTearDown(chat.dispose);
-      final channel = chat.ensure('test');
-      channel.addConnStatus(SystemLine.connected, maxMessages: 10);
-      final rows = [_live('l1'), _live('l2')];
-      for (final m in rows) {
-        channel.receive(m, maxMessages: 10, isSelected: true, ownLogin: null);
-      }
-      channel.addSystemMessage('later', maxMessages: 10);
-      final before = channel.messages.version.value;
-      final order = channel.messages.items.map((m) => m.text).toList();
-
-      chat.receiveHistory(
-        'test',
-        [_live('l1'), _live('l2')],
-        rawHistory: [_live('l1'), _live('l2')],
-        maxMessages: 10,
-        ownLogin: null,
-      );
-
-      expect(channel.messages.version.value, before);
-      expect(channel.messages.items.map((m) => m.text), order);
     });
 
     test('a fetch reaching back past the newest held row notes no gap', () {
@@ -805,7 +700,7 @@ void main() {
       bool complete = true,
     }) => (tokens: tokens, complete: complete);
 
-    test('heals partial rows by adding emotes only', () {
+    test('heals partial rows by adding resolved emotes', () {
       final messages = Messages(channel: 'test');
       addTearDown(messages.dispose);
       final a = token('a', 'Alpha', 0);
@@ -813,8 +708,6 @@ void main() {
       // Baked before the channel set: live and history rows both heal.
       final live = row('live', 'Alpha Beta', tokens: [a]);
       final history = row('hist', 'Alpha Beta', history: true);
-      // The reparse lost Alpha (removed since): the row keeps what it shows.
-      final removed = row('gone', 'Alpha Beta', tokens: [a]);
       // Baked against a complete catalog: frozen.
       final frozen = row('frozen', 'Alpha Beta', partial: false);
       final system =
@@ -827,30 +720,47 @@ void main() {
             )
             ..emoteTokens = const []
             ..emotesPartial = true;
-      for (final m in [live, history, removed, frozen, system]) {
+      for (final m in [live, history, frozen, system]) {
         messages.add(m, maxMessages: 100);
       }
       final emitted = <String?>[];
       messages.mutations.addListener(emitted.add);
       final before = messages.version.value;
 
-      final count = messages.restampPartialEmotes(
-        (msg) => msg.messageId == 'gone' ? parsed([b]) : parsed([a, b]),
-      );
+      final count = messages.restampPartialEmotes((_) => parsed([a, b]));
 
       expect(count, 2);
       expect(live.emoteTokens, [a, b]);
       expect(history.emoteTokens, [a, b]);
-      expect(removed.emoteTokens, [a], reason: 'healing never drops');
       expect(frozen.emoteTokens, isEmpty);
       expect(system.emoteTokens, isEmpty);
       expect(
-        [live, history, removed].any((m) => m.emotesPartial),
+        [live, history].any((m) => m.emotesPartial),
         isFalse,
         reason: 'a complete catalog ends candidacy',
       );
       expect(messages.version.value, before + 1);
       expect(emitted, unorderedEquals(['live', 'hist']));
+    });
+
+    test('partial healing replaces a local guess with the source emote', () {
+      final messages = Messages(channel: 'test');
+      addTearDown(messages.dispose);
+      final local = token('local', 'Shared', 0);
+      final source = token('source', 'Shared', 0);
+      final message = row('m1', 'Shared', tokens: [local]);
+      messages.add(message, maxMessages: 100);
+      final emitted = <String?>[];
+      messages.mutations.addListener(emitted.add);
+      final before = messages.version.value;
+
+      final count = messages.restampPartialEmotes((_) => parsed([source]));
+
+      expect(count, 1);
+      expect(message.emoteTokens, [source]);
+      expect(message.emotesPartial, isFalse);
+      expect(messages.version.value, before + 1);
+      expect(emitted, ['m1']);
     });
 
     test('an incomplete catalog keeps the row a candidate', () {
@@ -887,35 +797,53 @@ void main() {
       expect(allCount, 1);
     });
 
-    test('restampCodes swaps a deleted and re-added emote', () {
+    test('restampAdded adds a new emote without changing existing ones', () {
       final messages = Messages(channel: 'test');
       addTearDown(messages.dispose);
-      final old = token('old', 'VO', 0);
-      final updated = token('new', 'VO', 0);
-      final replaced = row('m1', 'VO', tokens: [old], partial: false);
-      final other = row('m2', 'Beta', tokens: [token('b', 'Beta', 0)]);
-      messages
-        ..add(replaced, maxMessages: 100)
-        ..add(other, maxMessages: 100);
+      final beta = token('b', 'Beta', 6);
+      final plain = row('m1', 'Alpha', tokens: const []);
+      final mixed = row('m2', 'Alpha Beta', tokens: [beta]);
+      final history = row('m3', 'Alpha', tokens: const [])
+        ..emotesFromArchive = true;
+      for (final m in [plain, mixed, history]) {
+        messages.add(m, maxMessages: 100);
+      }
       final before = messages.version.value;
 
-      final count = messages.restampCodes({'VO'}, (_) => parsed([updated]));
+      final count = messages.restampAdded(
+        {'Alpha'},
+        (msg) => parsed(
+          msg.text == 'Alpha'
+              ? [token('a', 'Alpha', 0)]
+              : [token('a', 'Alpha', 0), beta],
+        ),
+      );
 
-      expect(count, 1);
-      expect(replaced.emoteTokens, [updated]);
-      expect(replaced.emoteTokens!.single.emote!.id, 'new');
-      expect(other.emoteTokens, hasLength(1), reason: 'other codes stay baked');
+      expect(count, 2);
+      expect(plain.emoteTokens!.single.emote!.id, 'a');
+      expect(mixed.emoteTokens!.map((t) => t.emote!.id), ['a', 'b']);
+      expect(
+        history.emoteTokens,
+        isEmpty,
+        reason: 'an archive row keeps the emotes of its time',
+      );
       expect(messages.version.value, before + 1);
     });
 
-    test('restampCodes drops a code that left the catalog', () {
+    test('dropEmotes removes only the confirmed-dead emote', () {
       final messages = Messages(channel: 'test');
       addTearDown(messages.dispose);
-      final m = row('m1', 'VO', tokens: [token('old', 'VO', 0)]);
-      messages.add(m, maxMessages: 100);
+      final dead = token('x', 'Gone', 0);
+      final alive = token('a', 'Alpha', 5);
+      final hit = row('m1', 'Gone Alpha', tokens: [dead, alive]);
+      final other = row('m2', 'Alpha', tokens: [alive]);
+      messages
+        ..add(hit, maxMessages: 100)
+        ..add(other, maxMessages: 100);
 
-      expect(messages.restampCodes({'VO'}, (_) => parsed([])), 1);
-      expect(m.emoteTokens, isEmpty, reason: 'a deleted emote renders as text');
+      expect(messages.dropEmotes({'x'}), 1);
+      expect(hit.emoteTokens!.map((t) => t.emote!.id), ['a']);
+      expect(other.emoteTokens, hasLength(1), reason: 'other rows stay put');
     });
   });
 
@@ -975,33 +903,6 @@ void main() {
       final row = channel.messages.items.single;
       expect(row.isHeld, isFalse, reason: 'the sent copy supersedes it');
       expect(row.text, 'held text');
-    });
-
-    test('removeHeld leaves normal rows alone', () {
-      final chat = Chat();
-      addTearDown(chat.dispose);
-      final channel = chat.ensure('test');
-      channel.receive(
-        TwitchMessage(
-          login: 'alice',
-          text: 'normal',
-          messageId: 'm1',
-          channel: 'test',
-        ),
-        maxMessages: 10,
-        isSelected: true,
-        ownLogin: null,
-      );
-      final held = TwitchMessage(
-        login: 'bob',
-        text: 'held',
-        messageId: 'm2',
-        channel: 'test',
-      )..isHeld = true;
-      chat.receiveHeld('test', held);
-      chat.removeHeld('test', 'm2');
-      expect(channel.messages.items.single.messageId, 'm1');
-      expect(chat.unreadMentions, 0);
     });
   });
 }

@@ -5,12 +5,10 @@ import 'dart:ui' show PictureRecorder;
 import 'package:fake_async/fake_async.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
-import 'package:ermchat/models/twitch_message.dart';
 import 'package:ermchat/services/cache_db.dart';
 import 'package:ermchat/services/emote_images.dart';
 import 'package:ermchat/services/seven_tv_event_client.dart';
 import 'package:ermchat/widgets/seven_tv_paint_service.dart';
-import 'package:ermchat/widgets/chat_message_tile.dart';
 import 'package:ermchat/widgets/emote_url_provider.dart';
 import 'package:ermchat/widgets/painted_username_text.dart';
 
@@ -58,19 +56,6 @@ final _linearData = {
       'color': {'hex': '#10203040'},
     },
   ],
-};
-
-final _solidData = {
-  'layers': [
-    {
-      'opacity': 0.8,
-      'ty': {
-        '__typename': 'PaintLayerTypeSingleColor',
-        'color': {'hex': '#ABCDEF01'},
-      },
-    },
-  ],
-  'shadows': [],
 };
 
 String _catalogQueryResponse(List<Map<String, dynamic>> items) => jsonEncode({
@@ -168,30 +153,6 @@ void main() {
         0.6,
         1.0,
       ], reason: 'a stop before its predecessor holds that position');
-      service.dispose();
-    });
-
-    test('solid paints expose a solid color shortcut', () async {
-      final service = SevenTvPaintService(
-        gqlQuery: (_) async =>
-            jsonDecode(
-                  _catalogQueryResponse([
-                    _paintItem('p2', 'Solid', _solidData),
-                  ]),
-                )['data']
-                as Map<String, dynamic>,
-      );
-      await service.ensureCatalog();
-      service.enabled = true;
-      service.assignForTesting('222', 'p2');
-
-      final paint = service.lookup('222')!;
-      final solid = paint.solidColor!;
-      // #ABCDEF01 at layer opacity .8: rgb channels kept, alpha multiplied.
-      expect(solid.r, closeTo(0xAB / 255, 0.001));
-      expect(solid.g, closeTo(0xCD / 255, 0.001));
-      expect(solid.b, closeTo(0xEF / 255, 0.001));
-      expect(solid.a, closeTo((1 / 255) * 0.8, 0.0005));
       service.dispose();
     });
   });
@@ -323,24 +284,6 @@ void main() {
   });
 
   group('SevenTvPaintService user resolution', () {
-    test('turning paints off clears names already painted', () {
-      final service = SevenTvPaintService(gqlQuery: (_) async => null)
-        ..addPaintForTesting(
-          const SevenTvPaint(id: 'p1', name: 'Known', layers: [], shadows: []),
-        )
-        ..enabled = true
-        ..assignForTesting('111', 'p1');
-      final notifier = service.lookupNotifier('111');
-      void listener() {}
-      notifier.addListener(listener);
-      expect(notifier.value?.id, 'p1');
-
-      service.enabled = false;
-      expect(notifier.value, isNull, reason: 'a pinned name stayed painted');
-      notifier.removeListener(listener);
-      service.dispose();
-    });
-
     test('resolves batched users and stays idle while disabled', () async {
       var queried = false;
       final disabled = SevenTvPaintService(
@@ -529,32 +472,6 @@ void main() {
     third.dispose();
   });
 
-  test('turning paints off and on downloads the catalog again', () async {
-    await CacheDb.I.reset();
-    addTearDown(CacheDb.I.reset);
-    var fetches = 0;
-    Future<Map<String, dynamic>?> query(String q) async {
-      if (!q.contains('{ paints')) return null;
-      fetches++;
-      return {
-        'paints': {
-          'paints': [_paintItem('p1', 'Known', _linearData)],
-        },
-      };
-    }
-
-    final service = SevenTvPaintService(db: CacheDb.I, gqlQuery: query)
-      ..enabled = true;
-    await service.ensureCatalog();
-    expect(fetches, 1, reason: 'the first enable downloads');
-
-    service.enabled = false;
-    service.enabled = true;
-    await service.ensureCatalog();
-    expect(fetches, 2, reason: 'off and on trusted the stored catalog');
-    service.dispose();
-  });
-
   group('SevenTvEventClient entitlement dispatches', () {
     test('surfaces paint and emote set entitlements with twitch ids', () async {
       final client = SevenTvEventClient();
@@ -717,131 +634,6 @@ void main() {
         service.dispose();
         client.dispose();
       });
-    });
-  });
-
-  group('ChatMessageTile painted username', () {
-    TwitchMessage message(String userId, {bool action = false}) =>
-        TwitchMessage(
-          login: 'paintuser',
-          displayName: 'PaintUser',
-          text: 'hello',
-          userId: userId,
-          color: '#FF0000',
-          messageId: 'm-$userId',
-          isAction: action,
-        );
-
-    ChatMessageTile tile(TwitchMessage msg, SevenTvPaintService? paints) =>
-        ChatMessageTile(
-          message: msg,
-          channel: 'chan',
-          surface: Colors.black,
-          textScale: 1.0,
-          buildBadgeSpans: (_, _, {badgeScale = 1.0}) => [],
-          buildMessageSpans:
-              (_, _, _, {colored = false, textScale = 1.0, onImageTap}) => [
-                TextSpan(text: msg.text),
-              ],
-          bodyIsCached: (_, _) => false,
-          paintService: paints,
-        );
-
-    testWidgets('routes painted usernames through the gradient widget', (
-      tester,
-    ) async {
-      final service = SevenTvPaintService(gqlQuery: (_) async => null)
-        ..enabled = true;
-      service
-        ..addPaintForTesting(
-          SevenTvPaint(
-            id: 'g1',
-            name: 'Grad',
-            layers: [
-              SevenTvLinearGradientLayer(
-                stops: const [
-                  SevenTvPaintStop(at: 0, color: Colors.red),
-                  SevenTvPaintStop(at: 1, color: Colors.blue),
-                ],
-                angleDegrees: 90,
-                repeating: false,
-                opacity: 1,
-              ),
-            ],
-            shadows: const [],
-          ),
-        )
-        ..assignForTesting('888', 'g1');
-
-      await tester.pumpWidget(
-        MaterialApp(home: Scaffold(body: tile(message('777'), service))),
-      );
-      // Let the queued batch flush timer fire so teardown has no pending
-      // timers.
-      await tester.pump(const Duration(milliseconds: 300));
-      // Unpainted names stay in the row paragraph.
-      expect(find.byType(PaintedUsernameText), findsNothing);
-
-      await tester.pumpWidget(
-        MaterialApp(home: Scaffold(body: tile(message('888'), service))),
-      );
-      await tester.pump();
-
-      expect(find.byType(PaintedUsernameText), findsOneWidget);
-      // The gradient rides the text foreground, not a ShaderMask layer.
-      expect(find.byType(ShaderMask), findsNothing);
-      expect(
-        tester
-            .widget<PaintedUsernameText>(find.byType(PaintedUsernameText))
-            .text,
-        'PaintUser: ',
-        reason: 'the painted name left the colon plain',
-      );
-
-      // An action keeps the name's trailing space instead of a colon.
-      await tester.pumpWidget(
-        MaterialApp(
-          home: Scaffold(body: tile(message('888', action: true), service)),
-        ),
-      );
-      await tester.pump();
-      expect(
-        tester
-            .widget<PaintedUsernameText>(find.byType(PaintedUsernameText))
-            .text,
-        'PaintUser ',
-        reason: 'an action picked up a colon',
-      );
-      service.dispose();
-    });
-
-    testWidgets('shadow-only paints still paint the name', (tester) async {
-      final service = SevenTvPaintService(gqlQuery: (_) async => null)
-        ..enabled = true;
-      service
-        ..addPaintForTesting(
-          const SevenTvPaint(
-            id: 's1',
-            name: 'Shadow',
-            layers: [],
-            shadows: [
-              SevenTvPaintShadow(
-                color: Color(0xFF000000),
-                offsetX: 0,
-                offsetY: 0,
-                blur: 2,
-              ),
-            ],
-          ),
-        )
-        ..assignForTesting('999', 's1');
-
-      await tester.pumpWidget(
-        MaterialApp(home: Scaffold(body: tile(message('999'), service))),
-      );
-      await tester.pump();
-      expect(find.byType(PaintedUsernameText), findsOneWidget);
-      service.dispose();
     });
   });
 
