@@ -20,6 +20,13 @@ typedef _PersistedPersonalSets = ({
   Map<String, List<String>> owners,
 });
 
+typedef _ViewerSetEdit = ({
+  List<Emote> added,
+  List<String> removedIds,
+  Map<String, String> renamed,
+  Map<String, String?> renamedBaseNames,
+});
+
 /// 7TV personal emote sets: the viewer's own grants and other viewers'
 /// (foreign) grants learned from the socket.
 ///
@@ -102,6 +109,13 @@ class SevenTvPersonalSets {
   // dropped instead of repopulating cleared state.
   int _generation = 0;
 
+  // Viewer-set REST loads replay socket edits that land while they run.
+  Future<void>? _viewerLoad;
+  bool _viewerReconcileActive = false;
+  final _viewerReconcileEdits = <String, List<_ViewerSetEdit>>{};
+  final _viewerReconcileGranted = <String>{};
+  final _viewerReconcileRevoked = <String>{};
+
   // Personal sets change rarely and the socket corrects them live, so the
   // disk copy is a long-lived cold-start seed (not a source of truth).
   static const personalSetsKey = 'emotes5_personal_sets';
@@ -160,43 +174,142 @@ class SevenTvPersonalSets {
   /// Bootstrap: fetch the viewer's owned 7TV sets and their emotes.
   /// Restores the persisted seed first, then refetches every set so a seed
   /// from an earlier session cannot outlive the socket's missed edits. A
-  /// failed fetch keeps the seeded contents.
-  Future<void> loadViewerPersonalSevenTvSets() async {
+  /// failed fetch keeps the seeded contents. A gap heal fetches only sets the
+  /// socket named or sets with no cached contents.
+  Future<void> loadViewerPersonalSevenTvSets({
+    bool reconcile = false,
+    Set<String> changedSetIds = const {},
+  }) {
+    final running = _viewerLoad;
+    if (running != null) return running;
+    late final Future<void> future;
+    future =
+        _loadViewerPersonalSevenTvSets(
+          reconcile: reconcile,
+          changedSetIds: changedSetIds,
+        ).whenComplete(() {
+          if (identical(_viewerLoad, future)) _viewerLoad = null;
+        });
+    _viewerLoad = future;
+    return future;
+  }
+
+  Future<void> _loadViewerPersonalSevenTvSets({
+    required bool reconcile,
+    required Set<String> changedSetIds,
+  }) async {
     await loadPersisted();
     final viewerId = viewerTwitchId;
     if (viewerId == null || viewerId.isEmpty) return;
     if (_tier() == EmoteFetchTier.nothing) return;
     if (!_isProviderOn(EmoteType.sevenTv)) return;
-    List<String> setIds;
+    final generation = _generation;
+    _viewerReconcileActive = true;
+    _viewerReconcileEdits.clear();
+    _viewerReconcileGranted.clear();
+    _viewerReconcileRevoked.clear();
     try {
-      setIds = await _fetcher.fetchSevenTvOwnedSetIds(viewerId);
-    } catch (e) {
-      logDebug('[SevenTvPersonalSets] personal 7TV set listing failed: $e');
-      return;
-    }
-    // An account switch mid-load must not file the old viewer's sets under
-    // the new one.
-    if (viewerTwitchId != viewerId) return;
-    var changed = false;
-    for (final setId in setIds) {
-      List<Emote> emotes;
+      List<String> setIds;
       try {
-        emotes = await _fetcher.fetchSevenTvEmoteSet(setId);
+        setIds = await _fetcher.fetchSevenTvOwnedSetIds(viewerId);
       } catch (e) {
-        logDebug('[SevenTvPersonalSets] personal 7TV set $setId failed: $e');
-        continue;
+        logDebug('[SevenTvPersonalSets] personal 7TV set listing failed: $e');
+        return;
       }
-      if (viewerTwitchId != viewerId) return;
-      final previous = _personalSevenTvSets[setId];
-      _personalSevenTvSetIds.add(setId);
-      _personalSevenTvSets[setId] = emotes;
-      if (!_sameEmotes(previous, emotes)) changed = true;
+      // An account switch mid-load must not file the old viewer's sets under
+      // the new one.
+      if (viewerTwitchId != viewerId || generation != _generation) return;
+      final snapshots = <String, List<Emote>>{};
+      for (final setId in setIds) {
+        final cached = _personalSevenTvSets[setId];
+        if (reconcile &&
+            !changedSetIds.contains(setId) &&
+            cached != null &&
+            cached.isNotEmpty) {
+          continue;
+        }
+        List<Emote> emotes;
+        try {
+          emotes = await _fetcher.fetchSevenTvEmoteSet(setId);
+        } catch (e) {
+          logDebug('[SevenTvPersonalSets] personal 7TV set $setId failed: $e');
+          continue;
+        }
+        if (viewerTwitchId != viewerId || generation != _generation) return;
+        snapshots[setId] = emotes;
+      }
+      if (viewerTwitchId != viewerId || generation != _generation) return;
+
+      final nextIds = <String>{
+        for (final id in _personalSevenTvSetIds)
+          if (!_viewerReconcileRevoked.contains(id)) id,
+        for (final id in setIds)
+          if (!_viewerReconcileRevoked.contains(id)) id,
+      }..addAll(_viewerReconcileGranted);
+      final nextSets = <String, List<Emote>>{};
+      var changed =
+          nextIds.length != _personalSevenTvSetIds.length ||
+          !nextIds.containsAll(_personalSevenTvSetIds);
+      for (final id in nextIds) {
+        final edits = _viewerReconcileEdits[id];
+        List<Emote> contents;
+        if (edits != null && edits.isNotEmpty) {
+          final base =
+              snapshots[id] ??
+              (_viewerReconcileGranted.contains(id)
+                  ? _personalSevenTvSets[id]
+                  : null);
+          contents = base == null ? <Emote>[] : List<Emote>.from(base);
+          for (final edit in edits) {
+            _applyEdits(
+              contents,
+              added: edit.added,
+              removedIds: edit.removedIds,
+              renamed: edit.renamed,
+              renamedBaseNames: edit.renamedBaseNames,
+            );
+          }
+        } else if (snapshots[id] case final snapshot?) {
+          contents = snapshot;
+        } else {
+          contents = _personalSevenTvSets[id] ?? <Emote>[];
+        }
+        nextSets[id] = contents;
+        if (!_sameEmotes(_personalSevenTvSets[id], contents)) changed = true;
+      }
+      _personalSevenTvSetIds
+        ..clear()
+        ..addAll(nextIds);
+      _personalSevenTvSets
+        ..clear()
+        ..addAll(nextSets);
+      if (changed) {
+        _notifyChanged();
+        _sendersChanged([viewerId]);
+        _scheduleSave();
+      }
+    } finally {
+      _viewerReconcileActive = false;
+      _viewerReconcileEdits.clear();
+      _viewerReconcileGranted.clear();
+      _viewerReconcileRevoked.clear();
     }
-    if (changed) {
-      _notifyChanged();
-      _sendersChanged([viewerId]);
-      _scheduleSave();
-    }
+  }
+
+  void _recordViewerEdit(
+    String setId, {
+    required List<Emote> added,
+    required List<String> removedIds,
+    required Map<String, String> renamed,
+    Map<String, String?> renamedBaseNames = const {},
+  }) {
+    if (!_viewerReconcileActive) return;
+    (_viewerReconcileEdits[setId] ??= <_ViewerSetEdit>[]).add((
+      added: List.of(added),
+      removedIds: List.of(removedIds),
+      renamed: Map.of(renamed),
+      renamedBaseNames: Map.of(renamedBaseNames),
+    ));
   }
 
   /// Live personal 7TV grant/revoke from the entitlement stream. The
@@ -213,6 +326,11 @@ class SevenTvPersonalSets {
         await trackForeignGrant(event.twitchUserIds, event.cosmeticId);
       }
       return;
+    }
+    if (event.kind == 'entitlement.delete') {
+      _viewerReconcileRevoked.add(event.cosmeticId);
+    } else {
+      _viewerReconcileGranted.add(event.cosmeticId);
     }
     if (_tier() == EmoteFetchTier.nothing) return;
     if (!_isProviderOn(EmoteType.sevenTv)) return;
@@ -400,6 +518,13 @@ class SevenTvPersonalSets {
     required Map<String, String> renamed,
     Map<String, String?> renamedBaseNames = const {},
   }) {
+    _recordViewerEdit(
+      setId,
+      added: added,
+      removedIds: removedIds,
+      renamed: renamed,
+      renamedBaseNames: renamedBaseNames,
+    );
     final contents = _personalSevenTvSets[setId];
     if (contents == null) return;
     if (!_applyEdits(
@@ -547,6 +672,11 @@ class SevenTvPersonalSets {
     // Persist pending changes before dropping state.
     unawaited(_flushSave());
     _generation++;
+    _viewerLoad = null;
+    _viewerReconcileActive = false;
+    _viewerReconcileEdits.clear();
+    _viewerReconcileGranted.clear();
+    _viewerReconcileRevoked.clear();
     _personalSevenTvSetIds.clear();
     _personalSevenTvSets.clear();
     _foreignPersonalSetOwners.clear();

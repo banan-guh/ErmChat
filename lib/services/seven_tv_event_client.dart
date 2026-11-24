@@ -117,6 +117,30 @@ class SevenTvPersonalSetEvent {
   const SevenTvPersonalSetEvent({required this.setId});
 }
 
+/// Why a 7TV emote set is subscribed. Channel and viewer sets outlive the
+/// foreign LRU; a set is released only when every owner lets it go.
+enum SevenTvEmoteSetOwnerKind { channel, viewer, foreign }
+
+class SevenTvEmoteSetOwner {
+  const SevenTvEmoteSetOwner._(this.kind, this.id);
+
+  const SevenTvEmoteSetOwner.channel(String id)
+    : this._(SevenTvEmoteSetOwnerKind.channel, id);
+
+  const SevenTvEmoteSetOwner.viewer(String id)
+    : this._(SevenTvEmoteSetOwnerKind.viewer, id);
+
+  const SevenTvEmoteSetOwner.foreign(String id)
+    : this._(SevenTvEmoteSetOwnerKind.foreign, id);
+
+  final SevenTvEmoteSetOwnerKind kind;
+  final String id;
+
+  _EmoteSetOwnerKey get _key => (kind: kind, id: id);
+}
+
+typedef _EmoteSetOwnerKey = ({SevenTvEmoteSetOwnerKind kind, String id});
+
 enum SevenTvEventStatus { connected, disconnected }
 
 enum _SubscriptionSend { sent, failed, skipped }
@@ -140,6 +164,10 @@ class SevenTvEventClient {
   ];
   static const _healthyWindow = Duration(seconds: 30);
   static const _fatalRetryDelay = Duration(seconds: 2);
+  // A reconnect that finishes inside this window is treated as a handoff, not
+  // a missed-event gap. The v3 protocol sends no `s` field, so sequence
+  // checks are opportunistic and never the only gate.
+  static const _gapWindow = Duration(seconds: 5);
 
   WebSocketChannel? _channel;
   StreamSubscription<dynamic>? _streamSub;
@@ -157,12 +185,21 @@ class SevenTvEventClient {
   Timer? _healthyTimer;
   Timer? _fatalRetry;
 
+  DateTime? _sessionEndedAt;
+  bool _hadEstablishedSession = false;
+  bool _cleanReconnect = false;
+  bool _gapEvidence = false;
+  bool _gapEmitted = false;
+  final _lastSequenceByType = <String, int>{};
+  final _sequenceTrust = <String, int>{};
+
   // Completes when the serving socket ends, with how the loop goes on.
   Completer<SocketEnd>? _socketEnd;
   SocketRun? _run;
   late final SocketLoop _loop;
 
   final _pendingEmoteSets = <String>{};
+  final _emoteSetOwners = <String, Set<_EmoteSetOwnerKey>>{};
   final _pendingUsers = <String>{};
   final _pendingChannels = <String>{};
 
@@ -170,8 +207,10 @@ class SevenTvEventClient {
   // combine the type and condition, so a resend of the same object is one.
   final _sentSubscriptions = <String>{};
   final _ackedSubscriptions = <String>{};
-  // True once a channel set was dropped from the replay cap. The dropped set
-  // may still be live on this connection, but a reconnect cannot restore it.
+  final _emoteSetSubscriptionKeys = <String, String>{};
+  final _skippedSubscriptionKeys = <String>{};
+  final _interruptedEmoteSets = <String>{};
+  // True once a foreign set was dropped from the replay cap.
   bool _pendingSetsOverflowed = false;
   int? _subscriptionLimit;
   DateTime? _lastDispatch;
@@ -193,6 +232,7 @@ class SevenTvEventClient {
   final _statusCtrl = StreamController<SevenTvEventStatus>.broadcast(
     sync: true,
   );
+  final _gapCtrl = StreamController<void>.broadcast(sync: true);
 
   Stream<SevenTvEmoteUpdateEvent> get onEmoteSetUpdate =>
       _emoteSetUpdateCtrl.stream;
@@ -202,6 +242,16 @@ class SevenTvEventClient {
   Stream<SevenTvEntitlementEvent> get onEntitlement => _entitlementCtrl.stream;
   Stream<SevenTvPersonalSetEvent> get onPersonalSet => _personalSetCtrl.stream;
   Stream<SevenTvEventStatus> get onStatus => _statusCtrl.stream;
+
+  /// Fires when a dispatch sequence proves events were missed on a live gap.
+  Stream<void> get onGapEvidence => _gapCtrl.stream;
+
+  /// Consumes the gap verdict for the socket that just completed hello.
+  bool takeMissedEventGap() {
+    final gap = _gapEvidence;
+    _gapEvidence = false;
+    return gap;
+  }
 
   SevenTvEventClient({
     ConnectivityService? connectivityService,
@@ -262,8 +312,7 @@ class SevenTvEventClient {
     return missing > 0 ? missing : 0;
   }
 
-  /// True once the pending-set cap dropped a channel, which a reconnect
-  /// cannot restore.
+  /// True once the foreign-set cap dropped a subscription.
   bool get pendingSetsOverflowed => _pendingSetsOverflowed;
 
   /// Whether the pending subscription set already holds this emote set.
@@ -468,27 +517,112 @@ class SevenTvEventClient {
     _rateLimitFailures = 0;
   }
 
-  void subscribeEmoteSet(String emoteSetId) {
-    _setSubscribed(
-      _pendingEmoteSets,
-      'emote_set.update',
-      emoteSetId,
-      subscribe: true,
-    );
-    while (_pendingEmoteSets.length > _maxPendingEmoteSets) {
-      final dropped = _pendingEmoteSets.first;
-      _pendingEmoteSets.remove(dropped);
-      _pendingSetsOverflowed = true;
-      logDebug('7TV: pending set cap dropped $dropped');
+  // Some 7TV deployments add an `s` sequence. Trust it only after two clean
+  // increments for one dispatch type, so a per-session counter cannot trigger
+  // a false gap after reconnect.
+  void _trackDispatchSequence(String type, Object? raw) {
+    if (raw is! int) return;
+    final last = _lastSequenceByType[type];
+    final trust = _sequenceTrust[type] ?? 0;
+    if (last == null) {
+      _lastSequenceByType[type] = raw;
+      _sequenceTrust[type] = 0;
+      return;
+    }
+    if (raw > last) {
+      if (trust >= 1 && raw > last + 1 && !_gapEmitted) {
+        _gapEmitted = true;
+        _gapEvidence = true;
+        _gapCtrl.add(null);
+      }
+      _sequenceTrust[type] = raw == last + 1 ? min(trust + 1, 2) : 0;
+    } else {
+      // A reset means the sequence is session-scoped, not comparable.
+      _sequenceTrust[type] = 0;
+    }
+    _lastSequenceByType[type] = raw;
+  }
+
+  /// Adds [owner] to the set's owners. A repeat from a foreign owner refreshes
+  /// its LRU position; a protected owner is never evicted by foreign sets.
+  void subscribeEmoteSet(String emoteSetId, {SevenTvEmoteSetOwner? owner}) {
+    if (emoteSetId.isEmpty) return;
+    final key = (owner ?? SevenTvEmoteSetOwner.foreign(emoteSetId))._key;
+    final owners = _emoteSetOwners.putIfAbsent(emoteSetId, () => {});
+    final addedOwner = owners.add(key);
+    final wasPending = _pendingEmoteSets.contains(emoteSetId);
+    // Resubscribes move the set to the newest end, without a second frame.
+    _pendingEmoteSets
+      ..remove(emoteSetId)
+      ..add(emoteSetId);
+    if (addedOwner && !wasPending && _handshakeComplete) {
+      _sendSubscription('emote_set.update', emoteSetId, subscribe: true);
+    }
+    _trimForeignEmoteSets();
+  }
+
+  /// Releases one owner. The socket frame goes out only when no other owner
+  /// still needs the set.
+  void unsubscribeEmoteSet(String emoteSetId, {SevenTvEmoteSetOwner? owner}) {
+    final owners = _emoteSetOwners[emoteSetId];
+    if (owners == null) return;
+    owners.remove((owner ?? SevenTvEmoteSetOwner.foreign(emoteSetId))._key);
+    if (owners.isNotEmpty) return;
+    _forgetEmoteSet(emoteSetId, unsubscribe: true);
+  }
+
+  void _forgetEmoteSet(
+    String emoteSetId, {
+    required bool unsubscribe,
+    bool interrupted = false,
+  }) {
+    _emoteSetOwners.remove(emoteSetId);
+    if (!_pendingEmoteSets.remove(emoteSetId)) return;
+    if (interrupted) _interruptedEmoteSets.add(emoteSetId);
+    if (unsubscribe && _handshakeComplete) {
+      _sendSubscription('emote_set.update', emoteSetId, subscribe: false);
     }
   }
 
-  void unsubscribeEmoteSet(String emoteSetId) => _setSubscribed(
-    _pendingEmoteSets,
-    'emote_set.update',
-    emoteSetId,
-    subscribe: false,
-  );
+  /// Emote sets whose subscription was unacked, skipped by the server cap, or
+  /// dropped by the foreign LRU before this socket ended. Used to narrow REST
+  /// healing to sets that may have missed events.
+  Set<String> takeInterruptedEmoteSetIds() {
+    final ids = <String>{..._interruptedEmoteSets};
+    _interruptedEmoteSets.clear();
+    if (ids.isNotEmpty) _gapEvidence = true;
+    return ids;
+  }
+
+  void _captureInterruptedIds() {
+    for (final key in _sentSubscriptions.difference(_ackedSubscriptions)) {
+      final id = _emoteSetSubscriptionKeys[key];
+      if (id != null) _interruptedEmoteSets.add(id);
+    }
+    for (final key in _skippedSubscriptionKeys) {
+      final id = _emoteSetSubscriptionKeys[key];
+      if (id != null) _interruptedEmoteSets.add(id);
+    }
+  }
+
+  bool _isProtectedEmoteSet(String emoteSetId) =>
+      _emoteSetOwners[emoteSetId]?.any(
+        (key) => key.kind != SevenTvEmoteSetOwnerKind.foreign,
+      ) ??
+      false;
+
+  void _trimForeignEmoteSets() {
+    while (_pendingEmoteSets.where(_isForeignEmoteSet).length >
+        _maxPendingEmoteSets) {
+      final dropped = _pendingEmoteSets.firstWhere(_isForeignEmoteSet);
+      _forgetEmoteSet(dropped, unsubscribe: true, interrupted: true);
+      _pendingSetsOverflowed = true;
+      logDebug('7TV: foreign set cap dropped $dropped');
+    }
+  }
+
+  bool _isForeignEmoteSet(String emoteSetId) =>
+      !_isProtectedEmoteSet(emoteSetId);
 
   void subscribeUser(String userId) =>
       _setSubscribed(_pendingUsers, 'user.update', userId, subscribe: true);
@@ -543,9 +677,22 @@ class SevenTvEventClient {
       );
       return _SubscriptionSend.failed;
     }
-    return _sendSubscriptionFrame(type, {
-      'object_id': objectId,
-    }, subscribe: subscribe);
+    final condition = {'object_id': objectId};
+    final key = _subscriptionKey(type, condition);
+    if (type == 'emote_set.update' && subscribe) {
+      _emoteSetSubscriptionKeys[key] = objectId;
+    }
+    final result = _sendSubscriptionFrame(
+      type,
+      condition,
+      subscribe: subscribe,
+    );
+    if (type == 'emote_set.update' &&
+        subscribe &&
+        result == _SubscriptionSend.failed) {
+      _interruptedEmoteSets.add(objectId);
+    }
+    return result;
   }
 
   void _sendChannelSubscription(String channelId, {required bool subscribe}) {
@@ -566,7 +713,11 @@ class SevenTvEventClient {
   }) {
     final key = _subscriptionKey(type, condition);
     if (subscribe) {
-      if (!_hasSubscriptionRoom(key)) return _SubscriptionSend.skipped;
+      if (!_hasSubscriptionRoom(key)) {
+        _skippedSubscriptionKeys.add(key);
+        return _SubscriptionSend.skipped;
+      }
+      _skippedSubscriptionKeys.remove(key);
     } else if (!_sentSubscriptions.contains(key)) {
       // 7TV closes 4010 on an unsubscribe it never saw, so a subscription the
       // cap skipped gets no unsubscribe either.
@@ -606,8 +757,14 @@ class SevenTvEventClient {
   }
 
   void _flushPendingSubscriptions() {
+    // Protected sets go first so a small server subscription limit cannot
+    // crowd out the channels and viewer that are still open.
+    final orderedSets = [
+      ..._pendingEmoteSets.where(_isProtectedEmoteSet),
+      ..._pendingEmoteSets.where(_isForeignEmoteSet),
+    ];
     final failedSets = <String>[];
-    for (final id in _pendingEmoteSets) {
+    for (final id in orderedSets) {
       final result = _sendSubscription('emote_set.update', id, subscribe: true);
       if (result == _SubscriptionSend.failed) failedSets.add(id);
     }
@@ -639,12 +796,14 @@ class SevenTvEventClient {
         case 0:
           _healthy();
           _lastDispatch = _now();
+          _trackDispatchSequence(d?['type'] as String? ?? '', msg['s']);
           _handleDispatch(d ?? {});
         case 2:
           _healthy();
           _lastHeartbeat = DateTime.now();
         case 4:
           logDebug('7TV server requested reconnect');
+          _cleanReconnect = true;
           _endSocket(SocketEnd.reconnectNow);
         case 5:
           _onAck(d ?? {});
@@ -694,6 +853,7 @@ class SevenTvEventClient {
     // Subscription accounting is per connection; the flush below starts it.
     _sentSubscriptions.clear();
     _ackedSubscriptions.clear();
+    _skippedSubscriptionKeys.clear();
     _helloTimer?.cancel();
     _helloTimer = null;
     _heartbeatInterval = interval;
@@ -708,6 +868,14 @@ class SevenTvEventClient {
         run?.opened();
       }
     });
+    final ended = _sessionEndedAt;
+    if (_hadEstablishedSession &&
+        (ended == null || _now().difference(ended) >= _gapWindow)) {
+      _gapEvidence = true;
+    }
+    _sessionEndedAt = null;
+    _hadEstablishedSession = false;
+    _gapEmitted = false;
     _lastHeartbeat = DateTime.now();
     _statusCtrl.add(SevenTvEventStatus.connected);
     _startHeartbeat();
@@ -936,6 +1104,14 @@ class SevenTvEventClient {
   }
 
   void _disconnect() {
+    if (_handshakeComplete) {
+      _captureInterruptedIds();
+      if (!_cleanReconnect) {
+        _sessionEndedAt = _now();
+        _hadEstablishedSession = true;
+      }
+    }
+    _cleanReconnect = false;
     _heartbeatTimer?.cancel();
     _heartbeatTimer = null;
     _heartbeatInterval = null;
@@ -991,5 +1167,6 @@ class SevenTvEventClient {
     _entitlementCtrl.close();
     _personalSetCtrl.close();
     _statusCtrl.close();
+    _gapCtrl.close();
   }
 }

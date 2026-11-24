@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:convert';
 
 import 'package:ermchat/services/seven_tv_event_client.dart';
+import 'package:clock/clock.dart';
 import 'package:fake_async/fake_async.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:web_socket_channel/web_socket_channel.dart';
@@ -29,6 +30,8 @@ class _DropAfterHelloSevenTv extends SevenTvEventClient {
 }
 
 class _RecordingSevenTv extends SevenTvEventClient {
+  _RecordingSevenTv({super.now});
+
   final channels = <FakeWebSocketChannel>[];
   int get openAttempts => channels.length;
 
@@ -48,6 +51,19 @@ int _subscriptionFrames(FakeWebSocketChannel channel) =>
         return false;
       }
     }).length;
+
+bool _hasUnsubscribe(FakeWebSocketChannel channel, String objectId) =>
+    channel.sent.any((line) {
+      try {
+        final frame = jsonDecode(line) as Map<String, dynamic>;
+        if (frame['op'] != 36) return false;
+        final data = frame['d'] as Map<String, dynamic>?;
+        final condition = data?['condition'] as Map<String, dynamic>?;
+        return condition?['object_id'] == objectId;
+      } catch (_) {
+        return false;
+      }
+    });
 
 void main() {
   test('a raw socket is not connected until hello', () {
@@ -294,7 +310,7 @@ void main() {
     });
   });
 
-  test('the pending set cap reports the dropped channel', () {
+  test('the foreign set cap reports the dropped set', () {
     final client = SevenTvEventClient();
     for (var i = 0; i <= 50; i++) {
       client.subscribeEmoteSet('set$i');
@@ -302,9 +318,126 @@ void main() {
     expect(
       client.pendingSetsOverflowed,
       isTrue,
-      reason: 'a reconnect cannot restore the set the cap dropped',
+      reason: 'the foreign cap drops the oldest set',
     );
     expect(client.intendedSubscriptionCount, 50);
     client.dispose();
+  });
+
+  test(
+    'protected sets survive LRU eviction and eviction unsubscribes live',
+    () {
+      fakeAsync((async) {
+        final client = _RecordingSevenTv(now: clock.now);
+        client.subscribeEmoteSet(
+          'channel-set',
+          owner: SevenTvEmoteSetOwner.channel('ch'),
+        );
+        client.subscribeEmoteSet(
+          'viewer-set',
+          owner: SevenTvEmoteSetOwner.viewer('v1'),
+        );
+        for (var i = 0; i < 50; i++) {
+          client.subscribeEmoteSet('foreign-$i');
+        }
+        client.connect();
+        async.flushMicrotasks();
+        final first = client.channels.single;
+        first.push(_hello);
+        async.flushMicrotasks();
+        expect(client.intendedSubscriptionCount, 52);
+        expect(_subscriptionFrames(first), 52);
+
+        // A repeat refreshes age, so the next foreign set evicts foreign-1.
+        client.subscribeEmoteSet('foreign-0');
+        client.subscribeEmoteSet('foreign-50');
+        expect(client.intendedSubscriptionCount, 52);
+        expect(client.hasEmoteSetSubscription('foreign-0'), isTrue);
+        expect(client.hasEmoteSetSubscription('foreign-1'), isFalse);
+        expect(_hasUnsubscribe(first, 'foreign-1'), isTrue);
+        expect(client.hasEmoteSetSubscription('channel-set'), isTrue);
+        expect(client.hasEmoteSetSubscription('viewer-set'), isTrue);
+        client.dispose();
+        async.flushTimers();
+      });
+    },
+  );
+
+  test('first connect and clean server reconnect carry no gap', () {
+    fakeAsync((async) {
+      final client = _RecordingSevenTv(now: clock.now);
+      client.connect();
+      async.flushMicrotasks();
+      final first = client.channels.single;
+      first.push(_hello);
+      async.flushMicrotasks();
+      expect(client.takeMissedEventGap(), isFalse);
+
+      first.push(jsonEncode({'op': 4, 'd': {}}));
+      async.flushMicrotasks();
+      while (client.openAttempts < 2) {
+        async.elapse(const Duration(milliseconds: 100));
+        async.flushMicrotasks();
+      }
+      client.channels.last.push(_hello);
+      async.flushMicrotasks();
+      expect(
+        client.takeMissedEventGap(),
+        isFalse,
+        reason: 'a server handoff is not a missed-event gap',
+      );
+      client.dispose();
+      async.flushTimers();
+    });
+  });
+
+  test('a long dirty gap asks for reconciliation', () {
+    fakeAsync((async) {
+      final client = _RecordingSevenTv(now: clock.now);
+      client.connect();
+      async.flushMicrotasks();
+      client.channels.single.push(_hello);
+      async.flushMicrotasks();
+      client.channels.single.peerClose();
+      async.flushMicrotasks();
+      async.elapse(const Duration(seconds: 6));
+      async.flushMicrotasks();
+      expect(client.openAttempts, greaterThan(1));
+      client.channels.last.push(_hello);
+      async.flushMicrotasks();
+      expect(client.takeMissedEventGap(), isTrue);
+      client.dispose();
+      async.flushTimers();
+    });
+  });
+
+  test('a skipped subscription survives a short clean reconnect', () {
+    fakeAsync((async) {
+      final client = _RecordingSevenTv(now: clock.now);
+      client.subscribeEmoteSet('set1');
+      client.subscribeEmoteSet('set2');
+      client.connect();
+      async.flushMicrotasks();
+      client.channels.single.push(
+        jsonEncode({
+          'op': 1,
+          'd': {'heartbeat_interval': 30000, 'subscription_limit': 1},
+        }),
+      );
+      async.flushMicrotasks();
+      client.channels.single.peerClose();
+      async.flushMicrotasks();
+      while (client.openAttempts < 2) {
+        async.elapse(const Duration(milliseconds: 100));
+        async.flushMicrotasks();
+      }
+      client.channels.last.push(_hello);
+      async.flushMicrotasks();
+      final interrupted = client.takeInterruptedEmoteSetIds();
+      expect(interrupted, contains('set2'));
+      expect(client.takeMissedEventGap(), isTrue);
+      client.dispose();
+      async.flushTimers();
+    });
   });
 }

@@ -25,6 +25,13 @@ import 'twitch_emote_sets.dart';
 
 export 'emote_usage_registry.dart' show EmoteUsageRecord;
 
+typedef _SevenTvDelta = ({
+  List<Emote> added,
+  List<String> removedIds,
+  Map<String, ({String newName, String oldName})> renamed,
+  Map<String, String?> renamedBaseNames,
+});
+
 /// Read-only port over the emote catalog for the render path.
 ///
 /// The message builder needs exactly three things: a one-shot parse of a
@@ -94,6 +101,10 @@ class EmoteManager implements EmoteLookupSource {
   // with it, so they reach the disk without extending the TTL.
   final _savedAt = <String, DateTime>{};
   final _sevenTvSaves = <String, Timer>{};
+  // Deltas seen after a 7TV REST reconcile started. They are replayed over the
+  // snapshot so a slow response cannot undo a newer socket edit.
+  final _sevenTvReconcileDeltas = <String, List<_SevenTvDelta>>{};
+  final _sevenTvReconcileFutures = <String, Future<void>>{};
 
   /// Debounce before live 7TV edits are written to the disk cache.
   final Duration sevenTvSaveDelay;
@@ -378,9 +389,16 @@ class EmoteManager implements EmoteLookupSource {
   /// Viewer Twitch user id for matching personal 7TV grants. Cleared logout.
   set viewerTwitchId(String? value) => _personalSets.viewerTwitchId = value;
 
-  /// Bootstrap: fetch the viewer's owned 7TV sets and their emotes.
-  Future<void> loadViewerPersonalSevenTvSets() async {
-    await _personalSets.loadViewerPersonalSevenTvSets();
+  /// Bootstrap: fetch the viewer's owned 7TV sets and their emotes. A gap
+  /// heal skips cached sets whose contents were not named as changed.
+  Future<void> loadViewerPersonalSevenTvSets({
+    bool reconcile = false,
+    Set<String> changedSetIds = const {},
+  }) async {
+    await _personalSets.loadViewerPersonalSevenTvSets(
+      reconcile: reconcile,
+      changedSetIds: changedSetIds,
+    );
   }
 
   /// Live personal 7TV grant/revoke from the entitlement stream.
@@ -967,24 +985,102 @@ class EmoteManager implements EmoteLookupSource {
           '$channel ${e.id}',
   };
 
+  /// Reconciles only open channels whose set may have missed events: a set
+  /// named by the socket gap, one with no full cache, or a stale cached one.
+  Future<void> reconcileOpenSevenTvChannels({
+    Set<String> changedSetIds = const {},
+  }) {
+    final ttl = _fetcher.effectiveTtl();
+    final targets = <String>[];
+    for (final channel in _store.channelNames.toList()) {
+      final setId = _store.getSevenTvEmoteSetId(channel);
+      if (setId == null || setId.isEmpty) continue;
+      if (changedSetIds.contains(setId) ||
+          !_store.isSevenTvFull(channel) ||
+          _savedAt[channel] == null ||
+          _now().difference(_savedAt[channel]!) >= ttl) {
+        targets.add(channel);
+      }
+    }
+    return Future.wait([
+      for (final channel in targets) reconcileSevenTvChannel(channel),
+    ]);
+  }
+
   /// Reconciles the channel's 7TV set against the server. Used when a live
-  /// `user.update` switches the active set.
-  Future<void> reconcileSevenTvChannel(String channel) async {
+  /// `user.update` switches the active set and after a socket gap.
+  Future<void> reconcileSevenTvChannel(String channel) {
+    final running = _sevenTvReconcileFutures[channel];
+    if (running != null) return running;
+    final future = _reconcileSevenTvChannel(channel).whenComplete(() {
+      _sevenTvReconcileFutures.remove(channel);
+      _sevenTvReconcileDeltas.remove(channel);
+    });
+    _sevenTvReconcileFutures[channel] = future;
+    return future;
+  }
+
+  Future<void> _reconcileSevenTvChannel(String channel) async {
     await _visibility.ensureLoaded();
     final broadcasterId = _channelBroadcasterIds[channel];
     if (broadcasterId == null) return;
     final epoch = _store.channelEpoch(channel);
+    _sevenTvReconcileDeltas[channel] = <_SevenTvDelta>[];
+    // Pre-gap deltas are already in the snapshot we are about to fetch or are
+    // stale; neither belongs on top of it.
+    _store.dropLiveSevenTv(channel);
     final fetch = await _fetcher.enqueueSevenTv(
       () => _fetcher.reconcileSevenTv(channel, broadcasterId),
     );
     if (fetch == null || _store.channelEpoch(channel) != epoch) return;
-    // A fetched 7TV set is authoritative: drop stale live deltas. An empty
-    // fetch keeps them, matching the old reconcile early return.
-    if (fetch.byProvider[EmoteType.sevenTv] != null) {
-      _store.dropLiveSevenTv(channel);
+    final deltas = List.of(_sevenTvReconcileDeltas[channel] ?? const []);
+    final snapshot = fetch.byProvider[EmoteType.sevenTv];
+    List<Emote>? merged;
+    if (snapshot != null) {
+      merged = List<Emote>.from(snapshot);
+      for (final delta in deltas) {
+        _applySevenTvEdits(
+          merged,
+          added: delta.added,
+          removedIds: delta.removedIds,
+          renamed: delta.renamed,
+          renamedBaseNames: delta.renamedBaseNames,
+        );
+      }
+      fetch.byProvider[EmoteType.sevenTv] = merged;
     }
+    // Deltas re-stashed a partial view during the fetch. The snapshot plus
+    // replayed deltas is authoritative now.
+    _store.dropLiveSevenTv(channel);
     if (_commitChannel(channel, epoch, fetch, stamp: false)) {
+      if (merged != null) _store.setLiveSevenTv(channel, merged);
       _scheduleSevenTvSave(channel);
+    }
+  }
+
+  static void _applySevenTvEdits(
+    List<Emote> contents, {
+    required List<Emote> added,
+    required List<String> removedIds,
+    required Map<String, ({String newName, String oldName})> renamed,
+    required Map<String, String?> renamedBaseNames,
+  }) {
+    if (removedIds.isNotEmpty) {
+      final ids = removedIds.toSet();
+      contents.removeWhere((e) => ids.contains(e.id));
+    }
+    for (final entry in renamed.entries) {
+      final idx = contents.indexWhere((e) => e.id == entry.key);
+      if (idx < 0) continue;
+      var emote = contents[idx].copyWith(code: entry.value.newName);
+      if (renamedBaseNames.containsKey(entry.key)) {
+        emote = emote.withSevenTvBaseName(renamedBaseNames[entry.key]);
+      }
+      contents[idx] = emote;
+    }
+    for (final emote in added) {
+      if (contents.any((e) => e.id == emote.id)) continue;
+      contents.add(emote);
     }
   }
 
@@ -1045,6 +1141,15 @@ class EmoteManager implements EmoteLookupSource {
   }) {
     if (tier == EmoteFetchTier.nothing) return;
     if (!_isProviderOn(EmoteType.sevenTv)) return;
+    final journal = _sevenTvReconcileDeltas[channel];
+    if (journal != null) {
+      journal.add((
+        added: List.of(added),
+        removedIds: List.of(removedIds),
+        renamed: Map.of(renamed),
+        renamedBaseNames: Map.of(renamedBaseNames),
+      ));
+    }
     final before = _store.channelCatalog(channel);
     final removed = _removedSevenTv(before, removedIds);
     final unusedUrls = _store.updateSevenTvEmotes(

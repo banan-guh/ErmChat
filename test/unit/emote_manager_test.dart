@@ -1087,6 +1087,88 @@ void main() {
       expect(manager.getSevenTvEmoteSetId('ch'), 'setB');
     });
 
+    test(
+      'a reconcile snapshot keeps deltas that land while it is in flight',
+      () async {
+        SharedPreferences.setMockInitialValues({});
+        final pending = Completer<SevenTvChannelResponse>();
+        var calls = 0;
+        final manager = EmoteManager(
+          fetchStagger: Duration.zero,
+          tier: EmoteFetchTier.medium,
+          removeCachedFile: (url) async {},
+          sevenTvChannelFetcher: (id) async {
+            calls++;
+            if (calls == 1) {
+              return SevenTvChannelResponse(
+                emotes: [sevenTv('a', 'Alpha')],
+                emoteSetId: 'setA',
+                userId: 'u1',
+              );
+            }
+            return pending.future;
+          },
+        );
+        addTearDown(manager.dispose);
+        await manager.resolveEmotes('ch', 'b1');
+        await pumpEventQueue();
+        manager.updateSevenTvEmotes('ch', added: [sevenTv('l', 'Live')]);
+        await pumpEventQueue();
+
+        final healing = manager.reconcileSevenTvChannel('ch');
+        await pumpEventQueue();
+        // The socket is still live; the REST snapshot predates this edit.
+        manager.updateSevenTvEmotes('ch', added: [sevenTv('n', 'New')]);
+        pending.complete(
+          SevenTvChannelResponse(
+            emotes: [
+              sevenTv('a', 'Alpha'),
+              sevenTv('m', 'Missed'),
+              sevenTv('l', 'Live'),
+            ],
+            emoteSetId: 'setA',
+            userId: 'u1',
+          ),
+        );
+        await healing;
+
+        expect(
+          manager.byCode('ch')!.suggestions.map((e) => e.code),
+          containsAll(['Alpha', 'Missed', 'Live', 'New']),
+          reason: 'the snapshot heals the gap without dropping newer deltas',
+        );
+      },
+    );
+
+    test('a gap heal fetches only changed or uncached channels', () async {
+      SharedPreferences.setMockInitialValues({});
+      final fetched = <String>[];
+      final manager = EmoteManager(
+        fetchStagger: Duration.zero,
+        tier: EmoteFetchTier.medium,
+        removeCachedFile: (url) async {},
+        sevenTvChannelFetcher: (id) async {
+          fetched.add(id);
+          return SevenTvChannelResponse(
+            emotes: [sevenTv('a', 'Alpha')],
+            emoteSetId: 'set-$id',
+            userId: 'u1',
+          );
+        },
+      );
+      addTearDown(manager.dispose);
+      await manager.resolveEmotes('ch1', 'b1');
+      await manager.resolveEmotes('ch2', 'b2');
+      await pumpEventQueue();
+      fetched.clear();
+
+      await manager.reconcileOpenSevenTvChannels(changedSetIds: {'set-b1'});
+
+      expect(fetched, [
+        'b1',
+      ], reason: 'a fresh cached channel must not refetch its 7TV set');
+    });
+
     // The live stash re-applied over the forced fetch, so an emote added
     // while the socket was down never showed after a manual reload.
     test('a forced reload beats a stale live 7TV stash', () async {
@@ -3732,6 +3814,79 @@ void main() {
       await manager.loadViewerPersonalSevenTvSets();
       expect(manager.byCode('ch')!.byCode.keys, contains('New'));
     });
+
+    test('a gap heal skips cached personal set snapshots', () async {
+      SharedPreferences.setMockInitialValues({});
+      var listings = 0;
+      var setFetches = 0;
+      final manager = EmoteManager(
+        fetchStagger: Duration.zero,
+        sevenTvOwnedSetIdsFetcher: (_) async {
+          listings++;
+          return ['set-1'];
+        },
+        sevenTvEmoteSetFetcher: (_) async {
+          setFetches++;
+          return [personal('p1', 'Mine')];
+        },
+      );
+      addTearDown(manager.dispose);
+      manager.viewerTwitchId = 'viewer-1';
+      await manager.loadViewerPersonalSevenTvSets();
+      expect(setFetches, 1);
+
+      await manager.loadViewerPersonalSevenTvSets(reconcile: true);
+      expect(listings, 2);
+      expect(
+        setFetches,
+        1,
+        reason: 'an unchanged cached set needs no large REST response',
+      );
+
+      await manager.loadViewerPersonalSevenTvSets(
+        reconcile: true,
+        changedSetIds: {'set-1'},
+      );
+      expect(setFetches, 2);
+    });
+
+    test(
+      'a personal snapshot keeps deltas that land while it is in flight',
+      () async {
+        SharedPreferences.setMockInitialValues({});
+        final pending = Completer<List<Emote>>();
+        var calls = 0;
+        final manager = EmoteManager(
+          fetchStagger: Duration.zero,
+          sevenTvOwnedSetIdsFetcher: (_) async => ['set-1'],
+          sevenTvEmoteSetFetcher: (_) async {
+            calls++;
+            if (calls == 1) return [personal('p1', 'Old')];
+            return pending.future;
+          },
+        );
+        addTearDown(manager.dispose);
+        manager.viewerTwitchId = 'viewer-1';
+        await manager.loadViewerPersonalSevenTvSets();
+
+        final healing = manager.loadViewerPersonalSevenTvSets(
+          reconcile: true,
+          changedSetIds: {'set-1'},
+        );
+        await pumpEventQueue();
+        manager.applyViewerPersonalSetUpdate(
+          setId: 'set-1',
+          added: [personal('n', 'New')],
+          removedIds: const [],
+          renamed: const {},
+        );
+        pending.complete([personal('p1', 'Old'), personal('m', 'Missed')]);
+        await healing;
+
+        final codes = manager.byCode('ch')!.byCode.keys.toSet();
+        expect(codes, containsAll(['Old', 'Missed', 'New']));
+      },
+    );
 
     test('reset clears personal sets while Twitch keeps its code', () async {
       SharedPreferences.setMockInitialValues({});

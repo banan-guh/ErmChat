@@ -480,16 +480,16 @@ class _RecordingSevenTvClient extends SevenTvEventClient {
   final emoteSetUnsubscribes = <String>[];
 
   @override
-  void subscribeEmoteSet(String emoteSetId) {
+  void subscribeEmoteSet(String emoteSetId, {SevenTvEmoteSetOwner? owner}) {
     emoteSetIds.add(emoteSetId);
     emoteSetSubscribes++;
-    super.subscribeEmoteSet(emoteSetId);
+    super.subscribeEmoteSet(emoteSetId, owner: owner);
   }
 
   @override
-  void unsubscribeEmoteSet(String emoteSetId) {
+  void unsubscribeEmoteSet(String emoteSetId, {SevenTvEmoteSetOwner? owner}) {
     emoteSetUnsubscribes.add(emoteSetId);
-    super.unsubscribeEmoteSet(emoteSetId);
+    super.unsubscribeEmoteSet(emoteSetId, owner: owner);
   }
 
   @override

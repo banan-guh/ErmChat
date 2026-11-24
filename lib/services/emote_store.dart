@@ -985,6 +985,15 @@ class EmoteStore {
     _sevenTvLive.remove(channel);
   }
 
+  /// Sets the live 7TV view after a reconciled snapshot has been committed.
+  void setLiveSevenTv(String channel, List<Emote> emotes) {
+    if (!_sevenTvFull.contains(channel)) return;
+    _sevenTvLive[channel] = [
+      for (final emote in emotes)
+        if (!_deadIds.contains(emote.id)) emote,
+    ];
+  }
+
   /// Stores owner-less emote-set results (per-account channel subs), fanning
   /// each owner list into its channel. Notifies only channels whose stored
   /// subscription list actually changed. An empty list is skipped unless

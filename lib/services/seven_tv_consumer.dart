@@ -150,10 +150,11 @@ class SevenTvConsumer {
       );
       return;
     }
+    final owner = SevenTvEmoteSetOwner.channel(channel);
     if (event.oldEmoteSetId.isNotEmpty) {
-      sevenTvClient?.unsubscribeEmoteSet(event.oldEmoteSetId);
+      sevenTvClient?.unsubscribeEmoteSet(event.oldEmoteSetId, owner: owner);
     }
-    sevenTvClient?.subscribeEmoteSet(event.newEmoteSetId);
+    sevenTvClient?.subscribeEmoteSet(event.newEmoteSetId, owner: owner);
     emoteManager.setSevenTvEmoteSetId(channel, event.newEmoteSetId);
     // Pull the new set's contents: subscribing alone leaves the old set
     // rendering until restart.

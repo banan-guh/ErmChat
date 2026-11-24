@@ -220,7 +220,12 @@ class ChatChannelSetup {
     final sevenTv = sevenTvClient;
     if (sevenTv == null) return;
     final emoteSetId = emoteManager.getSevenTvEmoteSetId(channel);
-    if (emoteSetId != null) sevenTv.unsubscribeEmoteSet(emoteSetId);
+    if (emoteSetId != null) {
+      sevenTv.unsubscribeEmoteSet(
+        emoteSetId,
+        owner: SevenTvEmoteSetOwner.channel(channel),
+      );
+    }
     final userId = emoteManager.getSevenTvUserId(channel);
     if (userId != null) sevenTv.unsubscribeUser(userId);
     final twitchId = chat.channelFor(channel)?.info.broadcasterId;
@@ -518,9 +523,10 @@ class ChatChannelSetup {
     // started with, so the flags are read again before subscribing.
     final client = sevenTvClient!;
     if (_sevenTvEmotes) {
-      if (!client.hasEmoteSetSubscription(finalEmoteSetId)) {
-        client.subscribeEmoteSet(finalEmoteSetId);
-      }
+      client.subscribeEmoteSet(
+        finalEmoteSetId,
+        owner: SevenTvEmoteSetOwner.channel(channelName),
+      );
       if (!client.hasUserSubscription(finalUserId)) {
         client.subscribeUser(finalUserId);
       }
