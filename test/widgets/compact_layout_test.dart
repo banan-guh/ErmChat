@@ -137,6 +137,11 @@ void main() {
       reason: 'compact status is not folded into the input hint',
     );
     expect(tester.getSize(input).height, inputH);
+    expect(
+      find.ancestor(of: find.text(short), matching: find.byType(AnimatedSize)),
+      findsOneWidget,
+      reason: 'keyboard down keeps the normal footer ease',
+    );
 
     // Once the splash is up, its ticks must not move the chat.
     final live = clearance();
@@ -169,10 +174,29 @@ void main() {
     }
     await tester.pump(const Duration(milliseconds: 400));
     final open = clearance();
+    expect(
+      find.ancestor(
+        of: find.text('Live with 7 viewers'),
+        matching: find.byType(AnimatedSize),
+      ),
+      findsNothing,
+      reason: 'keyboard up snaps the footer instead of easing it',
+    );
     info.setStatus('Live with 7 viewers for 2h 3m', live: true);
     await tester.pump(const Duration(milliseconds: 300));
     expect(tester.getSize(input).height, inputH);
     expect(clearance(), closeTo(open, 0.5));
+
+    // Closing the keyboard brings the ease back.
+    tester.view.viewInsets = FakeViewPadding.zero;
+    await tester.pump(const Duration(milliseconds: 400));
+    expect(
+      find.ancestor(
+        of: find.text('Live with 7 viewers for 2h 3m'),
+        matching: find.byType(AnimatedSize),
+      ),
+      findsOneWidget,
+    );
   });
 
   // A softlock: with the view menu in the row or the field, hiding the input

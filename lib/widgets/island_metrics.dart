@@ -37,6 +37,10 @@ class IslandMetrics {
   final _readers = <RenderObject>{};
   bool _settlePending = false;
 
+  /// Whether the keyboard is engaged, published by ChatBody so the composer
+  /// footer can snap while the IME moves. Consumers listen to this notifier.
+  final ValueNotifier<bool> keyboardEngaged = ValueNotifier(false);
+
   /// Runs after a frame that changed the metrics, for readers that size in
   /// build (the emote sheet).
   VoidCallback? onSettled;

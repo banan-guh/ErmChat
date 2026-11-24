@@ -243,6 +243,12 @@ class _ChatBodyState extends State<ChatBody>
   // reads as a bounce.
   bool _keyboardEngaged = false;
 
+  void _engageKeyboard(bool engaged) {
+    if (_keyboardEngaged == engaged) return;
+    _keyboardEngaged = engaged;
+    _metrics.keyboardEngaged.value = engaged;
+  }
+
   // Keyboard height the decisions read: the learned open height from the
   // first tick of an open, the real one once it settles, zero once closed.
   double _liftH = 0;
@@ -318,7 +324,7 @@ class _ChatBodyState extends State<ChatBody>
     if (identical(view, _boundView)) return;
     _boundView = view;
     _rawH = _readRawH();
-    if (_rawH > 0.5) _keyboardEngaged = true;
+    if (_rawH > 0.5) _engageKeyboard(true);
     if (_rawH > 0.5 && _liftH == 0) {
       _liftH = _rawH;
       _learnedH = _rawH;
@@ -332,6 +338,7 @@ class _ChatBodyState extends State<ChatBody>
     _keyboardPump.dispose();
     _bottomPad.dispose();
     _presence.dispose();
+    _metrics.keyboardEngaged.dispose();
     super.dispose();
   }
 
@@ -352,7 +359,7 @@ class _ChatBodyState extends State<ChatBody>
     }
     _opening = raw > _rawH;
     _rawH = raw;
-    if (raw > 0.5) _keyboardEngaged = true;
+    if (raw > 0.5) _engageKeyboard(true);
     _settleTimer?.cancel();
     if (!_keyboardPump.isActive) _keyboardPump.start();
     if (raw <= 0.5) {
@@ -373,7 +380,7 @@ class _ChatBodyState extends State<ChatBody>
       // Unfocusing mid-animation races the IME and the next open overshoots,
       // so it waits for the close to settle; a reopen cancels it.
       if (_rawH <= 0.5) {
-        _keyboardEngaged = false;
+        _engageKeyboard(false);
         final before = _focusAtClose;
         _focusAtClose = null;
         final now = FocusManager.instance.primaryFocus;
