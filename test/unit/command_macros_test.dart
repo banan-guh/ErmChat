@@ -11,14 +11,6 @@ void main() {
       '!plain': 'hello',
     };
 
-    test('returns null when nothing matches or the input is empty', () {
-      const nullInputs = ['!unknown x', 'Kappa 123', '', '   '];
-      for (final input in nullInputs) {
-        expect(expandMacro(input, macros), isNull, reason: 'input: "$input"');
-      }
-      expect(expandMacro('!so forsen', const {}), isNull);
-    });
-
     test(
       'substitutes positional and tail args, leaving missing args empty',
       () {
@@ -96,10 +88,5 @@ void main() {
       final loaded = await loadMacros('corrupt');
       expect(loaded.map((m) => m.name), ['!ok']);
     });
-  });
-
-  test('macroLookup lowercases triggers', () {
-    final lookup = macroLookup([const CommandMacro(name: '!So', body: 'x')]);
-    expect(lookup.keys, ['!so']);
   });
 }

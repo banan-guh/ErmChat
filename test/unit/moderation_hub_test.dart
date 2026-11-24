@@ -71,6 +71,7 @@ void main() {
         action: ModerationAction.ban,
         rawAction: 'ban',
         moderatorName: 'moduser',
+        targetLogin: 'spammer',
         targetName: 'spammer',
       ),
     );
@@ -85,6 +86,62 @@ void main() {
     expect(archived, [
       'test spammer 2026-10-13 12:00:00.000Z',
     ], reason: 'one archived clear per ban, from the oldest buffered row');
+  });
+
+  test('localized target names do not replace moderation logins', () {
+    moderationActive = true;
+    final channel = chat.channelFor('test')!;
+    chat.receive(
+      'test',
+      TwitchMessage(
+        login: 'spammer',
+        displayName: 'LocalizedSpammer',
+        text: 'bad',
+        messageId: 'm1',
+        timestamp: DateTime.utc(2026, 10, 13, 12),
+      ),
+      maxMessages: 100,
+      isSelected: true,
+      ownLogin: null,
+    );
+    hub.onModeration(
+      ModerationEvent(
+        channel: 'test',
+        action: ModerationAction.ban,
+        rawAction: 'ban',
+        moderatorName: 'moduser',
+        targetLogin: 'spammer',
+        targetName: 'LocalizedSpammer',
+        reason: 'spam',
+      ),
+    );
+    expect(channel.messages.byId('m1')!.deleted, isTrue);
+    expect(channel.moderation.banFor('spammer')?.login, 'spammer');
+    expect(channel.moderation.banFor('LocalizedSpammer'), isNull);
+    expect(archived, [
+      'test spammer 2026-10-13 12:00:00.000Z',
+    ], reason: 'archive deletion uses the login');
+    expect(lines.single.$2, 'moduser banned LocalizedSpammer: "spam".');
+    expect(
+      channel.moderation.feed.single.target,
+      'LocalizedSpammer',
+      reason: 'feed copy keeps the display name',
+    );
+
+    hub.onModeration(
+      ModerationEvent(
+        channel: 'test',
+        action: ModerationAction.warn,
+        rawAction: 'warn',
+        moderatorName: 'moduser',
+        targetLogin: 'spammer',
+        targetName: 'LocalizedSpammer',
+        reason: 'warning',
+      ),
+    );
+    expect(channel.moderation.warningsFor('spammer'), hasLength(1));
+    expect(channel.moderation.warningsFor('LocalizedSpammer'), isEmpty);
+    expect(lines.last.$2, 'moduser warned LocalizedSpammer: "warning".');
   });
 
   test('self timeout arms from the IRC copy even while moderate is active', () {

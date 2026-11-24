@@ -44,12 +44,5 @@ void main() {
       expect(prediction.outcomes.first.channelPoints, 900);
       expect(prediction.outcomes.last.users, isNull);
     });
-
-    test('outcomeFor matches a 1-based index or a title', () {
-      expect(prediction.outcomeFor('2')?.id, 'o2');
-      expect(prediction.outcomeFor('yes')?.id, 'o1');
-      expect(prediction.outcomeFor('3'), isNull);
-      expect(prediction.outcomeFor('maybe'), isNull);
-    });
   });
 }

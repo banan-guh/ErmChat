@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:convert';
 
 import 'package:ermchat/chat/chat.dart';
@@ -18,6 +19,8 @@ void main() {
   late List<Map<String, dynamic>> videos;
   late int status;
   late int videosStatus;
+  late List<Completer<http.Response>>? streamRequests;
+  late List<Completer<http.Response>>? videoRequests;
   late ChatStatusComposer composer;
   final archived = <String>[];
 
@@ -25,7 +28,17 @@ void main() {
     final api = TwitchApi(
       client: MockClient((req) async {
         if (req.url.path.endsWith('/videos')) {
+          if (videoRequests case final requests?) {
+            final response = Completer<http.Response>();
+            requests.add(response);
+            return response.future;
+          }
           return http.Response(jsonEncode({'data': videos}), videosStatus);
+        }
+        if (streamRequests case final requests?) {
+          final response = Completer<http.Response>();
+          requests.add(response);
+          return response.future;
         }
         return http.Response(
           jsonEncode({
@@ -91,6 +104,8 @@ void main() {
     status = 200;
     videos = [];
     videosStatus = 200;
+    streamRequests = null;
+    videoRequests = null;
     archived.clear();
     composer = build();
   });
@@ -133,6 +148,54 @@ void main() {
       'ended s1 2026-10-13 12:01:30.000Z',
       'seen test s2 2026-10-13 13:00:00.000Z Speedrun Zelda',
     }, reason: 'the archive must get each stream and its end');
+  });
+
+  test('an older offline poll cannot undo a newer live poll', () async {
+    stream = live('s1', '2026-10-13T09:00:00Z');
+    await poll();
+    final requests = <Completer<http.Response>>[];
+    streamRequests = requests;
+
+    final older = composer.fetchAllChatStatus();
+    final newer = composer.fetchAllChatStatus();
+    await pumpEventQueue();
+    expect(requests, hasLength(2));
+
+    requests[1].complete(
+      http.Response(
+        jsonEncode({
+          'data': [live('s1', '2026-10-13T09:00:00Z')],
+        }),
+        200,
+      ),
+    );
+    await newer;
+    requests[0].complete(
+      http.Response(
+        jsonEncode({
+          'data': [null],
+        }),
+        200,
+      ),
+    );
+    await older;
+    await pumpEventQueue();
+
+    final info = chat.channelFor('test')!.info;
+    expect(info.isLive, isTrue);
+    expect(info.stream, isNotEmpty);
+    expect(rows(), hasLength(1), reason: 'the stale offline poll wrote no end');
+
+    streamRequests = null;
+    stream = null;
+    await poll();
+    expect(
+      rows(),
+      hasLength(1),
+      reason: 'the stale offline poll did not count toward an end',
+    );
+    await poll();
+    expect(rows(), contains(startsWith('sys_stream:s1:end')));
   });
 
   test('a new id while live closes the old stream first', () async {
@@ -230,6 +293,56 @@ void main() {
       archived.last,
       'ended s1 2026-10-13 12:05:20.000Z',
       reason: 'the archive end overwrites the last-poll estimate',
+    );
+  });
+
+  test('a late archive end refines after the marker left the buffer', () async {
+    stream = live('s1', '2026-10-13T09:00:00Z');
+    await poll();
+    stream = null;
+    await poll();
+    await poll();
+    expect(endRowTime(), DateTime.utc(2026, 10, 13, 12, 0, 30));
+
+    final channel = chat.channelFor('test')!;
+    channel.addSystemMessage('newer', maxMessages: 1);
+    expect(endRowTime(), isNull, reason: 'the end marker was truncated');
+
+    videos = [video('s1', '3h5m20s')];
+    await poll(const Duration(minutes: 6));
+
+    expect(endRowTime(), DateTime.utc(2026, 10, 13, 12, 5, 20));
+    expect(archived.last, 'ended s1 2026-10-13 12:05:20.000Z');
+  });
+
+  test('a delayed archive lookup does not re-end a reopened stream', () async {
+    stream = live('s1', '2026-10-13T09:00:00Z');
+    await poll();
+    stream = null;
+    videos = [video('s1', '3h5m20s')];
+    final requests = <Completer<http.Response>>[];
+    videoRequests = requests;
+    await poll();
+    await poll();
+    expect(requests, hasLength(1));
+    expect(rows(), contains(startsWith('sys_stream:s1:end')));
+
+    stream = live('s1', '2026-10-13T09:00:00Z');
+    await poll();
+    expect(rows(), [
+      'sys_stream:s1:start|Stream: Speedrun - Zelda',
+    ], reason: 'the same stream is live again');
+
+    requests.single.complete(http.Response(jsonEncode({'data': videos}), 200));
+    await pumpEventQueue();
+    expect(rows(), [
+      'sys_stream:s1:start|Stream: Speedrun - Zelda',
+    ], reason: 'the delayed lookup must not restore the removed end');
+    expect(endRowTime(), isNull);
+    expect(
+      archived.where((entry) => entry.startsWith('ended s1 ')),
+      hasLength(1),
+      reason: 'the archive keeps only the original last-poll end',
     );
   });
 

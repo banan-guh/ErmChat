@@ -129,6 +129,48 @@ void main() {
     }
   }
 
+  test('message id redelivery emits once and empty ids emit each', () async {
+    for (final (name, frame, stream)
+        in <(String, Map<String, dynamic>, Stream<Object> Function())>[
+          (
+            'moderate',
+            _moderate(
+              action: 'ban',
+              meta: {
+                'ban': {
+                  'user_login': 'spammer',
+                  'user_name': 'LocalizedSpammer',
+                },
+              },
+            ),
+            () => decoder.onModeration,
+          ),
+          (
+            'hype',
+            _frame('channel.hype_train.begin', {
+              'level': 2,
+              'progress': 30,
+              'total': 100,
+            }),
+            () => decoder.onHypeTrain,
+          ),
+        ]) {
+      final events = <Object>[];
+      final subscription = stream().listen(events.add);
+      final metadata = frame['metadata'] as Map<String, dynamic>;
+      metadata['message_id'] = '$name-redelivery';
+      decoder.feed(frame);
+      decoder.feed(frame);
+      expect(events, hasLength(1), reason: '$name redelivery emitted twice');
+
+      metadata['message_id'] = '';
+      decoder.feed(frame);
+      decoder.feed(frame);
+      expect(events, hasLength(3), reason: '$name empty ids were deduped');
+      await subscription.cancel();
+    }
+  });
+
   // Activates every family through the real topics path.
   Future<void> subscribeAll() async {
     topics.subscribeChannel('testchannel', 'broadcaster1');
@@ -168,6 +210,99 @@ void main() {
     for (final e in chat.channelFor('testchannel')!.moderation.feed) e.action,
   ];
 
+  test('events without their family subscription are dropped', () {
+    seedMessage('msg-1', 'spammer', 'hello');
+    final frames = <(String, Map<String, dynamic>)>[
+      (
+        'delete',
+        _moderate(
+          action: 'delete',
+          meta: {
+            'delete': {'user_name': 'spammer', 'message_id': 'msg-1'},
+          },
+        ),
+      ),
+      (
+        'feed',
+        _frame('channel.shield_mode.begin', {'moderator_user_name': 'moduser'}),
+      ),
+      (
+        'points',
+        _frame('channel.channel_points_custom_reward.add', {
+          'id': 'reward1',
+          'title': 'Hydrate',
+          'cost': 500,
+        }),
+      ),
+      (
+        'automod',
+        _frame('automod.message.hold', {
+          'broadcaster_user_id': 'broadcaster1',
+          'user_login': 'spammer',
+          'message_id': 'msg-1',
+          'message': {'text': 'bad text here', 'fragments': []},
+          'automod': {'category': 'bullying', 'level': 4},
+        }),
+      ),
+      (
+        'widgets',
+        _frame('channel.hype_train.begin', {
+          'level': 2,
+          'progress': 30,
+          'total': 100,
+        }),
+      ),
+    ];
+    for (final (name, frame) in frames) {
+      decoder.feed(frame);
+      expect(isDeleted('msg-1'), isFalse, reason: name);
+      expect(lines, isEmpty, reason: name);
+      expect(feedActions(), isEmpty, reason: name);
+      expect(
+        chat.channelFor('testchannel')!.points.rewards,
+        isEmpty,
+        reason: name,
+      );
+      expect(
+        chat.channelFor('testchannel')!.moderation.held,
+        isEmpty,
+        reason: name,
+      );
+      expect(hypeKinds, isEmpty, reason: name);
+    }
+  });
+
+  test('moderate suppresses complementary feed and inbox events', () async {
+    await subscribeAll();
+    final frames = <Map<String, dynamic>>[
+      _frame('channel.warning.send', {
+        'moderator_user_name': 'moduser',
+        'user_login': 'spammer',
+        'reason': 'spam',
+      }),
+      _frame('channel.unban_request.resolve', {
+        'user_login': 'spammer',
+        'moderator_user_name': 'moduser',
+        'resolution_text': 'second chance',
+      }),
+      _frame('automod.terms.update', {
+        'action': 'add',
+        'list': 'blocked',
+        'terms': ['bad word'],
+        'moderator_user_name': 'moduser',
+      }),
+    ];
+    for (final frame in frames) {
+      decoder.feed(frame);
+    }
+    expect(
+      chat.channelFor('testchannel')!.moderation.warningsFor('spammer'),
+      isEmpty,
+    );
+    expect(feedActions(), isEmpty);
+    expect(lines, isEmpty);
+  });
+
   group('moderation delete/clear', () {
     test('delete marks the message and announces with the body', () async {
       await subscribeAll();
@@ -187,20 +322,6 @@ void main() {
       expect(isDeleted('msg-1'), isTrue);
       expect(lines.last.$2, 'moduser deleted a message from spammer: "hello".');
       expect(feedActions().first, 'delete');
-    });
-
-    test('delete without the subscription is dropped', () async {
-      seedMessage('msg-1', 'spammer', 'hello');
-      decoder.feed(
-        _moderate(
-          action: 'delete',
-          meta: {
-            'delete': {'user_name': 'spammer', 'message_id': 'msg-1'},
-          },
-        ),
-      );
-      expect(isDeleted('msg-1'), isFalse);
-      expect(lines, isEmpty);
     });
 
     test('clear marks every message deleted', () async {
@@ -230,7 +351,11 @@ void main() {
         _moderate(
           action: 'ban',
           meta: {
-            'ban': {'user_name': 'spammer', 'reason': 'spam'},
+            'ban': {
+              'user_login': 'spammer',
+              'user_name': 'LocalizedSpammer',
+              'reason': 'spam',
+            },
           },
         ),
       );
@@ -239,7 +364,11 @@ void main() {
         chat.channelFor('testchannel')!.moderation.banFor('spammer'),
         isNotNull,
       );
-      expect(lines.last.$2, 'moduser banned spammer: "spam".');
+      expect(
+        chat.channelFor('testchannel')!.moderation.banFor('LocalizedSpammer'),
+        isNull,
+      );
+      expect(lines.last.$2, 'moduser banned LocalizedSpammer: "spam".');
       expect(feedActions().first, 'ban');
       expect(analytics.last, ('testchannel', false));
     });
@@ -255,7 +384,11 @@ void main() {
         _moderate(
           action: 'timeout',
           meta: {
-            'timeout': {'user_name': 'victim', 'expires_at': expiresAt},
+            'timeout': {
+              'user_login': 'victim',
+              'user_name': 'victim',
+              'expires_at': expiresAt,
+            },
           },
         ),
       );
@@ -291,7 +424,7 @@ void main() {
         _moderate(
           action: 'unban',
           meta: {
-            'unban': {'user_name': 'victim'},
+            'unban': {'user_login': 'victim', 'user_name': 'victim'},
           },
         ),
       );
@@ -308,37 +441,6 @@ void main() {
       );
       expect(lines.last.$2, 'moduser enabled Shield Mode.');
       expect(feedActions().first, 'shield_on');
-    });
-
-    test('feed events without the subscription are dropped', () async {
-      decoder.feed(
-        _frame('channel.shield_mode.begin', {'moderator_user_name': 'moduser'}),
-      );
-      decoder.feed(
-        _frame('channel.shoutout.create', {
-          'broadcaster_user_login': 'streamer',
-          'to_broadcaster_user_login': 'friend',
-          'moderator_user_name': 'moduser',
-        }),
-      );
-      expect(lines, isEmpty);
-      expect(feedActions(), isEmpty);
-    });
-
-    test('warning send is skipped while moderate covers it', () async {
-      await subscribeAll();
-      decoder.feed(
-        _frame('channel.warning.send', {
-          'moderator_user_name': 'moduser',
-          'user_login': 'spammer',
-          'reason': 'spam',
-        }),
-      );
-      expect(
-        chat.channelFor('testchannel')!.moderation.warningsFor('spammer'),
-        isEmpty,
-      );
-      expect(lines, isEmpty);
     });
 
     test('warning send logs when moderate is off', () async {
@@ -365,7 +467,11 @@ void main() {
         _moderate(
           action: 'warn',
           meta: {
-            'warn': {'user_name': 'spammer', 'reason': 'spam'},
+            'warn': {
+              'user_login': 'spammer',
+              'user_name': 'LocalizedSpammer',
+              'reason': 'spam',
+            },
           },
         ),
       );
@@ -373,6 +479,14 @@ void main() {
         chat.channelFor('testchannel')!.moderation.warningsFor('spammer'),
         hasLength(1),
       );
+      expect(
+        chat
+            .channelFor('testchannel')!
+            .moderation
+            .warningsFor('LocalizedSpammer'),
+        isEmpty,
+      );
+      expect(lines.last.$2, 'moduser warned LocalizedSpammer: "spam".');
       decoder.feed(
         _frame('channel.warning.acknowledge', {
           'moderator_user_name': 'moduser',
@@ -407,19 +521,6 @@ void main() {
       );
     });
 
-    test('unban resolve is skipped while moderate covers it', () async {
-      await subscribeAll();
-      decoder.feed(
-        _frame('channel.unban_request.resolve', {
-          'user_login': 'spammer',
-          'moderator_user_name': 'moduser',
-          'resolution_text': 'second chance',
-        }),
-      );
-      expect(feedActions(), isEmpty);
-      expect(lines, isEmpty);
-    });
-
     test('unban resolve lands when moderate is off', () async {
       await subscribeAll();
       await subscribeWithoutModeration();
@@ -436,20 +537,6 @@ void main() {
         lines.last.$2,
         'moduser resolved spammer\'s unban request: "second chance".',
       );
-    });
-
-    test('terms update is skipped while moderate covers it', () async {
-      await subscribeAll();
-      decoder.feed(
-        _frame('automod.terms.update', {
-          'action': 'add',
-          'list': 'blocked',
-          'terms': ['bad word'],
-          'moderator_user_name': 'moduser',
-        }),
-      );
-      expect(feedActions(), isEmpty);
-      expect(lines, isEmpty);
     });
 
     test('terms update lands when moderate is off', () async {
@@ -586,16 +673,6 @@ void main() {
       );
       expect(points.redemptions, isEmpty);
     });
-
-    test('reward events without the subscription are dropped', () async {
-      decoder.feed(
-        _frame(
-          'channel.channel_points_custom_reward.add',
-          reward('reward1', 'Hydrate'),
-        ),
-      );
-      expect(chat.channelFor('testchannel')!.points.rewards, isEmpty);
-    });
   });
 
   group('automod queue', () {
@@ -624,11 +701,6 @@ void main() {
       expect(chat.channelFor('testchannel')!.moderation.held, isEmpty);
     });
 
-    test('hold without the subscription is dropped', () async {
-      decoder.feed(_frame('automod.message.hold', heldEvent()));
-      expect(chat.channelFor('testchannel')!.moderation.held, isEmpty);
-    });
-
     test('resolve applies even without the subscription', () async {
       await subscribeAll();
       decoder.feed(_frame('automod.message.hold', heldEvent()));
@@ -652,17 +724,6 @@ void main() {
         }),
       );
       expect(hypeKinds, [HypeTrainKind.begin]);
-    });
-
-    test('widgets without the subscription are dropped', () async {
-      decoder.feed(
-        _frame('channel.hype_train.begin', {
-          'level': 2,
-          'progress': 30,
-          'total': 100,
-        }),
-      );
-      expect(hypeKinds, isEmpty);
     });
   });
 }

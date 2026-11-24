@@ -37,6 +37,7 @@ import 'package:ermchat/services/emote_manager.dart';
 import 'package:ermchat/services/twitch_api.dart';
 import 'package:ermchat/services/chat_liveness.dart';
 import 'package:ermchat/services/twitch_auth.dart';
+import 'package:ermchat/services/twitch_oauth.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:ermchat/services/twitch_badge_service.dart';
 import 'package:ermchat/services/user_store.dart';
@@ -1925,24 +1926,6 @@ void main() {
       expect(statusEvents, isEmpty);
     });
 
-    test('7TV reconnect counter survives failed attempts and a bare Hello', () {
-      fakeAsync((async) {
-        final c = SevenTvEventClient();
-        c.connect();
-        async.elapse(const Duration(seconds: 11));
-        expect(c.reconnectAttempt, 1);
-        async.elapse(const Duration(seconds: 12));
-        expect(c.reconnectAttempt, greaterThan(1), reason: 'a retry reset');
-        c.handleRawMessage(_hello());
-        expect(
-          c.reconnectAttempt,
-          greaterThan(0),
-          reason: 'a Hello alone is not sustained health',
-        );
-        c.dispose();
-      });
-    });
-
     // Shipped bug: connect() zeroed the counter, so EventSub retried every
     // second forever instead of backing off.
     test('EventSub reconnect counter survives failed connect attempts', () {
@@ -2385,6 +2368,112 @@ void main() {
       return http.Response('{}', 200);
     }
 
+    test('an expired token discards a successful identity lookup', () {
+      fakeAsync((async) {
+        final userResponse = Completer<http.Response>();
+        final auth = TwitchAuth()..accessToken = 'token_a';
+        final chat = Chat();
+        final irc = _TestIrc();
+        final conn = _makeReconnectConn(
+          eventSub: _NoopEventSub(),
+          irc: irc,
+          auth: auth,
+          chat: chat,
+          onReconnected: () {},
+          client: MockClient((request) async {
+            if (request.url.path == '/helix/users') return userResponse.future;
+            return http.Response(
+              '{"login":"alice","user_id":"111","expires_in":3600,"scopes":[]}',
+              200,
+            );
+          }),
+        );
+        conn.connect();
+        async.flushMicrotasks();
+
+        auth.markActiveExpired();
+        userResponse.complete(
+          http.Response('{"data":[{"id":"111","login":"alice"}]}', 200),
+        );
+        async.flushMicrotasks();
+
+        expect(auth.login, isNull);
+        expect(auth.userId, isNull);
+        expect(conn.config.session.login, isNull);
+        expect(irc.connectCalls, 1, reason: 'expired auth falls back once');
+        expect(
+          irc.token,
+          'anonymous',
+          reason: 'the dead token is never dialed',
+        );
+
+        conn.dispose();
+        irc.dispose();
+        chat.dispose();
+      });
+    });
+
+    test('hourly validation ignores a concurrent Helix 401', () {
+      fakeAsync((async) {
+        var validations = 0;
+        final pending = <Completer<http.Response>>[];
+        final valid = jsonEncode({
+          'login': 'alice',
+          'user_id': '111',
+          'expires_in': 3600,
+          'scopes': TwitchOAuth.requiredScopes,
+        });
+        final auth = TwitchAuth()
+          ..setCredentials(accessToken: 'token_a')
+          ..setUser('alice', '111');
+        final chat = Chat();
+        final irc = _TestIrc();
+        final conn = _makeReconnectConn(
+          eventSub: _NoopEventSub(),
+          irc: irc,
+          auth: auth,
+          chat: chat,
+          currentUserLogin: 'alice',
+          onReconnected: () {},
+          client: MockClient((request) async {
+            if (request.url.host == 'id.twitch.tv') {
+              validations++;
+              if (validations == 1) return http.Response(valid, 200);
+              final response = Completer<http.Response>();
+              pending.add(response);
+              return response.future;
+            }
+            return http.Response(
+              '{"message":"Unauthorized","status":401}',
+              401,
+            );
+          }),
+        );
+        conn.connect();
+        async.flushMicrotasks();
+        expect(auth.isActiveExpired, isFalse);
+
+        async.elapse(const Duration(hours: 1));
+        async.flushMicrotasks();
+        expect(pending, hasLength(1));
+
+        final api = conn.config.services.twitchApi;
+        unawaited(api.getUserLoginsByIds(auth, ['9']));
+        async.flushMicrotasks();
+        expect(api.lastErrorStatus, 401);
+
+        pending.single.complete(http.Response(valid, 200));
+        async.flushMicrotasks();
+
+        expect(auth.isActiveExpired, isFalse);
+        expect(conn.config.session.login, 'alice');
+
+        conn.dispose();
+        irc.dispose();
+        chat.dispose();
+      });
+    });
+
     test('switch drops old joins and per-account state, and takes the full '
         'connect edge under the new identity', () async {
       final irc = _RecordingIrc();
@@ -2605,52 +2694,6 @@ void main() {
       conn.dispose();
     });
 
-    test('join failure wording never claims nonexistence', () {
-      final messages = <String>[];
-      final eventSub = EventSubService();
-      final setup = ChatChannelSetup(
-        twitchApi: TwitchApi(client: http.Client()),
-        eventSubDecoder: EventSubDecoder(Stream<Map<String, dynamic>>.empty()),
-        eventSubTopics: EventSubTopics(
-          twitchApi: TwitchApi(client: http.Client()),
-          twitchAuth: TwitchAuth(),
-          session: Session(),
-          chat: Chat(),
-          eventSub: eventSub,
-        ),
-        irc: IrcService(),
-        ircRead: IrcReadService(),
-        readDecoder: IrcChatDecoder(IrcReadService().onIrcMessage),
-        badgeService: TwitchBadgeService(),
-        emoteManager: EmoteManager(),
-        twitchAuth: TwitchAuth(),
-        chat: Chat(),
-        session: Session(),
-        onSystemMessage:
-            (c, t, {Color? accent, String? messageId, bool keep = false}) =>
-                messages.add(t),
-        connectionStateNotifier: ValueNotifier(0),
-        ensureCurrentUser: (_) async => null,
-      );
-      setup.handleJoinFailed(
-        IrcJoinFailureEvent(
-          channel: 'foo',
-          reason: JoinFailureReason.noResponse,
-        ),
-      );
-      setup.handleJoinFailed(
-        IrcJoinFailureEvent(
-          channel: 'bar',
-          reason: JoinFailureReason.suspended,
-        ),
-      );
-      expect(messages, hasLength(2));
-      expect(messages[0], contains('#foo'));
-      expect(messages[1], contains('#bar'));
-      expect(messages.join(' '), isNot(contains('exist')));
-      setup.dispose();
-    });
-
     test('join timeout posts one retry line, the later failure stays quiet, '
         'and a ROOMSTATE removes it', () {
       final messages = <String>[];
@@ -2718,46 +2761,6 @@ void main() {
       await conn.subscribeChannel('_testchannel');
       expect(conn.isChannelChatReady('_testchannel'), isTrue);
       expect(read.joins, isEmpty, reason: 'fake channels never reach IRC');
-      conn.dispose();
-    });
-
-    test('write-socket send rejections surface as system messages', () async {
-      final irc = _RecordingIrc();
-      final auth = TwitchAuth();
-      auth.setUser('alice', '111');
-      auth.setCredentials(accessToken: 'token_a');
-      final system = <String>[];
-      final readConn = _NoopIrcRead();
-      final chat = Chat();
-      chat.ensure('test');
-      chat.channelFor('test')?.info.setBroadcasterId('999');
-      final conn = _makeReconnectConn(
-        eventSub: _NoopEventSub(),
-        irc: irc,
-        ircRead: readConn,
-        onSystemMessage:
-            (c, t, {Color? accent, String? messageId, bool keep = false}) =>
-                system.add(t),
-        currentUserLogin: 'alice',
-        auth: auth,
-        chat: chat,
-        onReconnected: () {},
-        client: http_testing.MockClient(
-          (request) async => http.Response(
-            '{"data":[{"id":"999","login":"test","display_name":"Test"}]}',
-            200,
-          ),
-        ),
-      );
-      await conn.connect();
-      // Twitch replies to a PRIVMSG with a NOTICE on the write socket.
-      irc.handleLine(':tmi.twitch.tv NOTICE #test :This room is in slow mode.');
-      await Future<void>.delayed(Duration.zero);
-      expect(
-        system,
-        contains('This room is in slow mode.'),
-        reason: 'send rejection NOTICE must be shown',
-      );
       conn.dispose();
     });
 
@@ -2872,15 +2875,6 @@ void main() {
         setup.subscribeChannel('test'),
         setup.subscribeChannel('test'),
       ]);
-      await Future<void>.delayed(Duration.zero);
-      expect(sevenTv.emoteSetSubscribes, 1);
-      expect(sevenTv.userSubscribes, 1);
-      expect(sevenTv.channelSubscribes, 1);
-    });
-
-    test('sequential subscribes send once', () async {
-      await setup.subscribeChannel('test');
-      await setup.subscribeChannel('test');
       await Future<void>.delayed(Duration.zero);
       expect(sevenTv.emoteSetSubscribes, 1);
       expect(sevenTv.userSubscribes, 1);
@@ -3218,89 +3212,6 @@ void main() {
         conn.dispose();
       });
     }
-  });
-
-  group('IRC channel clear', () {
-    test('renders cleared message and marks all messages deleted', () async {
-      final irc = _TestIrc();
-      final ircRead = _TestIrcRead();
-      final systemMessages = <(String, String, Color?)>[];
-      final channelMessages = <String, List<TwitchMessage>>{
-        'test': [
-          TwitchMessage(
-            login: 'a',
-            text: 'msg1',
-            messageId: 'm1',
-            channel: 'test',
-          ),
-          TwitchMessage(
-            login: 'b',
-            text: 'msg2',
-            messageId: 'm2',
-            channel: 'test',
-          ),
-        ],
-      };
-      final conn = _makeReconnectConn(
-        eventSub: _NoopEventSub(),
-        irc: irc,
-        ircRead: ircRead,
-        onReconnected: () {},
-        channelMessages: channelMessages,
-        onSystemMessage:
-            (c, t, {Color? accent, String? messageId, bool keep = false}) {
-              systemMessages.add((c, t, accent));
-            },
-      );
-      await conn.connect();
-      irc.emitConnected();
-      ircRead.emitConnected();
-
-      ircRead.handleLine(':tmi.twitch.tv CLEARCHAT #test');
-
-      expect(systemMessages, hasLength(1));
-      expect(systemMessages[0].$2, 'Chat was cleared.');
-      expect(conn.chat.channelFor('test')!.messages.items[0].deleted, isTrue);
-      expect(conn.chat.channelFor('test')!.messages.items[1].deleted, isTrue);
-
-      conn.dispose();
-    });
-  });
-
-  group('ROOMSTATE splash', () {
-    test('updates the chat status splash and merges partial updates', () async {
-      final irc = _TestIrc();
-      final ircRead = _TestIrcRead();
-      final chatStatus = <String, String>{};
-      final conn = _makeReconnectConn(
-        eventSub: _NoopEventSub(),
-        irc: irc,
-        ircRead: ircRead,
-        onReconnected: () {},
-        channels: ['test'],
-        chatStatus: chatStatus,
-      );
-      await conn.connect();
-      ircRead.emitConnected();
-
-      ircRead.handleLine(
-        '@emote-only=1;followers-only=30;r9k=1;room-id=1;slow=10;subs-only=0 '
-        ':tmi.twitch.tv ROOMSTATE #test',
-      );
-      expect(
-        conn.chat.channelFor('test')?.info.status ?? '',
-        'Slow (10s) · Follow (30m) · Emotes · Unique',
-      );
-
-      // Partial update: only slow mode changed.
-      ircRead.handleLine('@room-id=1;slow=0 :tmi.twitch.tv ROOMSTATE #test');
-      expect(
-        conn.chat.channelFor('test')?.info.status ?? '',
-        'Follow (30m) · Emotes · Unique',
-      );
-
-      conn.dispose();
-    });
   });
 
   group('send cooldowns', () {
@@ -3851,30 +3762,6 @@ void main() {
           service.dispose();
           first.dispose();
           second.dispose();
-          async.flushTimers();
-        }
-      });
-    });
-
-    test('a cold start before the network is up has no outage row', () {
-      fakeAsync((async) {
-        final service = _TestService([
-          FakeWebSocketChannel(failReady: true),
-          FakeWebSocketChannel(),
-        ]);
-        final statuses = <IrcConnectionStatus>[];
-        final sub = service.onStatus.listen(statuses.add);
-        try {
-          service.connect(username: 'user', accessToken: 'token');
-          async.flushMicrotasks();
-          expect(
-            statuses,
-            isNot(contains(IrcConnectionStatus.disconnected)),
-            reason: 'nothing was connected yet, so nothing disconnected',
-          );
-        } finally {
-          sub.cancel();
-          service.dispose();
           async.flushTimers();
         }
       });

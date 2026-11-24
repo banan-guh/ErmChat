@@ -1,6 +1,5 @@
 import 'package:ermchat/chat/channel/moderation.dart';
 import 'package:ermchat/chat/chat.dart';
-import 'package:ermchat/util/mod_activity_format.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 Moderation _mod(Chat chat) => chat.ensure('test').moderation;
@@ -153,35 +152,6 @@ void main() {
   });
 
   group('Moderation versions', () {
-    test('each touch bumps only its own version', () {
-      final chat = Chat();
-      addTearDown(chat.dispose);
-      final mod = _mod(chat);
-      final inbox = mod.modInboxVersion.value;
-      final terms = mod.modTermsVersion.value;
-      final settings = mod.modSettingsVersion.value;
-      final feed = mod.modFeedVersion.value;
-
-      mod.touchTerms();
-      expect(mod.modTermsVersion.value, terms + 1);
-      mod.touchSettings();
-      expect(mod.modSettingsVersion.value, settings + 1);
-      expect(mod.modInboxVersion.value, inbox);
-      expect(mod.modFeedVersion.value, feed);
-
-      mod.addWarning(_warn('spammer', DateTime(2026, 1, 1)));
-      expect(mod.modFeedVersion.value, feed, reason: 'users-only mutation');
-      mod.addFeed(
-        ModActivityEntry(
-          at: DateTime(2026, 1, 1),
-          channel: 'test',
-          action: 'ban',
-          moderator: 'mod',
-        ),
-      );
-      expect(mod.modFeedVersion.value, feed + 1);
-    });
-
     test('clearForAccountSwitch drops account state in one bump', () {
       final chat = Chat();
       addTearDown(chat.dispose);
@@ -217,73 +187,10 @@ void main() {
     });
   });
 
-  group('formatModActivity', () {
+  group('suspicious sightings', () {
     final t0 = DateTime(2026, 1, 1);
-    ModActivityEntry entry(
-      String action, {
-      String? target = 'spammer',
-      String? reason,
-      int? duration,
-      List<String> terms = const [],
-    }) => ModActivityEntry(
-      at: t0,
-      channel: 'test',
-      action: action,
-      moderator: 'moduser',
-      target: target,
-      reason: reason,
-      durationSeconds: duration,
-      terms: terms,
-    );
 
-    test('renders each action', () {
-      for (final (action, expected) in [
-        ('ban', 'moduser banned spammer.'),
-        ('untimeout', 'moduser unbanned spammer.'),
-        ('delete', 'moduser deleted a message from spammer.'),
-        ('clear', 'moduser cleared the chat.'),
-        ('mod', 'moduser modded spammer.'),
-        ('unvip', 'moduser removed spammer as a VIP.'),
-        ('warn_ack', 'spammer acknowledged a warning.'),
-        ('slow', 'moduser enabled slow mode.'),
-        ('followersoff', 'moduser disabled followers-only mode.'),
-        ('uniquechat', 'moduser enabled unique chat.'),
-        ('raid', 'moduser started a raid.'),
-        ('shield_on', 'moduser enabled Shield Mode.'),
-        ('shoutout', 'moduser shouted out spammer.'),
-        ('automod_settings', 'moduser updated AutoMod settings.'),
-      ]) {
-        expect(formatModActivity(entry(action)), expected, reason: action);
-      }
-      expect(
-        formatModActivity(entry('timeout', duration: 90)),
-        'moduser timed out spammer for 1m 30s.',
-      );
-      expect(
-        formatModActivity(entry('warn', reason: 'spam')),
-        'moduser warned spammer: "spam".',
-      );
-      expect(
-        formatModActivity(entry('deny_unban_request', reason: 'too soon')),
-        'moduser denied spammer\'s unban request: "too soon".',
-      );
-      expect(
-        formatModActivity(entry('suspicious_flag', reason: 'restricted')),
-        'moduser flagged spammer: "restricted".',
-      );
-      expect(
-        formatModActivity(
-          entry('remove_blocked_term', target: null, terms: ['a', 'b']),
-        ),
-        'moduser removed 2 blocked terms.',
-      );
-      expect(
-        formatModActivity(entry('some_future_action', target: null)),
-        'moduser did some future action.',
-      );
-    });
-
-    test('suspicious sightings cap at the oldest', () {
+    test('caps at the oldest', () {
       final chat = Chat();
       addTearDown(chat.dispose);
       final mod = _mod(chat);

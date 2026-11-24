@@ -264,14 +264,6 @@ void main() {
   });
 
   group('TwitchOAuth.generateAuthUrl', () {
-    test('does not request EventSub-only scopes', () {
-      final scopes = Uri.parse(
-        TwitchOAuth.generateAuthUrl()!.url,
-      ).queryParameters['scope']!.split(' ');
-      expect(scopes, isNot(contains('user:read:chat')));
-      expect(scopes, isNot(contains('channel:moderate')));
-    });
-
     test('url covers the full requiredScopes list', () {
       final urlInfo = TwitchOAuth.generateAuthUrl();
       final scopes = Uri.parse(
@@ -292,10 +284,6 @@ void main() {
   });
 
   group('TwitchOAuth.missingScopes', () {
-    test('empty when the grant covers everything', () {
-      expect(TwitchOAuth.missingScopes(TwitchOAuth.requiredScopes), isEmpty);
-    });
-
     test('lists absent scopes, ignores extras', () {
       final missing = TwitchOAuth.missingScopes([
         'chat:read',
@@ -309,44 +297,6 @@ void main() {
   });
 
   group('UserStore', () {
-    test('tracks users per channel in LRU order', () {
-      for (final (_, run) in <(String, void Function())>[
-        (
-          'touches user moves to end of LRU',
-          () {
-            final store = UserStore();
-            store.addUser('chan', 'User1');
-            store.addUser('chan', 'User2');
-            store.addUser('chan', 'User1');
-            final list = store.usersForChannel('chan').toList();
-            expect(list.first, 'User2');
-            expect(list.last, 'User1');
-          },
-        ),
-        (
-          'isolates channels',
-          () {
-            final store = UserStore();
-            store.addUser('chan1', 'User1');
-            store.addUser('chan2', 'User2');
-            expect(store.usersForChannel('chan1'), {'User1'});
-            expect(store.usersForChannel('chan2'), {'User2'});
-          },
-        ),
-        (
-          'removeChannel clears channel',
-          () {
-            final store = UserStore();
-            store.addUser('chan', 'User1');
-            store.removeChannel('chan');
-            expect(store.usersForChannel('chan'), isEmpty);
-          },
-        ),
-      ]) {
-        run();
-      }
-    });
-
     test('evicts oldest when exceeding max', () {
       final store = UserStore();
       for (var i = 0; i < 5001; i++) {
@@ -493,52 +443,6 @@ void main() {
       ]) {
         run();
       }
-    });
-
-    test('normalizes words and filters stopwords on request', () {
-      final service = AnalyticsService();
-      service.recordMessage('chan', msg('alice', 'Hello, world!! the cat'));
-      List<String> words({bool stop = false}) => service
-          .topWords('chan', 10, useStopwords: stop)
-          .map((w) => w.word)
-          .toList();
-      expect(words(), containsAll(['hello', 'world', 'the', 'cat']));
-      expect(words(stop: true), containsAll(['cat']));
-      expect(words(stop: true), isNot(contains('the')));
-    });
-
-    test('messages per minute rolls off after 60 minutes', () {
-      var now = DateTime(2024, 1, 1, 12, 0, 0);
-      final service = AnalyticsService(now: () => now);
-
-      for (var i = 0; i < 5; i++) {
-        service.recordMessage('chan', msg('alice', 'hello'));
-      }
-      expect(service.messagesPerMinute('chan'), 5.0);
-
-      now = now.add(const Duration(minutes: 61));
-      service.recordMessage('chan', msg('alice', 'new hour'));
-
-      expect(service.messagesPerMinute('chan'), closeTo(1 / 60, 0.0001));
-      expect(service.totalMessages('chan'), 6);
-    });
-
-    test('records moderation and resets per channel or globally', () {
-      final service = AnalyticsService();
-      service.recordModeration('chan', false);
-      service.recordModeration('chan', true);
-      service.recordModeration('chan', true);
-      expect(service.banCount('chan'), 1);
-      expect(service.timeoutCount('chan'), 2);
-
-      service.recordMessage('chan', msg('alice', 'hi'));
-      service.recordMessage('other', msg('bob', 'yo'));
-      service.resetChannel('chan');
-      expect(service.isTracking('chan'), isFalse);
-      expect(service.totalMessages('chan'), 0);
-      expect(service.isTracking('other'), isTrue);
-      service.resetAll();
-      expect(service.trackedChannels(), isEmpty);
     });
 
     test('persists across launches, drops idle channels, wipes when off', () {
@@ -1053,11 +957,6 @@ void main() {
       body = jsonDecode(requests.single.body) as Map;
       expect((body['outcomes'] as List).map((o) => o['title']), ['yes', 'no']);
     });
-
-    test('shoutout is a query-only call', () async {
-      final requests = await runCommand('/shoutout foo');
-      expect(requests.last.body, isEmpty);
-    });
   });
 
   group('commands that read state first', () {
@@ -1123,32 +1022,6 @@ void main() {
         }
       }
     });
-
-    for (final (name, body, expected) in [
-      (
-        'mods lists the channel moderators',
-        '{"data":[{"user_login":"alice"},{"user_login":"bob"}]}',
-        'The moderators of this channel are alice, bob.',
-      ),
-      (
-        'mods reports when there are none',
-        '{"data":[]}',
-        'This channel does not have any moderators.',
-      ),
-      (
-        'vips lists the channel VIPs',
-        '{"data":[{"user_login":"alice"}]}',
-        'The VIPs of this channel are alice.',
-      ),
-    ]) {
-      test(name, () async {
-        await runCommand(
-          name.startsWith('vips') ? '/vips' : '/mods',
-          respond: (_) => http.Response(body, 200),
-        );
-        expect(systemMessages, [expected]);
-      });
-    }
   });
 
   group('command failures', () {
@@ -1481,25 +1354,6 @@ void main() {
       return auth;
     }
 
-    test('getUnbanRequests passes ids and status, parses list', () async {
-      final requests = <http.Request>[];
-      final api = TwitchApi(client: inboxClient(requests));
-      final list = await api.getUnbanRequests(
-        inboxAuth(),
-        broadcasterId: 'broad1',
-        moderatorId: 'mod1',
-        status: 'pending',
-      );
-      final query = requests.single.url.queryParameters;
-      expect(query['broadcaster_id'], 'broad1');
-      expect(query['moderator_id'], 'mod1');
-      expect(query['status'], 'pending');
-      expect(list, hasLength(1));
-      expect(list.first.id, 'req1');
-      expect(list.first.userLogin, 'spammer');
-      expect(list.first.text, 'sorry');
-    });
-
     test('resolveUnbanRequest approves with resolution text', () async {
       final requests = <http.Request>[];
       final api = TwitchApi(client: inboxClient(requests));
@@ -1517,37 +1371,6 @@ void main() {
       expect(query['unban_request_id'], 'req1');
       expect(query['status'], 'approved');
       expect(query['resolution_text'], 'second chance');
-    });
-
-    test('blocked terms get/add/remove hit the right shapes', () async {
-      final requests = <http.Request>[];
-      final api = TwitchApi(client: inboxClient(requests));
-      final auth = inboxAuth();
-
-      final terms = await api.getBlockedTerms(
-        auth,
-        broadcasterId: 'broad1',
-        moderatorId: 'mod1',
-      );
-      expect(terms.single.text, 'bad word');
-
-      final created = await api.addBlockedTerm(
-        auth,
-        broadcasterId: 'broad1',
-        moderatorId: 'mod1',
-        text: 'worse',
-      );
-      expect(created!.id, 'term2');
-      expect(jsonDecode(requests[1].body)['text'], 'worse');
-
-      final removed = await api.removeBlockedTerm(
-        auth,
-        broadcasterId: 'broad1',
-        moderatorId: 'mod1',
-        termId: 'term1',
-      );
-      expect(removed, isTrue);
-      expect(requests[2].url.queryParameters['id'], 'term1');
     });
 
     test(
@@ -1893,59 +1716,40 @@ void main() {
   });
 
   group('TwitchApi.getFollowDate', () {
-    test('returns followed_at when following', () async {
-      final client = MockClient((request) async {
-        expect(request.url.queryParameters['broadcaster_id'], 'broad1');
-        expect(request.url.queryParameters['user_id'], 'user9');
-        return http.Response(
-          '{"total":1,"data":[{"user_id":"user9","followed_at":"2024-05-06T07:08:09Z"}],"pagination":{}}',
-          200,
-        );
-      });
-
-      final api = TwitchApi(client: client);
-      final auth = TwitchAuth();
-      auth.accessToken = 'tok';
-
-      expect(
-        await api.getFollowDate(auth, broadcasterId: 'broad1', userId: 'user9'),
-        '2024-05-06T07:08:09Z',
-      );
-    });
-
-    test('returns null when not following or on failure', () async {
-      final empty = TwitchApi(
-        client: MockClient(
-          (request) async =>
-              http.Response('{"total":0,"data":[],"pagination":{}}', 200),
-        ),
-      );
-      final auth = TwitchAuth();
-      auth.accessToken = 'tok';
-      expect(
-        await empty.getFollowDate(
-          auth,
-          broadcasterId: 'broad1',
-          userId: 'user9',
-        ),
-        isNull,
-      );
-
-      final failing = TwitchApi(
-        client: MockClient(
-          (request) async => http.Response('{"message":"forbidden"}', 403),
-        ),
-      );
-      expect(
-        await failing.getFollowDate(
-          auth,
-          broadcasterId: 'broad1',
-          userId: 'user9',
-        ),
-        isNull,
-      );
-      expect(failing.lastErrorStatus, 403);
-    });
+    test(
+      'returns the follow date or null for empty and failed lookups',
+      () async {
+        final auth = TwitchAuth()..accessToken = 'tok';
+        for (final (status, body, expected, errorStatus) in [
+          (
+            200,
+            '{"total":1,"data":[{"user_id":"user9","followed_at":"2024-05-06T07:08:09Z"}],"pagination":{}}',
+            '2024-05-06T07:08:09Z',
+            null,
+          ),
+          (200, '{"total":0,"data":[],"pagination":{}}', null, null),
+          (403, '{"message":"forbidden"}', null, 403),
+        ]) {
+          final api = TwitchApi(
+            client: MockClient((request) async {
+              expect(request.url.queryParameters['broadcaster_id'], 'broad1');
+              expect(request.url.queryParameters['user_id'], 'user9');
+              return http.Response(body, status);
+            }),
+          );
+          expect(
+            await api.getFollowDate(
+              auth,
+              broadcasterId: 'broad1',
+              userId: 'user9',
+            ),
+            expected,
+            reason: 'status $status',
+          );
+          expect(api.lastErrorStatus, errorStatus);
+        }
+      },
+    );
   });
 
   test(

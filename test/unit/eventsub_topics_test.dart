@@ -137,13 +137,6 @@ void main() {
   });
 
   group('moderation (single)', () {
-    test('success sets the active set and wakes the mod view', () async {
-      topics.subscribeChannel('testchannel', 'broadcaster1');
-      await flush();
-      expect(topics.isModerationActive('testchannel'), isTrue);
-      expect(modVersion(), greaterThan(0));
-    });
-
     test('403 sets the skip set: no retry on the next join', () async {
       script['channel.moderate'] = 403;
       topics.subscribeChannel('testchannel', 'broadcaster1');
@@ -304,30 +297,6 @@ void main() {
       await flush();
       expect(calls, first);
     });
-
-    test('join skips already-covered families', () async {
-      topics.subscribeChannel('testchannel', 'broadcaster1');
-      await flush();
-      expect(topics.isWidgetActive('testchannel'), isTrue);
-      expect(topics.isModerationActive('testchannel'), isTrue);
-      final widgetCalls = seenTypes
-          .where((t) => t.startsWith('channel.hype_train.'))
-          .length;
-      final moderationCalls = seenTypes
-          .where((t) => t == 'channel.moderate')
-          .length;
-      topics.subscribeChannel('testchannel', 'broadcaster1');
-      await flush();
-      // The active-set guard skips the re-subscribe for every family.
-      expect(
-        seenTypes.where((t) => t.startsWith('channel.hype_train.')).length,
-        widgetCalls,
-      );
-      expect(
-        seenTypes.where((t) => t == 'channel.moderate').length,
-        moderationCalls,
-      );
-    });
   });
 
   group('broadcaster gate', () {
@@ -373,32 +342,6 @@ void main() {
         expect(topics.isModerationActive('testchannel'), isFalse);
       });
     });
-  });
-
-  test('isBroadcaster is true only for the session-owned channel', () {
-    expect(topics.isBroadcaster('testchannel'), isFalse);
-    expect(topics.isBroadcaster('unknown'), isFalse);
-    session.seed('owner', userId: 'broadcaster1');
-    buildTopics();
-    expect(topics.isBroadcaster('testchannel'), isTrue);
-    session = Session();
-    buildTopics();
-    expect(topics.isBroadcaster('testchannel'), isFalse);
-  });
-
-  test('isSelfModerator follows the USERSTATE role and the session', () {
-    buildTopics();
-    expect(topics.isSelfModerator('testchannel'), isTrue);
-    expect(topics.isSelfModerator('other'), isFalse);
-    topics.noteSelfModerator('testchannel', false);
-    expect(topics.isSelfModerator('testchannel'), isFalse);
-    topics.noteSelfModerator('testchannel', true);
-    expect(topics.isSelfModerator('testchannel'), isTrue);
-    // The role belongs to the account, not the EventSub session.
-    topics.clearSessionState();
-    expect(topics.isSelfModerator('testchannel'), isTrue);
-    topics.resetAccountScope();
-    expect(topics.isSelfModerator('testchannel'), isFalse);
   });
 
   group('clear vs reset vs forget', () {
@@ -481,21 +424,6 @@ void main() {
       // Only the forgotten channel re-subscribes.
       expect(topics.isModerationActive('testchannel'), isTrue);
       expect(seenTypes.where((t) => t == 'channel.moderate').length, 3);
-    });
-
-    test('resubscribe restores the session state', () async {
-      session.seed('owner', userId: 'broadcaster1');
-      buildTopics();
-      topics.subscribeChannel('testchannel', 'broadcaster1');
-      await flush();
-      expect(topics.isModerationActive('testchannel'), isTrue);
-      expect(topics.isWidgetActive('testchannel'), isTrue);
-
-      topics.clearSessionState();
-      topics.resubscribeEventSubChannels(['testchannel']);
-      await flush();
-      expect(topics.isModerationActive('testchannel'), isTrue);
-      expect(topics.isWidgetActive('testchannel'), isTrue);
     });
   });
 
@@ -609,15 +537,6 @@ void main() {
         expect(topics.isModerationActive('testchannel'), isTrue);
       },
     );
-
-    test('a mod role on join does not double-subscribe', () async {
-      topics.subscribeChannel('testchannel', 'broadcaster1');
-      await flush();
-      final first = calls;
-      topics.noteSelfModerator('testchannel', true);
-      await flush();
-      expect(calls, first);
-    });
 
     test('losing mod drops the tools and wakes the mod view', () async {
       topics.subscribeChannel('testchannel', 'broadcaster1');

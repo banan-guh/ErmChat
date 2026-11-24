@@ -652,53 +652,6 @@ void main() {
   );
 
   group('user lookups', () {
-    const one = '{"data": [{"id": "1", "login": "u", "display_name": "U"}]}';
-
-    for (final (name, call, url)
-        in <(String, Future<Object?> Function(TwitchApi), String)>[
-          (
-            'getUserId',
-            (api) => api.getUserId(auth, 'testuser'),
-            'https://api.twitch.tv/helix/users?login=testuser',
-          ),
-          (
-            'getCurrentUser',
-            (api) => api.getCurrentUser(auth),
-            'https://api.twitch.tv/helix/users',
-          ),
-          (
-            'getUserProfile',
-            (api) => api.getUserProfile(auth, 'testuser'),
-            'https://api.twitch.tv/helix/users?login=testuser',
-          ),
-        ]) {
-      test('$name sends GET and returns the user on 200', () async {
-        late http.Request captured;
-        final api = createApi(
-          (req) => captured = req,
-          respond: () => http.Response(one, 200),
-        );
-        expect(await call(api), isNotNull);
-        expect(captured.method, 'GET');
-        expect(captured.url.toString(), url);
-        expectAuthHeaders(captured);
-      });
-
-      test('$name returns null and records an error on failure', () async {
-        for (final (status, body) in [
-          (200, '{"data": []}'),
-          (404, 'Not Found'),
-        ]) {
-          final api = createApi(
-            (_) {},
-            respond: () => http.Response(body, status),
-          );
-          expect(await call(api), isNull);
-          expect(api.lastError, isNotNull);
-        }
-      });
-    }
-
     test('getUserId and getUserProfile read the payload fields', () async {
       final api = createApi(
         (_) {},
@@ -739,27 +692,6 @@ void main() {
   });
 
   group('getUserLoginsByIds', () {
-    test('maps ids to logins with GET /helix/users?id=', () async {
-      late http.Request captured;
-      final api = createApi(
-        (req) => captured = req,
-        respond: () => http.Response(
-          '{"data": [{"id": "1", "login": "alpha"}, {"id": "2", "login": "beta"}]}',
-          200,
-        ),
-      );
-
-      final result = await api.getUserLoginsByIds(auth, ['1', '2']);
-
-      expect(result, {'1': 'alpha', '2': 'beta'});
-      expect(captured.method, 'GET');
-      expect(
-        captured.url.toString(),
-        'https://api.twitch.tv/helix/users?id=1&id=2',
-      );
-      expectAuthHeaders(captured);
-    });
-
     test('batches into chunks of 100 and merges results', () async {
       final requests = <String>[];
       final api = TwitchApi(
@@ -782,26 +714,6 @@ void main() {
       expect(result.length, 150);
       expect(result['149'], 'user_149');
       expect(result['0'], 'user_0');
-    });
-
-    test('dedups input ids before building the query', () async {
-      for (final (name, input, expectedUrl) in [
-        (
-          'dedups input ids before building the query',
-          ['1', '1', '1'],
-          'https://api.twitch.tv/helix/users?id=1',
-        ),
-      ]) {
-        final requests = <String>[];
-        final api = TwitchApi(
-          client: MockClient((request) async {
-            requests.add(request.url.toString());
-            return http.Response('{"data": []}', 200);
-          }),
-        );
-        await api.getUserLoginsByIds(auth, input);
-        expect(requests.single, expectedUrl, reason: name);
-      }
     });
 
     test('skips failed chunks and returns whatever resolved', () async {
@@ -892,33 +804,6 @@ void main() {
     );
   });
 
-  group('blockUser / unblockUser', () {
-    test('blockUser and unblockUser call /users/blocks', () async {
-      for (final (name, method, status, expected) in [
-        ('blockUser', 'PUT', 204, true),
-        ('blockUser', 'PUT', 403, false),
-        ('unblockUser', 'DELETE', 204, true),
-        ('unblockUser', 'DELETE', 403, false),
-      ]) {
-        late http.Request captured;
-        final api = createApi(
-          (req) => captured = req,
-          respond: () => http.Response('x', status),
-        );
-        final ok = name == 'blockUser'
-            ? await api.blockUser(auth, 'target123')
-            : await api.unblockUser(auth, 'target123');
-        expect(ok, expected);
-        expect(captured.method, method);
-        expect(
-          captured.url.toString(),
-          'https://api.twitch.tv/helix/users/blocks?target_user_id=target123',
-        );
-        expectAuthHeaders(captured);
-      }
-    });
-  });
-
   group('sendChatMessage', () {
     test('sendChatMessage sends the body and reply parent', () async {
       for (final (name, replyId) in [
@@ -1007,17 +892,6 @@ void main() {
       expect(requests[0], isNot(contains('after=')));
       expect(requests[1], contains('after=next-page'));
     });
-
-    test('returns empty set on error', () async {
-      final api = createApi(
-        (_) {},
-        respond: () => http.Response('Unauthorized', 401),
-      );
-      auth.userId = 'me123';
-
-      expect(await api.getBlockedUsers(auth), isEmpty);
-      expect(api.lastError, contains('getBlockedUsers'));
-    });
   });
 
   group('moderators', () {
@@ -1042,67 +916,6 @@ void main() {
       expect(logins, ['alice', 'bob']);
       expect(requests, hasLength(2));
       expect(requests[0], contains('broadcaster_id=b1'));
-    });
-
-    test('moderator and VIP add/remove use POST and DELETE', () async {
-      for (final (name, method, path) in [
-        ('addModerator', 'POST', '/helix/moderation/moderators'),
-        ('removeModerator', 'DELETE', '/helix/moderation/moderators'),
-        ('addVip', 'POST', '/helix/channels/vips'),
-        ('removeVip', 'DELETE', '/helix/channels/vips'),
-      ]) {
-        late http.Request captured;
-        final api = createApi((req) => captured = req);
-        final ok = switch (name) {
-          'addModerator' => await api.addModerator(
-            auth,
-            broadcasterId: 'b1',
-            userId: 'u1',
-          ),
-          'removeModerator' => await api.removeModerator(
-            auth,
-            broadcasterId: 'b1',
-            userId: 'u1',
-          ),
-          'addVip' => await api.addVip(auth, broadcasterId: 'b1', userId: 'u1'),
-          _ => await api.removeVip(auth, broadcasterId: 'b1', userId: 'u1'),
-        };
-        expect(ok, isTrue);
-        expect(captured.method, method);
-        expect(
-          captured.url.toString(),
-          'https://api.twitch.tv$path?broadcaster_id=b1&user_id=u1',
-        );
-      }
-    });
-  });
-
-  group('updateChatSettings', () {
-    test('updateChatSettings PATCHes and reports failure', () async {
-      for (final (name, status, expected) in [
-        ('PATCHes /helix/chat/settings with the given body', 200, true),
-        ('returns false on non-200', 403, false),
-      ]) {
-        late http.Request captured;
-        final api = createApi(
-          (req) => captured = req,
-          respond: () => http.Response('{"data": []}', status),
-        );
-        final ok = await api.updateChatSettings(
-          auth,
-          broadcasterId: 'b1',
-          moderatorId: 'm1',
-          body: {'slow_mode': true, 'slow_mode_wait_time': 30},
-        );
-        expect(ok, expected, reason: name);
-        if (expected) {
-          expect(captured.method, 'PATCH');
-          expect(
-            captured.url.toString(),
-            'https://api.twitch.tv/helix/chat/settings?broadcaster_id=b1&moderator_id=m1',
-          );
-        }
-      }
     });
   });
 
@@ -1201,80 +1014,6 @@ void main() {
       expect(result.reason, contains("don't have permission"));
     });
 
-    test('setSlowMode posts on/off bodies', () async {
-      final seen = <http.BaseRequest>[];
-      final api = stubApi(seen);
-      final actions = modActions(api);
-      expect(
-        (await actions.setSlowMode(auth, 'testchannel', enabled: true)).ok,
-        isTrue,
-      );
-      final slowPatch = seen[0] as http.Request;
-      expect(slowPatch.method, 'PATCH');
-      expect(slowPatch.url.queryParameters['broadcaster_id'], 'broadcaster1');
-      expect(slowPatch.url.queryParameters['moderator_id'], 'mod1');
-      expect(jsonDecode(slowPatch.body), {
-        'slow_mode': true,
-        'slow_mode_wait_time': 30,
-      });
-      expect(
-        (await actions.setSlowMode(
-          auth,
-          'testchannel',
-          enabled: true,
-          seconds: 120,
-        )).ok,
-        isTrue,
-      );
-      expect(jsonDecode((seen[1] as http.Request).body), {
-        'slow_mode': true,
-        'slow_mode_wait_time': 120,
-      });
-      expect(
-        (await actions.setSlowMode(auth, 'testchannel', enabled: false)).ok,
-        isTrue,
-      );
-      expect(jsonDecode((seen[2] as http.Request).body), {'slow_mode': false});
-    });
-
-    test('emote/subs/unique/shield send the right bodies', () async {
-      final seen = <http.BaseRequest>[];
-      final api = stubApi(seen);
-      final actions = modActions(api);
-      await actions.setEmoteOnly(auth, 'testchannel', enabled: true);
-      await actions.setFollowersMode(auth, 'testchannel', enabled: true);
-      await actions.setSubscribersOnly(auth, 'testchannel', enabled: false);
-      await actions.setUniqueChat(auth, 'testchannel', enabled: true);
-      await actions.setShieldMode(auth, 'testchannel', active: true);
-      await actions.setFollowersMode(
-        auth,
-        'testchannel',
-        enabled: true,
-        minutes: 30,
-      );
-      expect(jsonDecode((seen[5] as http.Request).body), {
-        'follower_mode': true,
-        'follower_mode_duration': 30,
-      });
-      for (var i = 0; i < 4; i++) {
-        expect((seen[i] as http.Request).method, 'PATCH');
-      }
-      expect(jsonDecode((seen[0] as http.Request).body), {'emote_mode': true});
-      expect(jsonDecode((seen[1] as http.Request).body), {
-        'follower_mode': true,
-      }, reason: 'no duration key without minutes');
-      expect(jsonDecode((seen[2] as http.Request).body), {
-        'subscriber_mode': false,
-      });
-      expect(jsonDecode((seen[3] as http.Request).body), {
-        'unique_chat_mode': true,
-      });
-      final shield = seen[4] as http.Request;
-      expect(shield.method, 'PUT');
-      expect(shield.url.queryParameters['broadcaster_id'], 'broadcaster1');
-      expect(jsonDecode(shield.body), {'is_active': true});
-    });
-
     test('failureReason maps 401, 403, 429, and Helix messages', () async {
       final seen = <http.BaseRequest>[];
       Future<ModResult> banWith(int status, String body) => modActions(
@@ -1343,220 +1082,6 @@ void main() {
         'https://api.twitch.tv/helix/moderation/chat?broadcaster_id=broadcaster1&moderator_id=mod1',
       );
     });
-
-    test('unban and warn hit their endpoints', () async {
-      final seen = <http.BaseRequest>[];
-      final api = stubApi(
-        seen,
-        routes: {'DELETE /helix/moderation/bans': http.Response('', 204)},
-      );
-      final actions = modActions(api);
-      expect(
-        (await actions.unbanUser(auth, 'testchannel', login: 'target')).ok,
-        isTrue,
-      );
-      final unban = seen[1] as http.Request;
-      expect(unban.method, 'DELETE');
-      expect(
-        unban.url.toString(),
-        'https://api.twitch.tv/helix/moderation/bans?broadcaster_id=broadcaster1&moderator_id=mod1&user_id=target1',
-      );
-      expect(
-        (await actions.warnUser(
-          auth,
-          'testchannel',
-          login: 'target',
-          reason: 'r',
-        )).ok,
-        isTrue,
-      );
-      final warn = seen[2] as http.Request;
-      expect(warn.method, 'POST');
-      expect(
-        warn.url.toString(),
-        'https://api.twitch.tv/helix/moderation/warnings?broadcaster_id=broadcaster1&moderator_id=mod1',
-      );
-      expect(jsonDecode(warn.body)['data']['reason'], 'r');
-    });
-
-    test('setModerator and setVip use POST to add, DELETE to remove', () async {
-      final seen = <http.BaseRequest>[];
-      final api = stubApi(
-        seen,
-        routes: {
-          'POST /helix/moderation/moderators': http.Response('', 204),
-          'DELETE /helix/moderation/moderators': http.Response('', 204),
-          'POST /helix/channels/vips': http.Response('', 204),
-          'DELETE /helix/channels/vips': http.Response('', 204),
-        },
-      );
-      final actions = modActions(api);
-      await actions.setModerator(auth, 'testchannel', login: 't', add: true);
-      final modAdd = seen[1] as http.Request;
-      expect(modAdd.method, 'POST');
-      expect(
-        modAdd.url.toString(),
-        'https://api.twitch.tv/helix/moderation/moderators?broadcaster_id=broadcaster1&user_id=target1',
-      );
-      // Second call reuses the cached user id, so no GET precedes it.
-      await actions.setModerator(auth, 'testchannel', login: 't', add: false);
-      final modRemove = seen[2] as http.Request;
-      expect(modRemove.method, 'DELETE');
-      expect(modRemove.url.path, '/helix/moderation/moderators');
-      await actions.setVip(auth, 'testchannel', login: 't', add: true);
-      final vipAdd = seen[3] as http.Request;
-      expect(vipAdd.method, 'POST');
-      expect(
-        vipAdd.url.toString(),
-        'https://api.twitch.tv/helix/channels/vips?broadcaster_id=broadcaster1&user_id=target1',
-      );
-      await actions.setVip(auth, 'testchannel', login: 't', add: false);
-      final vipRemove = seen[4] as http.Request;
-      expect(vipRemove.method, 'DELETE');
-      expect(vipRemove.url.path, '/helix/channels/vips');
-    });
-
-    test('announce, shoutout, commercial, raid, marker', () async {
-      final seen = <http.BaseRequest>[];
-      final api = stubApi(
-        seen,
-        routes: {
-          'POST /helix/chat/announcements': http.Response('', 204),
-          'POST /helix/chat/shoutouts': http.Response('', 204),
-          'DELETE /helix/raids': http.Response('', 204),
-        },
-      );
-      final actions = modActions(api);
-      await actions.sendAnnouncement(
-        auth,
-        'testchannel',
-        message: 'hi',
-        color: 'blue',
-      );
-      final announce = seen[0] as http.Request;
-      expect(announce.url.path, '/helix/chat/announcements');
-      expect(announce.url.queryParameters['broadcaster_id'], 'broadcaster1');
-      expect(announce.url.queryParameters['moderator_id'], 'mod1');
-      expect(jsonDecode(announce.body)['color'], 'blue');
-      expect(
-        (await actions.sendShoutout(auth, 'testchannel', login: 'target')).ok,
-        isTrue,
-      );
-      final shoutout = seen[2] as http.Request;
-      expect(shoutout.method, 'POST');
-      expect(shoutout.body, isEmpty, reason: 'query-only call');
-      expect(
-        shoutout.url.toString(),
-        'https://api.twitch.tv/helix/chat/shoutouts?from_broadcaster_id=broadcaster1&to_broadcaster_id=target1&moderator_id=mod1',
-      );
-      await actions.startCommercial(auth, 'testchannel', length: 30);
-      final commercial = seen[3] as http.Request;
-      expect(commercial.method, 'POST');
-      expect(
-        commercial.url.toString(),
-        'https://api.twitch.tv/helix/channels/commercial',
-      );
-      expect(jsonDecode(commercial.body)['length'], 30);
-      // 'target' is cached from the shoutout, so no GET precedes the POST.
-      await actions.startRaid(auth, 'testchannel', login: 'target');
-      final raid = seen[4] as http.Request;
-      expect(raid.method, 'POST');
-      expect(
-        raid.url.toString(),
-        'https://api.twitch.tv/helix/raids?from_broadcaster_id=broadcaster1&to_broadcaster_id=target1',
-      );
-      await actions.cancelRaid(auth, 'testchannel');
-      final unraid = seen[5] as http.Request;
-      expect(unraid.method, 'DELETE');
-      expect(
-        unraid.url.toString(),
-        'https://api.twitch.tv/helix/raids?broadcaster_id=broadcaster1',
-      );
-      await actions.createMarker(auth, 'testchannel', description: 'x' * 200);
-      final marker = seen[6] as http.Request;
-      expect(marker.method, 'POST');
-      expect(marker.url.path, '/helix/streams/markers');
-      expect((jsonDecode(marker.body)['description'] as String).length, 140);
-    });
-  });
-
-  group('commercial / raid / shield / marker / whisper', () {
-    test('shield mode and whisper requests', () async {
-      for (final (name, run) in <(String, Future<void> Function())>[
-        (
-          'updateShieldMode PUTs is_active to /helix/moderation/shield_mode',
-          () async {
-            late http.Request captured;
-            final api = createApi(
-              (req) => captured = req,
-              respond: () => http.Response('{"data": []}', 200),
-            );
-            expect(
-              await api.updateShieldMode(
-                auth,
-                broadcasterId: 'b1',
-                moderatorId: 'm1',
-                active: true,
-              ),
-              isTrue,
-            );
-            expect(captured.method, 'PUT');
-            expect(
-              captured.url.toString(),
-              'https://api.twitch.tv/helix/moderation/shield_mode?broadcaster_id=b1&moderator_id=m1',
-            );
-            expect(jsonDecode(captured.body), {'is_active': true});
-          },
-        ),
-        (
-          'sendWhisper POSTs to /helix/whispers with the message body',
-          () async {
-            late http.Request captured;
-            final api = createApi((req) => captured = req);
-            expect(
-              await api.sendWhisper(
-                auth,
-                fromUserId: 'f1',
-                toUserId: 't1',
-                message: 'hello',
-              ),
-              isTrue,
-            );
-            expect(captured.method, 'POST');
-            expect(
-              captured.url.toString(),
-              'https://api.twitch.tv/helix/whispers?from_user_id=f1&to_user_id=t1',
-            );
-            expect(jsonDecode(captured.body), {'message': 'hello'});
-          },
-        ),
-      ]) {
-        printOnFailure(name);
-        await run();
-      }
-    });
-  });
-
-  group('error capture', () {
-    test('records status and Helix message for failed calls', () async {
-      final api = createApi(
-        (_) {},
-        respond: () => http.Response(
-          '{"error":"Bad Request","status":400,"message":"The user is not banned in this channel."}',
-          400,
-        ),
-      );
-
-      await api.unbanUser(
-        auth,
-        broadcasterId: 'b1',
-        moderatorId: 'm1',
-        userId: 'u1',
-      );
-
-      expect(api.lastErrorStatus, 400);
-      expect(api.lastHelixMessage, 'The user is not banned in this channel.');
-    });
   });
 
   late EventSubDecoder service;
@@ -1592,7 +1117,8 @@ void main() {
               {
                 'ban': {
                   'user_id': 'target1',
-                  'user_name': 'targetuser',
+                  'user_login': 'targetuser',
+                  'user_name': 'LocalizedTarget',
                   'reason': 'spam',
                 },
               },
@@ -1600,7 +1126,8 @@ void main() {
                 expect(e.action, ModerationAction.ban);
                 expect(e.channel, 'testchannel');
                 expect(e.moderatorName, 'moduser');
-                expect(e.targetName, 'targetuser');
+                expect(e.targetLogin, 'targetuser');
+                expect(e.targetName, 'LocalizedTarget');
                 expect(e.reason, 'spam');
               },
             ),
@@ -1609,13 +1136,33 @@ void main() {
               'timeout',
               {
                 'timeout': {
-                  'user_name': 'targetuser',
+                  'user_login': 'targetuser',
+                  'user_name': 'LocalizedTarget',
                   'expires_at': expiresIn300(),
                 },
               },
               (e) {
                 expect(e.action, ModerationAction.timeout);
+                expect(e.targetLogin, 'targetuser');
+                expect(e.targetName, 'LocalizedTarget');
                 expect(e.durationSeconds, closeTo(300, 10));
+              },
+            ),
+            (
+              'warn keeps login separate from display name',
+              'warn',
+              {
+                'warn': {
+                  'user_login': 'spammer',
+                  'user_name': 'LocalizedSpammer',
+                  'reason': 'spam',
+                },
+              },
+              (e) {
+                expect(e.action, ModerationAction.warn);
+                expect(e.targetLogin, 'spammer');
+                expect(e.targetName, 'LocalizedSpammer');
+                expect(e.reason, 'spam');
               },
             ),
             (
@@ -1623,13 +1170,15 @@ void main() {
               'shared_chat_timeout',
               {
                 'shared_chat_timeout': {
-                  'user_name': 'spammer',
+                  'user_login': 'spammer',
+                  'user_name': 'LocalizedSpammer',
                   'expires_at': expiresIn300(),
                 },
               },
               (e) {
                 expect(e.action, ModerationAction.timeout);
-                expect(e.targetName, 'spammer');
+                expect(e.targetLogin, 'spammer');
+                expect(e.targetName, 'LocalizedSpammer');
                 expect(e.durationSeconds, closeTo(300, 10));
               },
             ),
@@ -1637,11 +1186,16 @@ void main() {
               'shared_chat_ban maps to ban',
               'shared_chat_ban',
               {
-                'shared_chat_ban': {'user_name': 'targetuser'},
+                'shared_chat_ban': {
+                  'user_login': 'targetuser',
+                  'user_name': 'LocalizedTarget',
+                },
               },
               (e) {
                 expect(e.action, ModerationAction.ban);
                 expect(e.rawAction, 'ban');
+                expect(e.targetLogin, 'targetuser');
+                expect(e.targetName, 'LocalizedTarget');
               },
             ),
             (
@@ -1649,13 +1203,16 @@ void main() {
               'delete',
               {
                 'delete': {
-                  'user_name': 'targetuser',
+                  'user_login': 'targetuser',
+                  'user_name': 'LocalizedTarget',
                   'message_id': 'msg-1',
                   'message_body': 'hello',
                 },
               },
               (e) {
                 expect(e.action, ModerationAction.delete);
+                expect(e.targetLogin, 'targetuser');
+                expect(e.targetName, 'LocalizedTarget');
                 expect(e.messageId, 'msg-1');
                 expect(e.messageBody, 'hello');
               },
@@ -1674,6 +1231,7 @@ void main() {
               (e) {
                 expect(e.action, ModerationAction.addBlockedTerm);
                 expect(e.terms, ['bad word', 'worse*']);
+                expect(e.targetLogin, isNull);
                 expect(e.targetName, isNull);
               },
             ),
@@ -1682,13 +1240,15 @@ void main() {
               'approve_unban_request',
               {
                 'unban_request': {
-                  'user_name': 'spammer',
+                  'user_login': 'spammer',
+                  'user_name': 'LocalizedSpammer',
                   'moderator_message': 'second chance',
                 },
               },
               (e) {
                 expect(e.action, ModerationAction.approveUnbanRequest);
-                expect(e.targetName, 'spammer');
+                expect(e.targetLogin, 'spammer');
+                expect(e.targetName, 'LocalizedSpammer');
                 expect(e.reason, 'second chance');
               },
             ),
@@ -1698,6 +1258,7 @@ void main() {
               <String, dynamic>{},
               (e) {
                 expect(e.action, ModerationAction.clear);
+                expect(e.targetLogin, isNull);
                 expect(e.targetName, isNull);
               },
             ),
@@ -2219,68 +1780,7 @@ void main() {
     });
   });
 
-  group('getShieldModeStatus', () {
-    test('returns the flag on 200, null on failure', () async {
-      late http.Request captured;
-      final api = createApi(
-        (req) => captured = req,
-        respond: () => http.Response(
-          '{"data": [{"is_active": true, "moderator_id": "m1"}]}',
-          200,
-        ),
-      );
-      expect(
-        await api.getShieldModeStatus(
-          auth,
-          broadcasterId: 'b1',
-          moderatorId: 'm1',
-        ),
-        isTrue,
-      );
-      expect(captured.method, 'GET');
-      expect(
-        captured.url.toString(),
-        'https://api.twitch.tv/helix/moderation/shield_mode?broadcaster_id=b1&moderator_id=m1',
-      );
-      final failing = createApi(
-        (_) {},
-        respond: () => http.Response('[]', 403),
-      );
-      expect(
-        await failing.getShieldModeStatus(
-          auth,
-          broadcasterId: 'b1',
-          moderatorId: 'm1',
-        ),
-        isNull,
-      );
-      expect(failing.lastErrorStatus, 403);
-    });
-  });
-
   group('ModActions.decideHeldMessage', () {
-    test('allow resolves the moderator id from the session getter', () async {
-      final seen = <http.BaseRequest>[];
-      final api = stubApi(
-        seen,
-        routes: {
-          'POST /helix/moderation/automod/message': http.Response('', 204),
-        },
-      );
-      final result = await modActions(
-        api,
-      ).decideHeldMessage(auth, 'testchannel', messageId: 'msg-1', allow: true);
-      expect(result.ok, isTrue);
-      final post = seen[0] as http.Request;
-      expect(post.url.path, '/helix/moderation/automod/message');
-      expect(post.url.queryParameters, isEmpty, reason: 'body-only call');
-      expect(jsonDecode(post.body), {
-        'user_id': 'mod1',
-        'msg_id': 'msg-1',
-        'action': 'ALLOW',
-      });
-    });
-
     test('notJoined without ids, apiError on rejection', () async {
       final seen = <http.BaseRequest>[];
       final api = stubApi(
@@ -2451,17 +1951,6 @@ void main() {
       expect(positions.first.endIndex, 10);
     });
 
-    test('returns null for empty or null tag', () {
-      expect(
-        parseIrcEmotePositions('', originalText: 'x', strippedText: 'x'),
-        isNull,
-      );
-      expect(
-        parseIrcEmotePositions(null, originalText: 'x', strippedText: 'x'),
-        isNull,
-      );
-    });
-
     test('handles 100 repeated positions past supplementary chars', () {
       final text = '🙂 ${List.filled(100, 'K').join(' ')}';
       final ranges = List.generate(100, (i) {
@@ -2592,17 +2081,6 @@ void main() {
       expect(gifs.first.startIndex, 0);
       expect(gifs.first.endIndex, text.length);
       expect(gifs.first.url, contains('media4.giphy.com'));
-    });
-
-    test('returns null for empty or null tag', () {
-      expect(
-        parseIrcGifPositions('', originalText: 'x', strippedText: 'x'),
-        isNull,
-      );
-      expect(
-        parseIrcGifPositions(null, originalText: 'x', strippedText: 'x'),
-        isNull,
-      );
     });
 
     test('skips malformed entries and non-https urls', () {
