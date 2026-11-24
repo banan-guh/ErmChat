@@ -1004,10 +1004,13 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
     _badgeService.fetchGlobalBadges(_twitchAuth);
     _thirdPartyBadgeService.bindSevenTvEvents(_sevenTvClient);
     _sevenTvPaintService.bindSevenTvEvents(_sevenTvClient);
-    unawaited(_thirdPartyBadgeService.fetchFfzBadges());
-    unawaited(_thirdPartyBadgeService.fetchBttvBadges());
-    unawaited(_thirdPartyBadgeService.fetchLimerinoBadges());
-    unawaited(_thirdPartyBadgeService.fetchListBadges());
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      unawaited(_thirdPartyBadgeService.fetchFfzBadges());
+      unawaited(_thirdPartyBadgeService.fetchBttvBadges());
+      unawaited(_thirdPartyBadgeService.fetchLimerinoBadges());
+      unawaited(_thirdPartyBadgeService.fetchListBadges());
+    });
     WidgetsBinding.instance.addObserver(this);
     _reportingStalls = debugLogEnabled;
     if (_reportingStalls) {

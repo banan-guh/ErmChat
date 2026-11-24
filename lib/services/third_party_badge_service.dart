@@ -4,13 +4,17 @@ import 'dart:isolate';
 import 'package:http/http.dart' as http;
 import '../util/constants.dart';
 import '../util/log.dart';
+import '../util/semaphore.dart';
 import 'seven_tv_event_client.dart';
 
 class ThirdPartyBadgeService {
-  ThirdPartyBadgeService({this._client, DateTime Function()? now})
-    : _now = now ?? DateTime.now;
+  ThirdPartyBadgeService({http.Client? client, DateTime Function()? now})
+    : _client = client ?? http.Client(),
+      _ownsClient = client == null,
+      _now = now ?? DateTime.now;
 
-  final http.Client? _client;
+  final http.Client _client;
+  final bool _ownsClient;
   final DateTime Function() _now;
 
   // FFZ: badgeId -> {name, imageUrl}
@@ -61,6 +65,7 @@ class ThirdPartyBadgeService {
   // provider -> (twitchUserId -> badge), filled once per launch.
   final _listUsers = <_ListProvider, Map<String, ThirdPartyBadge>>{};
   final _listInflight = <_ListProvider>{};
+  final _listGate = Semaphore(2);
 
   int _version = 0;
 
@@ -183,8 +188,10 @@ class ThirdPartyBadgeService {
 
   /// Loads the Chatterino, DankChat, Chatsen and Chatterino Homies badge
   /// lists.
-  Future<void> fetchListBadges() =>
-      Future.wait([for (final p in _ListProvider.values) _fetchList(p)]);
+  Future<void> fetchListBadges() => Future.wait([
+    for (final p in _ListProvider.values)
+      _listGate.withPermit(() => _fetchList(p)),
+  ]);
 
   Future<void> _fetchList(_ListProvider provider) async {
     if (_listUsers.containsKey(provider) || !_listInflight.add(provider)) {
@@ -432,14 +439,11 @@ class ThirdPartyBadgeService {
     _limerinoBlockedUntil = _now().add(_limerinoBackoff);
   }
 
-  Future<http.Response> _get(Uri uri) =>
-      (_client?.get(uri) ?? http.get(uri)).timeout(httpTimeout);
+  Future<http.Response> _get(Uri uri) => _client.get(uri).timeout(httpTimeout);
 
   Future<http.Response> _post(Uri uri, String body) {
     const headers = {'content-type': 'application/json'};
-    return (_client?.post(uri, headers: headers, body: body) ??
-            http.post(uri, headers: headers, body: body))
-        .timeout(httpTimeout);
+    return _client.post(uri, headers: headers, body: body).timeout(httpTimeout);
   }
 
   /// The user's one third-party badge: FFZ, BTTV, 7TV, the static-list
@@ -476,6 +480,7 @@ class ThirdPartyBadgeService {
     _sevenTvBadges.clear();
     _sevenTvUsers.clear();
     _listUsers.clear();
+    if (_ownsClient) _client.close();
   }
 }
 

@@ -36,6 +36,7 @@ class ChannelManager {
     required this.notificationService,
     required this.mentionPush,
   }) {
+    _lastSelectedChannel = session.selectedChannel();
     session.addListener(_onSessionChanged);
   }
 
@@ -63,34 +64,41 @@ class ChannelManager {
   // derives from the live channel list.
   bool _suppressSelectionSync = false;
   bool _focusAfterAdd = false;
+  String? _lastSelectedChannel;
 
   void dispose() {
     session.removeListener(_onSessionChanged);
   }
 
-  // Reacts to the session's list and selection changes. Content-only notifies
-  // (history merges) still rebuild, mirroring the old setState.
+  // Reacts to shell state only. Content and history notifiers repaint their
+  // own rows without rebuilding the channel strip.
   void _onSessionChanged() {
     final names = List.of(session.channelNames);
     final previous = channelNotifier.value;
-    if (!listEquals(names, previous)) {
+    final namesChanged = !listEquals(names, previous);
+    final selected = session.selectedChannel();
+    final selectionChanged = selected != _lastSelectedChannel;
+    _lastSelectedChannel = selected;
+    if (namesChanged) {
       for (final name in names) {
         if (!previous.contains(name)) atBottomNotifier(name).value = true;
       }
       channelNotifier.value = names;
-      if (!_suppressSelectionSync) {
-        final selected = session.selectedChannel();
-        if (selected != null) {
-          final index = names.indexOf(selected);
-          if (index >= 0) selectedTabIndex.value = index;
-        }
+    }
+    if ((namesChanged || selectionChanged) && !_suppressSelectionSync) {
+      if (selected != null) {
+        final index = names.indexOf(selected);
+        if (index >= 0) selectedTabIndex.value = index;
       }
     }
-    if (_focusAfterAdd) {
+    final focusChanged = _focusAfterAdd;
+    if (focusChanged) {
       _focusAfterAdd = false;
       composer.focus();
     }
-    if (isMounted()) markDirty();
+    if (isMounted() && (namesChanged || selectionChanged || focusChanged)) {
+      markDirty();
+    }
   }
 
   void reorderChannels(List<String> reordered) {
@@ -161,6 +169,7 @@ class ChannelManager {
     var clearedUnread = 0;
     void mutate() {
       clearedUnread = session.selectChannel(channel) ?? 0;
+      _lastSelectedChannel = channel;
       composer.refreshCooldown();
       threads.clearOpenThread();
       composer.onChannelChanged();

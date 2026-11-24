@@ -268,12 +268,14 @@ class SetHistory {
   /// [channel]'s emote and badge history, loaded for reads; null when the
   /// store is closed.
   Future<ChannelSets?> load(String channel) async {
+    final drains = <Future<void>>[];
     for (final scope in ['', channel]) {
       for (final p in _providers) {
-        await _drain(emoteKind, scope, p.name);
+        drains.add(_drain(emoteKind, scope, p.name));
       }
-      await _drain(badgeKind, scope, _badgeSource);
+      drains.add(_drain(badgeKind, scope, _badgeSource));
     }
+    await Future.wait(drains);
     try {
       final s = await store;
       if (s == null) return null;

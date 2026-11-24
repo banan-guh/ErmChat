@@ -20,6 +20,7 @@ import 'package:ermchat/irc/transport/read.dart';
 import 'package:ermchat/irc/transport/write.dart';
 import 'package:ermchat/services/user_store.dart';
 import 'package:ermchat/chat/channel/info.dart';
+import 'package:fake_async/fake_async.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
@@ -113,6 +114,7 @@ ChannelSession _channelSession(
   RecentMessagesService? recent,
   ChatConnectionManager? conn,
   Duration archiveGrace = const Duration(seconds: 4),
+  Duration startupBackfillStagger = Duration.zero,
 }) {
   final session = Session();
   final userStore = UserStore();
@@ -148,6 +150,7 @@ ChannelSession _channelSession(
     maxMessages: () => 500,
     recentMessagesLimit: () => 100,
     archiveGrace: archiveGrace,
+    startupBackfillStagger: startupBackfillStagger,
   );
 }
 
@@ -163,6 +166,7 @@ void main() {
     ({ChannelSession session, _GatedHistory history, _FakeConn conn}) boot(
       Map<String, Object> prefs, {
       Duration archiveGrace = const Duration(seconds: 4),
+      Duration startupBackfillStagger = Duration.zero,
     }) {
       SharedPreferences.setMockInitialValues(prefs);
       final chat = Chat();
@@ -187,6 +191,7 @@ void main() {
         recent: _EmptyRecent(),
         conn: conn,
         archiveGrace: archiveGrace,
+        startupBackfillStagger: startupBackfillStagger,
       );
       return (session: session, history: history, conn: conn);
     }
@@ -221,6 +226,105 @@ void main() {
 
       drain(booted.history);
       await pumpEventQueue();
+    });
+
+    test('saved backfills start in a staggered pair', () {
+      fakeAsync((async) {
+        const stagger = Duration(milliseconds: 250);
+        final booted = boot({
+          'channels': ['launch', 'one', 'two', 'three', 'four', 'five', 'six'],
+          'reopen_last_channel': true,
+          'last_channel': 'launch',
+          'archive_enabled': false,
+        }, startupBackfillStagger: stagger);
+        unawaited(
+          booted.session.loadRecentMessagesConfig().then(
+            (_) => booted.session.loadChannels(),
+          ),
+        );
+        async.flushMicrotasks();
+        expect(booted.history.started, [
+          'launch',
+        ], reason: 'the launch channel starts before the saved-channel queue');
+
+        booted.history.gates['launch']!.complete();
+        async.flushMicrotasks();
+        async.elapse(const Duration(milliseconds: 249));
+        expect(booted.history.started, ['launch']);
+
+        async.elapse(const Duration(milliseconds: 1));
+        expect(booted.history.started, ['launch', 'one']);
+        async.elapse(stagger - const Duration(milliseconds: 1));
+        expect(booted.history.started, ['launch', 'one']);
+        async.elapse(const Duration(milliseconds: 1));
+        expect(booted.history.started, ['launch', 'one', 'two']);
+
+        async.elapse(const Duration(seconds: 1));
+        expect(
+          booted.history.started,
+          ['launch', 'one', 'two'],
+          reason: 'held restores must not let more than two backfills overlap',
+        );
+
+        booted.history.gates['one']!.complete();
+        async.flushMicrotasks();
+        expect(booted.history.started, ['launch', 'one', 'two', 'three']);
+        booted.history.gates['two']!.complete();
+        async.flushMicrotasks();
+        expect(booted.history.started, [
+          'launch',
+          'one',
+          'two',
+          'three',
+          'four',
+        ]);
+
+        drain(booted.history);
+        async.flushMicrotasks();
+        async.elapse(stagger);
+        drain(booted.history);
+        async.flushMicrotasks();
+        expect(booted.history.started, [
+          'launch',
+          'one',
+          'two',
+          'three',
+          'four',
+          'five',
+          'six',
+        ]);
+        booted.session.dispose();
+      });
+    });
+
+    test('dispose drops queued startup backfills', () {
+      fakeAsync((async) {
+        final booted = boot({
+          'channels': ['launch', 'one', 'two'],
+          'reopen_last_channel': true,
+          'last_channel': 'launch',
+          'archive_enabled': false,
+        }, startupBackfillStagger: const Duration(milliseconds: 250));
+        unawaited(
+          booted.session.loadRecentMessagesConfig().then(
+            (_) => booted.session.loadChannels(),
+          ),
+        );
+        async.flushMicrotasks();
+        booted.history.gates['launch']!.complete();
+        async.flushMicrotasks();
+        async.elapse(const Duration(milliseconds: 250));
+        expect(booted.history.started, ['launch', 'one']);
+
+        booted.session.dispose();
+        drain(booted.history);
+        async.elapse(const Duration(seconds: 1));
+        async.flushMicrotasks();
+        expect(booted.history.started, [
+          'launch',
+          'one',
+        ], reason: 'disposed sessions never start pending saved-channel reads');
+      });
     });
 
     test('a stalled archive restore does not hold the rows', () async {

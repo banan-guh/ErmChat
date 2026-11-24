@@ -525,6 +525,7 @@ class _HistoryViewState extends State<HistoryView> {
   }
 
   bool _started = false;
+  bool _readingStarted = false;
 
   /// Captured while the element is active: ancestor lookups fail in
   /// [deactivate], so the reading position would never be saved.
@@ -540,7 +541,6 @@ class _HistoryViewState extends State<HistoryView> {
       // when the scale changes.
       _systemScale = scale;
       _started = true;
-      _start();
     } else if (scale != _systemScale) {
       _systemScale = scale;
       if (!_follow) _captureHold();
@@ -552,13 +552,24 @@ class _HistoryViewState extends State<HistoryView> {
         });
       }
     }
+    if (!_readingStarted && widget.active) {
+      _readingStarted = true;
+      _start();
+    }
   }
 
   @override
   void didUpdateWidget(HistoryView old) {
     super.didUpdateWidget(old);
     // A jump that arrived while this page was offstage lands now.
-    if (!old.active && widget.active) _onJumpRequest();
+    if (!old.active && widget.active) {
+      if (_readingStarted) {
+        _onJumpRequest();
+      } else {
+        _readingStarted = true;
+        _start();
+      }
+    }
     if (old.compact != widget.compact) {
       if (old.compact) {
         Settings.compactRepeats.removeListener(_onCompactionPref);
@@ -639,6 +650,7 @@ class _HistoryViewState extends State<HistoryView> {
   /// Reads the broadcasts and re-marks the rows; again whenever one starts,
   /// ends or reopens, so a page never keeps a stale end.
   void _loadStreams() {
+    if (!widget.active) return;
     final request = ++_streamsRequest;
     widget.source
         .streams()
@@ -1874,6 +1886,7 @@ class _HistoryViewState extends State<HistoryView> {
 
   /// Runs after layout: loads toward the nearer edge, then re-anchors.
   void _maintain() {
+    if (!widget.active) return;
     final pos = _pos;
     if (pos == null || !pos.hasPixels || !pos.hasContentDimensions) return;
     if (_window.isEmpty) {

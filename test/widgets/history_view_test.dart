@@ -69,6 +69,8 @@ class _ListSource implements HistorySource {
   static final DateTime t0 = DateTime.utc(2026, 10, 14, 10);
   final List<TwitchMessage> rows;
   List<HistoryStream> streamList = const [];
+  int newestReads = 0;
+  int streamReads = 0;
   final List<void Function(HistoryClear)> _clears = [];
   final List<void Function()> _streamWatchers = [];
 
@@ -103,10 +105,16 @@ class _ListSource implements HistorySource {
   Future<List<TwitchMessage>> around(DateTime time) async => rows;
 
   @override
-  Future<List<TwitchMessage>> newest() async => rows;
+  Future<List<TwitchMessage>> newest() async {
+    newestReads++;
+    return rows;
+  }
 
   @override
-  Future<List<HistoryStream>> streams() async => streamList;
+  Future<List<HistoryStream>> streams() async {
+    streamReads++;
+    return streamList;
+  }
 
   @override
   Future<ActivityRail?> rail(List<HistoryStream> streams) async => ActivityRail(
@@ -1436,6 +1444,29 @@ void main() {
       expect(atBottom[to].value, isTrue, reason: 'round $round: button shows');
     }
     expect(flashes, [0, 0], reason: 'the button flashed during a switch');
+  });
+
+  testWidgets('an inactive page defers archive reads until focused', (
+    tester,
+  ) async {
+    final source = _ListSource.small(6);
+    final active = ValueNotifier(false);
+    addTearDown(active.dispose);
+    await _pumpView(
+      tester,
+      source: source,
+      live: () => const [],
+      activeListenable: active,
+    );
+
+    expect(source.newestReads, 0, reason: 'an offstage page read the archive');
+    expect(source.streamReads, 0, reason: 'an offstage page read streams');
+
+    active.value = true;
+    await _settle(tester);
+
+    expect(source.newestReads, greaterThan(0));
+    expect(source.streamReads, 1);
   });
 
   testWidgets('a jump request shows that message, on open or later', (

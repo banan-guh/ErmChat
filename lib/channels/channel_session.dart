@@ -46,6 +46,7 @@ class ChannelSession extends ChangeNotifier {
     required this.maxMessages,
     required this.recentMessagesLimit,
     this.archiveGrace = const Duration(seconds: 4),
+    this.startupBackfillStagger = const Duration(milliseconds: 250),
     this.strings = englishStrings,
   });
 
@@ -70,6 +71,9 @@ class ChannelSession extends ChangeNotifier {
   /// How long a history fetch waits for the archive restore before showing
   /// network rows without it. A stuck archive open otherwise holds them.
   final Duration archiveGrace;
+
+  /// Gap between saved-channel backfill starts after the launch channel.
+  final Duration startupBackfillStagger;
 
   bool _disposed = false;
   bool _channelsLoaded = false;
@@ -101,6 +105,8 @@ class ChannelSession extends ChangeNotifier {
   @override
   void dispose() {
     _disposed = true;
+    _startupBackfillTimer?.cancel();
+    _startupBackfillQueue.clear();
     super.dispose();
   }
 
@@ -156,6 +162,13 @@ class ChannelSession extends ChangeNotifier {
   /// history run once, on its first selection.
   final _backfilled = <String>{};
 
+  /// Saved channels waiting to backfill after the launch channel. Two reads
+  /// may overlap, with a gap between starts so their merges do not stack.
+  static const _startupBackfillConcurrency = 2;
+  final _startupBackfillQueue = <String>[];
+  int _startupBackfillsRunning = 0;
+  Timer? _startupBackfillTimer;
+
   /// Channels this session joined. In lazy mode that happens when a page is
   /// first opened rather than for every saved channel at launch.
   final _joined = <String>{};
@@ -167,29 +180,29 @@ class ChannelSession extends ChangeNotifier {
 
   /// Starts [channel]'s history the first time its page is shown, joining it
   /// too in lazy mode.
-  void _startBackfillOnce(String channel) {
+  Future<void> _startBackfillOnce(String channel) async {
     if (!_backfilled.add(channel)) return;
-    if (_lazy && !_joined.contains(channel)) subscribeChannel(channel);
-    _startHistoryBackfill(channel, hasLoadingRow: false);
+    if (_lazy && !_joined.contains(channel)) await subscribeChannel(channel);
+    await _startHistoryBackfill(channel, hasLoadingRow: false);
   }
 
   /// Starts [channel]'s history if it has not run yet: for a page that becomes
   /// visible without taking the selection (a split pane).
   void ensureBackfill(String channel) {
-    if (chat.contains(channel)) _startBackfillOnce(channel);
+    if (chat.contains(channel)) unawaited(_startBackfillOnce(channel));
   }
 
   /// Starts the launch channel's history first. Lazy mode stops there until a
-  /// page opens. Otherwise every saved channel follows once that read lands:
-  /// its gap fill is what recovers chat from while the app was closed, so
-  /// skipping it leaves a hole.
+  /// page opens. Otherwise every saved channel follows in a small staggered
+  /// queue: its gap fill is what recovers chat from while the app was closed,
+  /// so skipping it leaves a hole.
   void _startBackfills(List<String> saved, String? first) {
     final launch = first ?? (saved.isEmpty ? null : saved.first);
-    if (launch != null) _startBackfillOnce(launch);
+    if (launch != null) unawaited(_startBackfillOnce(launch));
     if (_lazy) return;
     if (launch == null) {
       for (final name in saved) {
-        _startBackfillOnce(name);
+        unawaited(_startBackfillOnce(name));
       }
       return;
     }
@@ -197,10 +210,50 @@ class ChannelSession extends ChangeNotifier {
       history.restoreOnce(launch).then((_) {
         if (_disposed) return;
         for (final name in saved) {
-          if (chat.contains(name)) _startBackfillOnce(name);
+          if (name != launch && chat.contains(name)) {
+            _startupBackfillQueue.add(name);
+          }
         }
+        _scheduleStartupBackfill();
       }),
     );
+  }
+
+  void _scheduleStartupBackfill() {
+    if (_disposed ||
+        _startupBackfillQueue.isEmpty ||
+        _startupBackfillTimer != null) {
+      return;
+    }
+    _startupBackfillTimer = Timer(startupBackfillStagger, () {
+      _startupBackfillTimer = null;
+      _pumpStartupBackfills();
+    });
+  }
+
+  void _pumpStartupBackfills() {
+    if (_disposed) return;
+    while (_startupBackfillsRunning < _startupBackfillConcurrency &&
+        _startupBackfillQueue.isNotEmpty) {
+      final name = _startupBackfillQueue.removeAt(0);
+      if (!chat.contains(name) || _leaving.contains(name)) continue;
+      _startupBackfillTimer?.cancel();
+      _startupBackfillTimer = null;
+      _startupBackfillsRunning++;
+      final run = _startBackfillOnce(name);
+      unawaited(
+        run.whenComplete(() {
+          _startupBackfillsRunning--;
+          _pumpStartupBackfills();
+        }),
+      );
+      _scheduleStartupBackfill();
+      return;
+    }
+    if (_startupBackfillQueue.isEmpty) {
+      _startupBackfillTimer?.cancel();
+      _startupBackfillTimer = null;
+    }
   }
 
   /// Archived rows first (when an archive is wired), then the network history, which
@@ -254,9 +307,12 @@ class ChannelSession extends ChangeNotifier {
   /// Backfills [name]'s history: merges the rows once they resolve, or notes
   /// the failure. [hasLoadingRow] says [name] shows a loading row that the
   /// result clears; only that caller repaints on failure.
-  void _startHistoryBackfill(String name, {required bool hasLoadingRow}) {
+  Future<void> _startHistoryBackfill(
+    String name, {
+    required bool hasLoadingRow,
+  }) {
     final at = history.now();
-    _fetchHistory(name)
+    return _fetchHistory(name)
         .then((rows) {
           if (_disposed || !chat.contains(name)) return;
           chat.channelFor(name)?.setHistoryLoaded(true);
@@ -319,7 +375,7 @@ class ChannelSession extends ChangeNotifier {
     chat.channelFor(name)?.addLoadingHistory();
 
     _backfilled.add(name);
-    _startHistoryBackfill(name, hasLoadingRow: true);
+    unawaited(_startHistoryBackfill(name, hasLoadingRow: true));
 
     await subscribeChannel(name);
     chatConn.focusChannel(name);
@@ -350,13 +406,18 @@ class ChannelSession extends ChangeNotifier {
     userStore.removeChannel(channel);
     history.forgetChannel(channel);
     _backfilled.remove(channel);
+    _startupBackfillQueue.remove(channel);
+    if (_startupBackfillQueue.isEmpty) {
+      _startupBackfillTimer?.cancel();
+      _startupBackfillTimer = null;
+    }
     if (selectedChannel() == channel) {
       final remaining = chat.names.where((c) => c != channel).toList();
       final next = remaining.isNotEmpty ? remaining.last : null;
       setSelectedChannel(next);
       // The pager's commit for the new index sees the same selection and
       // returns, so start its history here.
-      if (next != null) _startBackfillOnce(next);
+      if (next != null) unawaited(_startBackfillOnce(next));
     }
     notifyListeners();
     saveChannels();
@@ -378,7 +439,7 @@ class ChannelSession extends ChangeNotifier {
   int? selectChannel(String channel) {
     if (selectedChannel() == channel) return null;
     setSelectedChannel(channel);
-    _startBackfillOnce(channel);
+    unawaited(_startBackfillOnce(channel));
     return chat.clearUnread(channel);
   }
 

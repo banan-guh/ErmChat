@@ -112,6 +112,29 @@ void main() {
     await (await SharedPreferences.getInstance()).clear();
   });
 
+  test('disabled init does not construct the platform engine', () async {
+    await (await SharedPreferences.getInstance()).clear();
+    var builds = 0;
+    final fake = FakeTts();
+    final controller = TtsController(
+      engineFactory: () {
+        builds++;
+        return fake;
+      },
+    );
+
+    await controller.init();
+    await controller.shutdown();
+    expect(builds, 0, reason: 'disabled TTS must not bind the native engine');
+
+    await (await SharedPreferences.getInstance()).setBool('tts_enabled', true);
+    await controller.loadFromPrefs();
+    await controller.checkAndPrepare();
+    expect(builds, 1);
+    expect(fake.languageChecks, 1);
+    await (await SharedPreferences.getInstance()).clear();
+  });
+
   test('speaks active channel, ignores others', () async {
     final fake = FakeTts();
     final c = await makeController(fake);

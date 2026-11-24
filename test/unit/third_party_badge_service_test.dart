@@ -247,6 +247,38 @@ void main() {
     );
   });
 
+  test('badge list loads stay two at a time', () async {
+    final pending = <(Uri, Completer<http.Response>)>[];
+    var active = 0;
+    var peak = 0;
+    final service = ThirdPartyBadgeService(
+      client: MockClient((req) {
+        active++;
+        if (active > peak) peak = active;
+        final response = Completer<http.Response>();
+        pending.add((req.url, response));
+        return response.future.whenComplete(() => active--);
+      }),
+    );
+    addTearDown(service.dispose);
+
+    final loading = service.fetchListBadges();
+    await pumpEventQueue();
+    expect(pending, hasLength(2), reason: 'the startup burst was unbounded');
+
+    while (pending.isNotEmpty) {
+      final (uri, request) = pending.removeAt(0);
+      final list = uri.host == 'flxrs.com' || uri.host == 'api.chatsen.app';
+      request.complete(
+        http.Response(jsonEncode(list ? [] : {'badges': []}), 200),
+      );
+      await pumpEventQueue();
+    }
+    await loading;
+
+    expect(peak, 2);
+  });
+
   test('badge lists parse while a BTTV load is pending', () async {
     // An isolate message carrying the service fails on its pending load
     // future, which silently dropped every list badge.

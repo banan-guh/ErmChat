@@ -1,5 +1,8 @@
 import 'dart:async';
 import 'dart:convert';
+import 'dart:isolate';
+
+import 'package:flutter/foundation.dart' show kIsWeb;
 
 import '../emotes/emote.dart';
 import '../emotes/emote_catalog.dart';
@@ -8,6 +11,14 @@ import '../util/log.dart';
 import 'emote_fetcher.dart';
 import 'emote_meta_store.dart';
 import 'seven_tv_event_client.dart';
+
+typedef _PersistedPersonalSets = ({
+  DateTime ts,
+  String? viewerId,
+  Map<String, List<Emote>> viewer,
+  Map<String, List<Emote>> foreign,
+  Map<String, List<String>> owners,
+});
 
 /// 7TV personal emote sets: the viewer's own grants and other viewers'
 /// (foreign) grants learned from the socket.
@@ -523,6 +534,9 @@ class SevenTvPersonalSets {
 
   Future<void> flushForTest() => _flushSave();
 
+  static Future<T> _offIsolate<T>(FutureOr<T> Function() action) =>
+      kIsWeb ? Future.sync(action) : Isolate.run(action);
+
   int get foreignSetCount => _foreignPersonalSetContents.length;
 
   int get foreignUserCount => _foreignPersonalUserSets.length;
@@ -551,14 +565,14 @@ class SevenTvPersonalSets {
 
   Future<void> _save() async {
     try {
-      final viewer = <String, dynamic>{};
+      final viewer = <String, List<Emote>>{};
       for (final id in _personalSevenTvSetIds) {
         final emotes = _personalSevenTvSets[id];
         if (emotes == null || emotes.isEmpty) continue;
-        viewer[id] = emotes.map((e) => e.toJson()).toList();
+        viewer[id] = emotes;
       }
-      final foreign = <String, dynamic>{};
-      final owners = <String, dynamic>{};
+      final foreign = <String, List<Emote>>{};
+      final owners = <String, List<String>>{};
       final entries = _foreignPersonalSetContents.entries.toList();
       final newest = entries.length > _maxPersistedForeignSets
           ? entries.sublist(entries.length - _maxPersistedForeignSets)
@@ -567,27 +581,49 @@ class SevenTvPersonalSets {
         if (entry.value.isEmpty) continue;
         final setOwners = _foreignPersonalSetOwners[entry.key];
         if (setOwners == null || setOwners.isEmpty) continue;
-        foreign[entry.key] = entry.value.map((e) => e.toJson()).toList();
+        foreign[entry.key] = entry.value;
         owners[entry.key] = setOwners.toList();
       }
       if (viewer.isEmpty && foreign.isEmpty) {
         await _metaStore.delete(personalSetsKey);
         return;
       }
-      await _metaStore.write(
-        personalSetsKey,
-        jsonEncode({
-          'ts': _now().toIso8601String(),
-          'viewerId': viewerTwitchId,
-          'viewer': viewer,
-          'foreignOwners': owners,
-          'foreign': foreign,
-        }),
+      final timestamp = _now().toIso8601String();
+      final viewerId = viewerTwitchId;
+      final raw = await _offIsolate(
+        () => _encodePersisted(
+          timestamp: timestamp,
+          viewerId: viewerId,
+          viewer: viewer,
+          foreign: foreign,
+          owners: owners,
+        ),
       );
+      await _metaStore.write(personalSetsKey, raw);
     } catch (_) {
       logDebug('[SevenTvPersonalSets] failed to save personal sets');
     }
   }
+
+  static String _encodePersisted({
+    required String timestamp,
+    required String? viewerId,
+    required Map<String, List<Emote>> viewer,
+    required Map<String, List<Emote>> foreign,
+    required Map<String, List<String>> owners,
+  }) => jsonEncode({
+    'ts': timestamp,
+    'viewerId': viewerId,
+    'viewer': {
+      for (final entry in viewer.entries)
+        entry.key: entry.value.map((e) => e.toJson()).toList(),
+    },
+    'foreignOwners': owners,
+    'foreign': {
+      for (final entry in foreign.entries)
+        entry.key: entry.value.map((e) => e.toJson()).toList(),
+    },
+  });
 
   /// Restores persisted personal sets. Viewer sets apply only to the matching
   /// account; foreign sets apply to everyone. Never overwrites live data:
@@ -596,42 +632,40 @@ class SevenTvPersonalSets {
     try {
       final raw = await _metaStore.read(personalSetsKey);
       if (raw == null) return;
-      final data = jsonDecode(raw) as Map<String, dynamic>;
-      final ts = DateTime.tryParse(data['ts'] as String? ?? '');
-      if (ts == null || _now().difference(ts) > _personalSetsTtl) {
+      final data = await _offIsolate(() => _decodePersisted(raw));
+      if (data == null) {
+        logDebug('[SevenTvPersonalSets] failed to load personal sets');
+        return;
+      }
+      final ts = data.ts;
+      if (_now().difference(ts) > _personalSetsTtl) {
         await _metaStore.delete(personalSetsKey);
         return;
       }
       var changed = false;
       final viewerId = viewerTwitchId;
-      if (viewerId != null && (data['viewerId'] as String?) == viewerId) {
-        final viewer = data['viewer'] as Map<String, dynamic>? ?? {};
-        for (final entry in viewer.entries) {
+      if (viewerId != null && data.viewerId == viewerId) {
+        for (final entry in data.viewer.entries) {
           if (_personalSevenTvSetIds.contains(entry.key)) continue;
-          final emotes = _decodeEmoteList(entry.value);
-          if (emotes.isEmpty) continue;
+          if (entry.value.isEmpty) continue;
           _personalSevenTvSetIds.add(entry.key);
-          _personalSevenTvSets[entry.key] = emotes;
+          _personalSevenTvSets[entry.key] = entry.value;
           changed = true;
         }
       }
-      final foreign = data['foreign'] as Map<String, dynamic>? ?? {};
-      final owners = data['foreignOwners'] as Map<String, dynamic>? ?? {};
-      for (final entry in foreign.entries) {
+      for (final entry in data.foreign.entries) {
         final placeholder = _foreignPlaceholderSets.contains(entry.key);
         if (_foreignPersonalSetContents.containsKey(entry.key) &&
             !placeholder) {
           continue;
         }
-        final emotes = _decodeEmoteList(entry.value);
-        if (emotes.isEmpty) continue;
-        final setOwners = (owners[entry.key] as List<dynamic>? ?? [])
-            .whereType<String>()
+        if (entry.value.isEmpty) continue;
+        final setOwners = (data.owners[entry.key] ?? const <String>[])
             .where((u) => u.isNotEmpty && u != viewerId)
             .toSet();
         if (setOwners.isEmpty) continue;
         _foreignPlaceholderSets.remove(entry.key);
-        _foreignPersonalSetContents[entry.key] = emotes;
+        _foreignPersonalSetContents[entry.key] = entry.value;
         _foreignPersonalSetOwners[entry.key] = setOwners;
         for (final userId in setOwners) {
           _foreignPersonalUserSets.putIfAbsent(userId, () => {}).add(entry.key);
@@ -645,7 +679,40 @@ class SevenTvPersonalSets {
     }
   }
 
-  List<Emote> _decodeEmoteList(Object? raw) {
+  static _PersistedPersonalSets? _decodePersisted(String raw) {
+    try {
+      final data = jsonDecode(raw) as Map<String, dynamic>;
+      final ts = DateTime.tryParse(data['ts'] as String? ?? '');
+      if (ts == null) return null;
+      return (
+        ts: ts,
+        viewerId: data['viewerId'] as String?,
+        viewer: _decodeSets(data['viewer']),
+        foreign: _decodeSets(data['foreign']),
+        owners: {
+          for (final entry
+              in (data['foreignOwners'] as Map<String, dynamic>? ?? {}).entries)
+            entry.key: (entry.value as List<dynamic>? ?? const [])
+                .whereType<String>()
+                .toList(),
+        },
+      );
+    } catch (_) {
+      return null;
+    }
+  }
+
+  static Map<String, List<Emote>> _decodeSets(Object? raw) {
+    if (raw is! Map<String, dynamic>) return {};
+    return {
+      for (final entry in raw.entries)
+        if (_decodeEmoteList(entry.value) case final emotes
+            when emotes.isNotEmpty)
+          entry.key: emotes,
+    };
+  }
+
+  static List<Emote> _decodeEmoteList(Object? raw) {
     final out = <Emote>[];
     if (raw is! List<dynamic>) return out;
     for (final item in raw) {

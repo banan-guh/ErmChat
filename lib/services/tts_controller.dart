@@ -35,7 +35,8 @@ class TtsOption {
 /// emotes/URLs can be stripped. Engine selection delegated to system settings
 /// (Android) or in-app (iOS).
 class TtsController {
-  final FlutterTts _tts;
+  FlutterTts? _engineInstance;
+  final FlutterTts Function() _engineFactory;
   static const MethodChannel _channel = MethodChannel('ermchat/tts');
 
   bool _enabled = false;
@@ -52,9 +53,15 @@ class TtsController {
   // Test hook: forces the Android platform branch regardless of host OS.
   bool? overrideIsAndroid;
 
-  TtsController({FlutterTts? tts, AppLocalizations Function()? strings})
-    : _tts = tts ?? FlutterTts(),
-      _strings = strings ?? englishStrings;
+  TtsController({
+    FlutterTts? tts,
+    FlutterTts Function()? engineFactory,
+    AppLocalizations Function()? strings,
+  }) : _engineInstance = tts,
+       _engineFactory = engineFactory ?? FlutterTts.new,
+       _strings = strings ?? englishStrings;
+
+  FlutterTts get _engine => _engineInstance ??= _engineFactory();
 
   final AppLocalizations Function() _strings;
 
@@ -120,7 +127,7 @@ class TtsController {
       if (useEngines) {
         for (var attempt = 0; attempt < 2; attempt++) {
           try {
-            final engines = await _tts.getEngines as List<dynamic>?;
+            final engines = await _engine.getEngines as List<dynamic>?;
             if (engines != null && engines.isNotEmpty) {
               return _parseAndroidEngines(engines);
             }
@@ -134,7 +141,7 @@ class TtsController {
         }
         // Enumeration blocked/empty: fall back to the default engine.
         try {
-          final def = await _tts.getDefaultEngine as String?;
+          final def = await _engine.getDefaultEngine as String?;
           if (def != null && def.isNotEmpty) {
             return [
               TtsOption(id: def, label: def, raw: {'name': def}),
@@ -152,7 +159,7 @@ class TtsController {
           ),
         ];
       } else if (useVoices) {
-        final voices = await _tts.getVoices as List<dynamic>?;
+        final voices = await _engine.getVoices as List<dynamic>?;
         if (voices == null) return [];
         return _parseIosVoices(voices);
       }
@@ -217,15 +224,15 @@ class TtsController {
 
   Future<void> _applyToEngine(TtsOption option) async {
     if (option.id == defaultEngineId) return;
-    await _tts.setEngine(option.id);
+    await _engine.setEngine(option.id);
   }
 
   Future<void> _applyToVoice(TtsOption option) async =>
-      _tts.setVoice(option.raw);
+      _engine.setVoice(option.raw);
 
   Future<bool> _checkLanguage() async {
     try {
-      final result = await _tts.isLanguageAvailable(_defaultLocale);
+      final result = await _engine.isLanguageAvailable(_defaultLocale);
       return result == true;
     } catch (e) {
       logDebug('[tts] language check failed: $e');
@@ -275,7 +282,7 @@ class TtsController {
 
   Future<void> shutdown() async {
     try {
-      await _tts.stop();
+      await _engineInstance?.stop();
     } catch (_) {}
   }
 
@@ -325,7 +332,7 @@ class TtsController {
   Future<void> stop() async {
     _previousUser = null;
     try {
-      await _tts.stop();
+      await _engineInstance?.stop();
     } catch (_) {}
   }
 
@@ -370,8 +377,10 @@ class TtsController {
   String _stripUrls(String text) => text.replaceAll(_urlRegex, '');
 
   Future<void> _applyLanguage() async {
+    final engine = _engineInstance;
+    if (engine == null) return;
     try {
-      await _tts.setLanguage(_defaultLocale);
+      await engine.setLanguage(_defaultLocale);
       // A voice carries its own language, so it is set again after the locale.
       final option = _selectedOption;
       if (option != null && !(overrideIsAndroid ?? Platform.isAndroid)) {
@@ -385,8 +394,8 @@ class TtsController {
   Future<void> _speak(String text) async {
     try {
       // QUEUE_ADD (1) vs QUEUE_FLUSH (0); flutter_tts defaults to FLUSH.
-      await _tts.setQueueMode(_queueMode == TtsQueueMode.queue ? 1 : 0);
-      await _tts.speak(text);
+      await _engine.setQueueMode(_queueMode == TtsQueueMode.queue ? 1 : 0);
+      await _engine.speak(text);
     } catch (e) {
       logDebug('[tts] speak failed: $e');
     }

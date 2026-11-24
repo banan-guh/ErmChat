@@ -8,6 +8,7 @@ import '../emotes/emote_catalog.dart';
 import '../models/emote_fetch_tier.dart';
 import '../util/log.dart';
 import '../util/prefs.dart';
+import '../util/semaphore.dart';
 import 'emote_meta_store.dart';
 import 'seven_tv_personal_sets.dart';
 
@@ -34,6 +35,7 @@ class EmotePersistence {
   Prefs? _prefs;
   // Serializes writes so concurrent saves land in call order, last one wins.
   Future<void> _writes = Future.value();
+  final _loadGate = Semaphore(2);
 
   /// Completes once the queued writes have landed; tests read the store back.
   @visibleForTesting
@@ -53,6 +55,12 @@ class EmotePersistence {
   /// Loads a persisted catalog for [key], dropping subs and flagging whether
   /// the tier and TTL still match. [savedAt] is the stored fetch time.
   Future<({EmoteCatalog? catalog, bool fresh, DateTime? savedAt})> load(
+    String key,
+    Duration ttl, {
+    DateTime? fetchTime,
+  }) => _loadGate.withPermit(() => _load(key, ttl, fetchTime: fetchTime));
+
+  Future<({EmoteCatalog? catalog, bool fresh, DateTime? savedAt})> _load(
     String key,
     Duration ttl, {
     DateTime? fetchTime,
