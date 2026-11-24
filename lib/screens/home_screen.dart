@@ -492,6 +492,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
     strings: () => context.l10n,
     archiveReader: ref.read(archiveProvider)?.reader,
     archiveStore: ref.read(archiveProvider)?.store,
+    emotesVersion: _emotesVersion,
   );
 
   late final _mentions = MentionsPanels(
@@ -653,6 +654,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
     archiveReader: ref.read(archiveProvider)?.reader,
     archive: ref.read(archiveProvider),
     emotesVersion: _emotesVersion,
+    accountVersion: Listenable.merge([_session.version, _twitchAuth]),
   );
 
   /// Emote catalog version for history pages; deltas leave it alone.
@@ -1827,6 +1829,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
     _mentions.dispose();
     _mod.dispose();
     _search.dispose();
+    _channels.dispose();
     for (final c in _scrollControllers.values) {
       c.dispose();
     }

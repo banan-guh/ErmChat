@@ -1,5 +1,6 @@
 import 'dart:async';
 
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 
 import '../chat/chat.dart';
@@ -88,7 +89,9 @@ class MentionsPanels {
 
   /// Null without an archive: the panel shows the mentions buffer only.
   final ArchiveReader? archiveReader;
-  final Listenable? emotesVersion;
+
+  /// Emote catalog version, forwarded to the live lists for partial healing.
+  final ValueListenable<int>? emotesVersion;
 
   final whispers = <TwitchMessage>[];
   int unreadWhispers = 0;
@@ -369,6 +372,7 @@ class MentionsPanels {
                   hides: chat.filter.hides,
                   channel: mentionsChannel,
                   messages: chat.mentions.items,
+                  emotesVersion: emotesVersion,
                   atBottomNotifier: mentionsAtBottom,
                   messageNotifier: mentionsMsgCount,
                   scrollController: mentionsPanelScrollCtrl,
@@ -409,6 +413,7 @@ class MentionsPanels {
               key: const ValueKey('whispers_panel'),
               channel: kWhispersChannel,
               messages: whispers,
+              emotesVersion: emotesVersion,
               atBottomNotifier: whispersAtBottom,
               messageNotifier: whispersMsgCount,
               scrollController: whispersPanelScrollCtrl,

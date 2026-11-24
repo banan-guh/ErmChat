@@ -1,3 +1,4 @@
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/gestures.dart';
 import 'package:flutter/scheduler.dart';
@@ -124,7 +125,8 @@ class TabbedLayout extends StatefulWidget {
   final bool fastSnap;
 
   /// Keeps the pages beside the focused one built (and paused) so a manual
-  /// swipe never mounts a page mid-gesture. Off = only the visible page lives.
+  /// swipe never mounts a page mid-gesture. They grow to full height over a
+  /// few frames, spreading the layout cost. Off = only the visible page lives.
   final bool preloadAdjacentPages;
 
   /// Off hides tab strip (hidden-chrome / fullscreen mode).
@@ -231,6 +233,8 @@ class TabbedLayoutState extends State<TabbedLayout>
   // Focused page index. Pages outside it get TickerMode disabled, so
   // background channels stop rebuilding and animating.
   int _activeIndex = 0;
+  // True while the pager is moving; offscreen pages wait to grow then.
+  final _moving = ValueNotifier<bool>(false);
   // In-flight jump target. Intermediate crossings are flyover (no focus/commit). Cleared on land or finger grab.
   int? _programmaticTarget;
   // True while a finger holds the pager.
@@ -407,6 +411,9 @@ class TabbedLayoutState extends State<TabbedLayout>
     }
     if (metrics is! PageMetrics || metrics.page == null) return false;
     final page = metrics.page!.clamp(0.0, (_tabLength - 1).toDouble());
+
+    if (notification is ScrollStartNotification) _moving.value = true;
+    if (notification is ScrollEndNotification) _moving.value = false;
 
     if (notification is ScrollStartNotification &&
         notification.dragDetails != null) {
@@ -686,6 +693,7 @@ class TabbedLayoutState extends State<TabbedLayout>
 
   @override
   void dispose() {
+    _moving.dispose();
     _stripRetracted.dispose();
     _stripCatchUp.dispose();
     _pageController?.dispose();
@@ -966,7 +974,12 @@ class TabbedLayoutState extends State<TabbedLayout>
                       itemCount: tabs.length,
                       itemBuilder: (context, i) => TickerMode(
                         enabled: i == _activeIndex,
-                        child: widget.pageBuilder(context, i),
+                        child: _PageWarmup(
+                          warm: widget.preloadAdjacentPages,
+                          active: i == _activeIndex,
+                          moving: _moving,
+                          child: widget.pageBuilder(context, i),
+                        ),
                       ),
                     ),
                   ),
@@ -1091,6 +1104,122 @@ class EdgeExclusionZone extends StatelessWidget {
       onHorizontalDragStart: (_) {},
       onHorizontalDragUpdate: (_) {},
       onHorizontalDragEnd: (_) {},
+    );
+  }
+}
+
+/// Grows an offscreen page from a small layout to full height over a few
+/// frames, so a neighbor mounts without laying out a whole screen at once.
+class _PageWarmup extends StatefulWidget {
+  const _PageWarmup({
+    required this.warm,
+    required this.active,
+    required this.moving,
+    required this.child,
+  });
+
+  /// Whether offscreen pages may grow at all.
+  final bool warm;
+  final bool active;
+  final ValueListenable<bool> moving;
+  final Widget child;
+
+  @override
+  State<_PageWarmup> createState() => _PageWarmupState();
+}
+
+class _PageWarmupState extends State<_PageWarmup> {
+  static const _steps = [0.15, 0.3, 0.45, 0.6, 0.75, 0.9, 1.0];
+  int _step = 0;
+  int? _frame;
+  bool _everActive = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _everActive = widget.active;
+    widget.moving.addListener(_onMoving);
+    _schedule();
+  }
+
+  @override
+  void didUpdateWidget(_PageWarmup old) {
+    super.didUpdateWidget(old);
+    if (old.moving != widget.moving) {
+      old.moving.removeListener(_onMoving);
+      widget.moving.addListener(_onMoving);
+      _schedule();
+    }
+    if (old.warm != widget.warm) {
+      if (widget.warm) {
+        _schedule();
+      } else {
+        _stop();
+      }
+    }
+    if (widget.active) {
+      _everActive = true;
+      _stop();
+      _step = _steps.length - 1;
+    }
+  }
+
+  void _onMoving() {
+    if (widget.moving.value) {
+      _stop();
+      if (mounted) setState(() {});
+    } else {
+      _schedule();
+    }
+  }
+
+  void _schedule() {
+    if (!widget.warm ||
+        _everActive ||
+        widget.active ||
+        widget.moving.value ||
+        _step >= _steps.length - 1 ||
+        _frame != null) {
+      return;
+    }
+    _frame = SchedulerBinding.instance.scheduleFrameCallback((_) {
+      _frame = null;
+      if (!mounted || widget.active || _everActive) return;
+      setState(() => _step++);
+      _schedule();
+    });
+  }
+
+  void _stop() {
+    final frame = _frame;
+    if (frame == null) return;
+    SchedulerBinding.instance.cancelFrameCallbackWithId(frame);
+    _frame = null;
+  }
+
+  @override
+  void dispose() {
+    widget.moving.removeListener(_onMoving);
+    _stop();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final full =
+        _everActive || widget.active || widget.moving.value || !widget.warm;
+    final step = full ? _steps.length - 1 : _step;
+    return LayoutBuilder(
+      builder: (context, constraints) => ClipRect(
+        child: Align(
+          alignment: Alignment.topCenter,
+          child: SizedBox(
+            width: constraints.maxWidth,
+            height: constraints.maxHeight * _steps[step],
+            child: widget.child,
+          ),
+        ),
+      ),
     );
   }
 }

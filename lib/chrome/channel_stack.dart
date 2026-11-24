@@ -95,6 +95,7 @@ class ChannelPanels {
     this.archiveReader,
     this.archive,
     this.emotesVersion,
+    this.accountVersion,
   });
 
   static const welcomeChannel = '__welcome__';
@@ -178,6 +179,9 @@ class ChannelPanels {
   /// Emote catalog version, for history rows read before a catalog landed.
   final Listenable? emotesVersion;
 
+  /// Account identity version, so own-message repeat groups rebuild.
+  final Listenable? accountVersion;
+
   /// History sources by channel, so a rebuilt page keeps its source.
   final _sources = <String, HistorySource>{};
 
@@ -238,6 +242,26 @@ class ChannelPanels {
     _calendars.remove(channel)?.dispose();
     _flashTimers.remove(channel)?.cancel();
     _flashes.remove(channel)?.dispose();
+  }
+
+  void dispose() {
+    for (final timer in _flashTimers.values) {
+      timer.cancel();
+    }
+    _flashTimers.clear();
+    _swipePage.dispose();
+    for (final notifier in _jumps.values) {
+      notifier.dispose();
+    }
+    _jumps.clear();
+    for (final notifier in _calendars.values) {
+      notifier.dispose();
+    }
+    _calendars.clear();
+    for (final notifier in _flashes.values) {
+      notifier.dispose();
+    }
+    _flashes.clear();
   }
 
   late final Listenable _tabSharedMerge = Listenable.merge([
@@ -400,6 +424,7 @@ class ChannelPanels {
       builder: (ctx, active) {
         final buffer = ChatView(
           channel: channel,
+          storageId: _paneKey(channel, slot),
           channelPage: true,
           messages: search.visibleMessages(channel),
           topPadding: _bubbleTopPadding(ctx),
@@ -540,6 +565,7 @@ class ChannelPanels {
         live: messages == null ? null : () => messages.chatRows,
         liveVersion: active ? messages?.version : null,
         emotesVersion: emotesVersion,
+        accountVersion: accountVersion,
         active: active,
         jumpRequest: _jumpFor(channel),
         calendarRequest: _calendarFor(channel),

@@ -1,5 +1,6 @@
 import 'dart:async';
 
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 
 import '../chat/channel/threads.dart';
@@ -52,6 +53,7 @@ class ThreadPanels {
     required this.copyMessage,
     required this.strings,
     this.archiveReader,
+    this.emotesVersion,
     Future<ArchiveStore?>? archiveStore,
   }) : savedThreads = SavedThreadsStore(store: archiveStore) {
     panelManager.onOpenThreadChanged = syncPinnedThread;
@@ -86,6 +88,9 @@ class ThreadPanels {
 
   /// The archive's thread index, when the archive opened.
   final ArchiveReader? archiveReader;
+
+  /// Emote catalog version, forwarded to the Thread tab for partial healing.
+  final ValueListenable<int>? emotesVersion;
 
   /// Active threads read from the archive, with the channel they cover.
   List<ArchivedThreadRow> _archiveActive = const [];
@@ -786,6 +791,7 @@ class ThreadPanels {
               hides: chat.filter.hides,
               channel: panelManager.threadChannel ?? '',
               messages: panelManager.threadMessages,
+              emotesVersion: emotesVersion,
               atBottomNotifier: threadAtBottom,
               messageNotifier: threadMsgCount,
               scrollController: threadPanelScrollCtrl,

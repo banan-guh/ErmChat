@@ -95,6 +95,7 @@ class HistoryView extends StatefulWidget {
     this.newestRows,
     this.liveVersion,
     this.emotesVersion,
+    this.accountVersion,
     this.tileCache,
     this.compact = false,
     this.ownLogin,
@@ -158,6 +159,9 @@ class HistoryView extends StatefulWidget {
   /// Bumps when an emote catalog lands, so source rows parsed before it
   /// re-parse. Live rows heal through their buffer.
   final Listenable? emotesVersion;
+
+  /// Bumps when account identity changes, so own-message repeat groups rebuild.
+  final Listenable? accountVersion;
 
   /// Tile caches by channel, then message id; the owner evicts edited rows
   /// and may drop a channel's map. Null builds rows fresh.
@@ -388,11 +392,9 @@ class _HistoryViewState extends State<HistoryView> {
     scheduleMicrotask(() => _pointerScroll = false);
   }
 
-  /// Row to keep still through the next layout: its key, the scroll
-  /// coordinate of its bottom edge before the change, and its height. Sizes
-  /// cannot be read during the layout that resolves the hold, so the height
-  /// comes along.
-  ({String key, double coord, double height})? _hold;
+  /// Row to keep still through the next layout: its key and the scroll
+  /// coordinate of its bottom edge before the change.
+  ({String key, double coord})? _hold;
   static const double _followEps = 0.5;
 
   /// Tile cache bound, like [ChatView]'s.
@@ -467,6 +469,7 @@ class _HistoryViewState extends State<HistoryView> {
     }
     widget.liveVersion?.addListener(_onLive);
     widget.emotesVersion?.addListener(_onEmotes);
+    widget.accountVersion?.addListener(_onAccountChanged);
     widget.atBottomNotifier?.addListener(_onAtBottomRequest);
     widget.jumpRequest?.addListener(_onJumpRequest);
     widget.calendarRequest?.addListener(_onCalendarRequest);
@@ -540,8 +543,14 @@ class _HistoryViewState extends State<HistoryView> {
       _start();
     } else if (scale != _systemScale) {
       _systemScale = scale;
+      if (!_follow) _captureHold();
       // Pixel-sized tiles would otherwise survive the scale change.
       widget.tileCache?.clear();
+      if (_hold != null) {
+        WidgetsBinding.instance.addPostFrameCallback((_) {
+          if (mounted && _hold != null) _pos?.correctBy(0);
+        });
+      }
     }
   }
 
@@ -561,7 +570,11 @@ class _HistoryViewState extends State<HistoryView> {
       _compact = _compactRate > 0;
       _compactSeeded = false;
       _expanded.clear();
+      if (!_follow) _captureHold();
       _rebuildItems();
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted && _hold != null) _pos?.correctBy(0);
+      });
     }
     if (old.liveVersion != widget.liveVersion) {
       old.liveVersion?.removeListener(_onLive);
@@ -571,6 +584,17 @@ class _HistoryViewState extends State<HistoryView> {
     if (old.emotesVersion != widget.emotesVersion) {
       old.emotesVersion?.removeListener(_onEmotes);
       widget.emotesVersion?.addListener(_onEmotes);
+    }
+    if (old.accountVersion != widget.accountVersion) {
+      old.accountVersion?.removeListener(_onAccountChanged);
+      widget.accountVersion?.addListener(_onAccountChanged);
+      if (widget.compact) {
+        if (!_follow) _captureHold();
+        _regroup();
+        WidgetsBinding.instance.addPostFrameCallback((_) {
+          if (mounted && _hold != null) _pos?.correctBy(0);
+        });
+      }
     }
     if (old.jumpRequest != widget.jumpRequest) {
       old.jumpRequest?.removeListener(_onJumpRequest);
@@ -621,10 +645,12 @@ class _HistoryViewState extends State<HistoryView> {
         .then((streams) {
           if (!mounted || request != _streamsRequest) return;
           if (streams.isEmpty && _window.streams.isEmpty) return;
+          if (!_follow) _captureHold();
           setState(() {
             _window.setStreams(streams);
             _rebuildItems();
           });
+          if (_hold != null) _pos?.correctBy(0);
         })
         .catchError((Object e) {
           logDebug('[hist!] ${widget.channel}: stream read failed: $e');
@@ -1098,6 +1124,7 @@ class _HistoryViewState extends State<HistoryView> {
   void dispose() {
     widget.liveVersion?.removeListener(_onLive);
     widget.emotesVersion?.removeListener(_onEmotes);
+    widget.accountVersion?.removeListener(_onAccountChanged);
     widget.atBottomNotifier?.removeListener(_onAtBottomRequest);
     widget.jumpRequest?.removeListener(_onJumpRequest);
     widget.calendarRequest?.removeListener(_onCalendarRequest);
@@ -1451,9 +1478,17 @@ class _HistoryViewState extends State<HistoryView> {
     _olderItems = older;
   }
 
+  void _onAccountChanged() {
+    if (!widget.compact) return;
+    if (!_follow) _captureHold();
+    setState(_regroup);
+    if (_hold != null) _pos?.correctBy(0);
+  }
+
   void _onCompactionPref() {
     final value = widget.compact ? Settings.compactRepeats.value : 0.0;
     if (value == _compactRate) return;
+    if (!_follow) _captureHold();
     setState(() {
       _compactRate = value;
       _compact = value > 0;
@@ -1461,6 +1496,7 @@ class _HistoryViewState extends State<HistoryView> {
       _expanded.clear();
       _rebuildItems();
     });
+    if (_hold != null) _pos?.correctBy(0);
   }
 
   void _jumpDaysAgo(int days) {
@@ -1524,6 +1560,7 @@ class _HistoryViewState extends State<HistoryView> {
   void _onClear(HistoryClear clear) {
     scheduleMicrotask(() {
       if (!mounted) return;
+      if (!_follow) _captureHold();
       final w = _window;
       final cache = widget.tileCache?[widget.channel];
       final end = _liveAttached && _liveStart < w.end ? _liveStart : w.end;
@@ -1546,6 +1583,9 @@ class _HistoryViewState extends State<HistoryView> {
         setState(() {
           _regroup();
         });
+        if (_hold != null) _pos?.correctBy(0);
+      } else {
+        _hold = null;
       }
     });
   }
@@ -1556,16 +1596,19 @@ class _HistoryViewState extends State<HistoryView> {
     final w = _window;
     final cache = widget.tileCache?[widget.channel];
     final end = _liveAttached && _liveStart < w.end ? _liveStart : w.end;
-    var healed = false;
-    for (var p = w.first; p < end; p++) {
-      final m = w[p];
-      if (!m.emotesPartial) continue;
+    final partial = [
+      for (var p = w.first; p < end; p++)
+        if (w[p].emotesPartial) w[p],
+    ];
+    if (partial.isEmpty) return;
+    if (!_follow) _captureHold();
+    for (final m in partial) {
       m.emotesPartial = false;
       m.emoteTokens = null;
       cache?.remove(m.messageId);
-      healed = true;
     }
-    if (healed) setState(() {});
+    setState(() {});
+    if (_hold != null) _pos?.correctBy(0);
   }
 
   /// Mirrors the live buffer into the window's tail. Arrivals append; any
@@ -1665,13 +1708,10 @@ class _HistoryViewState extends State<HistoryView> {
 
   /// Records the row at the viewport's bottom edge, for [_resolve].
   void _captureHold() {
+    _hold = null;
     final at = _rowAtEdge();
     if (at == null) return;
-    _hold = (
-      key: HistoryWindow.keyOf(at.row),
-      coord: at.bottom,
-      height: at.top - at.bottom,
-    );
+    _hold = (key: HistoryWindow.keyOf(at.row), coord: at.bottom);
   }
 
   /// Walks the built children of the older or newer sliver, handing each one
@@ -1720,14 +1760,15 @@ class _HistoryViewState extends State<HistoryView> {
     return found;
   }
 
-  /// Scroll coordinate of the bottom edge of the row keyed [key] and
-  /// [height], from the current layout. Reads layout offsets only, so it is
+  /// Scroll coordinate of the bottom edge of the row keyed [key], from the
+  /// current layout. Reads layout offsets and sliver extents only, so it is
   /// safe during the viewport's layout.
-  double? _coordOf(String key, double height) {
+  double? _coordOf(String key) {
     double? coord;
     for (final older in const [true, false]) {
       final items = older ? _olderItems : _newerItems;
-      final stopped = _walkChildren(older, (_, pd) {
+      final sliver = _sliver(older ? _olderKey : _newerKey);
+      final stopped = _walkChildren(older, (child, pd) {
         final i = pd.index;
         final offset = pd.layoutOffset;
         if (i == null || offset == null || i >= items.length) return false;
@@ -1735,7 +1776,20 @@ class _HistoryViewState extends State<HistoryView> {
         if (item.marker != null) return false;
         final row = _window.at(item.pos);
         if (row == null || HistoryWindow.keyOf(row) != key) return false;
-        coord = older ? offset : -(offset + height);
+        if (older) {
+          coord = offset;
+        } else {
+          final next = sliver?.childAfter(child);
+          final nextOffset =
+              (next?.parentData as SliverMultiBoxAdaptorParentData?)
+                  ?.layoutOffset;
+          final extent = sliver?.geometry?.scrollExtent;
+          coord = nextOffset != null
+              ? -nextOffset
+              : extent == null
+              ? null
+              : -extent;
+        }
         return true;
       });
       if (stopped) break;
@@ -1756,7 +1810,7 @@ class _HistoryViewState extends State<HistoryView> {
     final hold = _hold;
     if (hold == null) return null;
     _hold = null;
-    final now = _coordOf(hold.key, hold.height);
+    final now = _coordOf(hold.key);
     if (now == null) return null;
     final target = m.pixels + now - hold.coord;
     // The same at the oldest end: a bounce is not a content shift.

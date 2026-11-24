@@ -26,6 +26,9 @@ class ChatView extends StatefulWidget {
 
   final String channel;
 
+  /// PageStorage slot for the reading position. Defaults to [channel]'s page.
+  final String? storageId;
+
   /// Whether this list is [channel]'s page, which clears [channel]'s island
   /// rather than the one on screen.
   final bool channelPage;
@@ -100,6 +103,10 @@ class ChatView extends StatefulWidget {
   final SevenTvPaintService? paintService;
   final ScrollViewKeyboardDismissBehavior keyboardDismissBehavior;
 
+  /// Emote catalog version. Each bump clears the baked tokens of partial rows
+  /// so their next build parses against the fuller catalog. Null skips it.
+  final ValueListenable<int>? emotesVersion;
+
   /// Link whitelist for system-message parser. Null = use messageBuilder's.
   final LinkWhitelist? linkWhitelist;
 
@@ -116,6 +123,7 @@ class ChatView extends StatefulWidget {
     super.key,
     required this.channel,
     this.channelPage = false,
+    this.storageId,
     required this.messages,
     this.tileCache,
     required this.atBottomNotifier,
@@ -147,6 +155,7 @@ class ChatView extends StatefulWidget {
     this.lineSeparator = false,
     this.sharedChatMode = 'spotlight',
     this.paintService,
+    this.emotesVersion,
     this.keyboardDismissBehavior = ScrollViewKeyboardDismissBehavior.manual,
     this.linkWhitelist,
     this.isDimmed,
@@ -196,9 +205,9 @@ class _ChatViewState extends State<ChatView>
   String? _endsFirst;
   String? _endsLast;
 
-  // Materialized row-index range from the previous layout, plus the range the
-  // current build is filling. [_findChildIndex] uses the previous range to keep
-  // a moved row out of a slot that did not exist yet.
+  // The sliver's materialized row-index range at the last build start, plus
+  // the range the current build is filling. [_findChildIndex] gates a move on
+  // the materialized range, falling back to the built range before any layout.
   int? _prevBuiltMin;
   int? _prevBuiltMax;
   int? _builtMin;
@@ -257,14 +266,27 @@ class _ChatViewState extends State<ChatView>
   void initState() {
     super.initState();
     _hold.resolve = _resolveCorrection;
+    widget.emotesVersion?.addListener(_onEmotesVersion);
+    _healPartialEmotes();
     // A pane can mount scrolled up with its offset restored. Adopt the pane's
     // last at-bottom state so the first arrival does not snap to the newest row.
     _follow = widget.atBottomNotifier.value;
   }
 
   @override
+  void dispose() {
+    widget.emotesVersion?.removeListener(_onEmotesVersion);
+    super.dispose();
+  }
+
+  @override
   void didUpdateWidget(covariant ChatView oldWidget) {
     super.didUpdateWidget(oldWidget);
+    if (widget.emotesVersion != oldWidget.emotesVersion) {
+      oldWidget.emotesVersion?.removeListener(_onEmotesVersion);
+      widget.emotesVersion?.addListener(_onEmotesVersion);
+      if (_healPartialEmotes()) setState(() {});
+    }
     if (widget.chatFontScale != oldWidget.chatFontScale) {
       setState(() {});
     }
@@ -279,6 +301,25 @@ class _ChatViewState extends State<ChatView>
       // Pixel-sized tiles would otherwise survive the scale change.
       widget.tileCache?.clear();
     }
+  }
+
+  /// Clears the tokens of rows parsed before the catalogs finished, so their
+  /// next build parses against the fuller catalog.
+  bool _healPartialEmotes() {
+    final cache = widget.tileCache?[widget.channel];
+    var healed = false;
+    for (final m in widget.messages) {
+      if (!m.emotesPartial) continue;
+      m.emotesPartial = false;
+      m.emoteTokens = null;
+      cache?.remove(m.messageId);
+      healed = true;
+    }
+    return healed;
+  }
+
+  void _onEmotesVersion() {
+    if (_healPartialEmotes()) setState(() {});
   }
 
   @override
@@ -364,7 +405,9 @@ class _ChatViewState extends State<ChatView>
         // unmounts off screen; kept-alive lists need no key.
         key: widget.keepAlive
             ? ValueKey<String>(widget.channel)
-            : PageStorageKey<String>('${widget.channel}:chat'),
+            : PageStorageKey<String>(
+                '${widget.storageId ?? widget.channel}:chat',
+              ),
         semanticChildCount: msgs.length,
         slivers: [
           bottom,
@@ -513,14 +556,42 @@ class _ChatViewState extends State<ChatView>
     _idToIndex = idToIndex;
   }
 
-  /// Opens a build frame: the range just built becomes the reference range for
-  /// [_findChildIndex], which runs before this frame's rows are built.
+  /// Opens a build frame: the sliver's materialized range from the previous
+  /// layout becomes the reference for [_findChildIndex], which runs before this
+  /// frame's rows are built. Before any layout there is no sliver, so the range
+  /// the last build filled stands in.
   void _beginBuiltRange() {
-    _prevBuiltMin = _builtMin;
-    _prevBuiltMax = _builtMax;
+    _claimedSlots.clear();
+    final sliver = _findSliver();
+    if (sliver == null) {
+      _prevBuiltMin = _builtMin;
+      _prevBuiltMax = _builtMax;
+    } else {
+      final range = _materializedRange(sliver);
+      _prevBuiltMin = range?.$1;
+      _prevBuiltMax = range?.$2;
+    }
     _builtMin = null;
     _builtMax = null;
-    _claimedSlots.clear();
+  }
+
+  /// Lowest and highest child index the sliver holds from the last layout:
+  /// the only slots a moved row can adopt without a null offset.
+  (int, int)? _materializedRange(RenderSliverMultiBoxAdaptor sliver) {
+    int? min;
+    int? max;
+    for (
+      RenderBox? child = sliver.firstChild;
+      child != null;
+      child = sliver.childAfter(child)
+    ) {
+      final index =
+          (child.parentData as SliverMultiBoxAdaptorParentData?)?.index;
+      if (index == null) continue;
+      if (min == null || index < min) min = index;
+      if (max == null || index > max) max = index;
+    }
+    return min == null || max == null ? null : (min, max);
   }
 
   void _noteBuiltIndex(int index) {
@@ -693,7 +764,11 @@ class _ChatViewState extends State<ChatView>
 
   /// The list's sliver, so child offsets can be read during layout.
   RenderSliverMultiBoxAdaptor? _findSliver() {
-    final root = _position?.context.notificationContext?.findRenderObject();
+    final context = _position?.context.notificationContext;
+    if (context == null || context is! Element || !context.debugIsActive) {
+      return null;
+    }
+    final root = context.findRenderObject();
     if (root == null) return null;
     final viewport = _findDescendant<RenderViewport>(root);
     // The island spacer comes first; the rows are the one list sliver.
