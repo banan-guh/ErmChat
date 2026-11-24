@@ -203,8 +203,13 @@ class IrcChatDecoder {
         _selfModController.add((channel, mod == '1' || owner));
       }
     }
-    if (badges == null) return;
     final channel = msg.command == 'USERSTATE' ? _channelNameOf(msg) : null;
+    if (badges == null) {
+      // An empty badge set clears the stored one, so a lost mod or sub badge
+      // stops bypassing slow mode.
+      selfBadges.remove(channel);
+      return;
+    }
     selfBadges[channel] = badges.map((b) => b.setId).toSet();
   }
 

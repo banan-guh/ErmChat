@@ -237,12 +237,12 @@ class ChatSender {
     // The suffix never accumulates.
     final wireText = bypassTextDuplicate(text, _lastSentWireText[channel]);
 
-    // Send via the write IRC socket (mirror DankChat). The write socket also
-    // JOINs its channels (required to receive their traffic), but a PRIVMSG is
-    // valid the moment the socket is up, so there is no join window to gate
-    // sends on. The echo of our own message arrives on the read socket, not
-    // here. No Helix fallback: if the write socket is down the message cannot
-    // be sent, so we surface a notice instead of silently dropping it.
+    // Send via the write IRC socket (mirror DankChat). Only the read socket
+    // JOINs, but a PRIVMSG is valid the moment the write socket is up, so
+    // there is no join window to gate sends on. The echo of our own message
+    // arrives on the read socket, not here. No Helix fallback: if the write
+    // socket is down the message cannot be sent, so we surface a notice
+    // instead of silently dropping it.
     if (irc.isConnected) {
       _lastSentWireText[channel] = wireText;
       _recentSends.add(now());

@@ -317,8 +317,10 @@ class ChatChannelSetup {
       );
 
       if (session.login == null && auth.accessToken != null) {
+        final token = auth.accessToken;
         final currentUser = await ensureCurrentUser(auth);
-        if (currentUser != null) {
+        // A switch during the lookup must not overwrite the new identity.
+        if (currentUser != null && auth.accessToken == token) {
           session.apply(currentUser['login'], userId: currentUser['id']);
         }
         if (_isStale(channelName, epoch)) return;
@@ -458,15 +460,21 @@ class ChatChannelSetup {
       emoteManager.setSevenTvUserId(channelName, finalUserId);
     }
 
+    // A settings change during the awaits above unsubscribed what this run
+    // started with, so the flags are read again before subscribing.
     final client = sevenTvClient!;
-    if (client.hasEmoteSetSubscription(finalEmoteSetId) &&
-        client.hasUserSubscription(finalUserId) &&
-        client.hasTwitchChannelSubscription(twitchChannelId)) {
-      return;
+    if (_sevenTvEmotes) {
+      if (!client.hasEmoteSetSubscription(finalEmoteSetId)) {
+        client.subscribeEmoteSet(finalEmoteSetId);
+      }
+      if (!client.hasUserSubscription(finalUserId)) {
+        client.subscribeUser(finalUserId);
+      }
     }
-    client.subscribeEmoteSet(finalEmoteSetId);
-    client.subscribeUser(finalUserId);
-    client.subscribeTwitchChannel(twitchChannelId);
+    if ((_sevenTvEmotes || _sevenTvCosmetics) &&
+        !client.hasTwitchChannelSubscription(twitchChannelId)) {
+      client.subscribeTwitchChannel(twitchChannelId);
+    }
   }
 
   Future<({String userId, String emoteSetId, int connectionIndex})?>
@@ -591,13 +599,12 @@ class ChatChannelSetup {
   bool handleRoomState(IrcRoomStateEvent event) {
     if (_disposed) return false;
     // A channel whose join previously failed just got in: its failure row
-    // goes, and Connected reports the join.
-    if (_joinFailureNotified.remove(event.channel)) {
-      chat
-          .channelFor(event.channel)
-          ?.messages
-          .removeSystem(_joinFailedId(event.channel));
-    }
+    // goes, even when a socket reset already cleared the notified entry.
+    _joinFailureNotified.remove(event.channel);
+    chat
+        .channelFor(event.channel)
+        ?.messages
+        .removeSystem(_joinFailedId(event.channel));
     _status.onRoomState(event.channel, event.tags);
     final roomId = event.tags['room-id'];
     if (roomId != null && roomId.isNotEmpty) {
@@ -620,8 +627,8 @@ class ChatChannelSetup {
     );
   }
 
-  /// JOIN-failure handler for the write socket (the one ROOMSTATE gates sends
-  /// on): suspended/deleted channels get an explicit refusal notice;
+  /// JOIN-failure handler for the read socket, the sole JOINer:
+  /// suspended/deleted channels get an explicit refusal notice;
   /// everything else surfaces after the fast rejoin sweep gave up. The base
   /// connection keeps retrying either way, so the message says what happened
   /// and that it keeps trying.

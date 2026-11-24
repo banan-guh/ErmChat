@@ -74,8 +74,10 @@ class ChatLiveness {
     final login = session.login;
     final token = twitchAuth.accessToken;
     final anonymous = login == null || token == null;
-    final username = login ?? anonymousNick(1);
-    final accessToken = token ?? 'anonymous';
+    // An anonymous dial needs a justinfan nick: a real login with the
+    // 'anonymous' token is rejected as a login failure.
+    final username = anonymous ? anonymousNick(1) : login;
+    final accessToken = anonymous ? 'anonymous' : token;
 
     // A socket can exist while being dead (frozen by the OS during
     // backgrounding). When it looks connected, verify with a PING/PONG
@@ -86,9 +88,12 @@ class ChatLiveness {
         needsDial(irc.isConnected, irc.isReconnecting)) {
       unawaited(irc.connect(username: username, accessToken: accessToken));
     } else if (irc.isConnected && probe) {
+      final probed = irc.channel;
       unawaited(
         irc.checkAlive().then((alive) {
-          if (!alive) {
+          // The probed socket may have died and been replaced while the
+          // probe ran; only a verdict on the current one forces a reconnect.
+          if (!alive && identical(irc.channel, probed)) {
             logDebug('[ChatConn] IRC zombie detected - forcing reconnect');
             irc.forceReconnect();
           }
@@ -107,9 +112,12 @@ class ChatLiveness {
         ),
       );
     } else if (ircRead.isConnected && probe) {
+      final probed = ircRead.channel;
       unawaited(
         ircRead.checkAlive().then((alive) {
-          if (!alive) {
+          // The probed socket may have died and been replaced while the
+          // probe ran; only a verdict on the current one forces a reconnect.
+          if (!alive && identical(ircRead.channel, probed)) {
             logDebug('[ChatConn] IRC read zombie detected - forcing reconnect');
             ircRead.forceReconnect();
           }

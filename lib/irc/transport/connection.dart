@@ -466,10 +466,13 @@ abstract class IrcConnection {
       return;
     }
     // Socket already down: a manual reconnect must still start a connection
-    // instead of silently no-op'ing. Restart the loop with the stored creds.
+    // instead of silently no-op'ing. Keep the stored route too: connect()
+    // would send an anonymous nick to the proxy that rejects it.
     final name = username;
     if (name == null) return;
-    unawaited(connect(username: name, accessToken: token ?? ''));
+    unawaited(
+      connect(username: name, accessToken: token ?? '', useProxy: _proxyWanted),
+    );
   }
 
   void sendLine(String message) {
@@ -485,7 +488,8 @@ abstract class IrcConnection {
   /// alive. A socket can exist while being dead (e.g. frozen by the OS while
   /// backgrounded); used on app resume before trusting `isConnected`.
   Future<bool> checkAlive({Duration timeout = _pongTimeout}) async {
-    if (channel == null) return false;
+    final probe = channel;
+    if (probe == null) return false;
     // Token the probe so a PONG can only satisfy the probe it answers. A
     // stale PONG from an earlier keepalive (buffered while the app was frozen
     // in the background) has a different trailing token and can't false-
@@ -495,7 +499,13 @@ abstract class IrcConnection {
     _pingAwaiters[token] = completer;
     try {
       sendLine('PING :$token');
-      return await completer.future.timeout(timeout, onTimeout: () => false);
+      final alive = await completer.future.timeout(
+        timeout,
+        onTimeout: () => false,
+      );
+      // The probe only speaks for the socket it was sent on: a reconnect can
+      // replace that socket while its PONG is still outstanding.
+      return alive || !identical(channel, probe);
     } finally {
       _pingAwaiters.remove(token);
     }
@@ -617,6 +627,8 @@ abstract class IrcConnection {
   set awaitingPong(bool value) => _awaitingPong = value;
 
   void join(String channel) {
+    // A disposed socket takes no new join demand (it would restart the pump).
+    if (_disposed) return;
     _channels.add(channel);
     _queueJoin(channel);
   }

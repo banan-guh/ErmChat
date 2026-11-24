@@ -323,8 +323,9 @@ class EventSubConsumer {
     if (_disposed) return;
     if (!topics.isPointsActive(event.channel)) return;
     final points = chat.channelFor(event.channel)?.points;
+    // EventSub sends the status lowercase, unlike Helix's uppercase values.
     if (event.kind == PointRedemptionKind.add &&
-        event.redemption.status == 'UNFULFILLED') {
+        event.redemption.status.toLowerCase() == 'unfulfilled') {
       points?.upsertRedemption(event.redemption);
     } else {
       points?.resolveRedemption(event.redemption.id);

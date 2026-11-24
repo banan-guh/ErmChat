@@ -485,7 +485,10 @@ class ChatConnectionManager {
       }
     });
     if (!ok) return;
-    if (_pinRequests[channel] != request) return;
+    // A read started before an account switch or a leave must not paint.
+    if (_pinRequests[channel] != request || config.session.userId != userId) {
+      return;
+    }
     if (pin == null) {
       onPinned(PinnedMessageEvent(channel: channel, id: '', removed: true));
       return;
@@ -494,11 +497,19 @@ class ChatConnectionManager {
     // older than the buffer, so ask for it.
     var event = PinnedMessageEvent.fromHelix(channel, pin);
     if (event.senderId.isNotEmpty) {
-      final color = await config.services.twitchApi.getUserChatColor(
-        auth,
-        userId: event.senderId,
-      );
-      if (_pinRequests[channel] != request) return;
+      // A color lookup is cosmetic: a failed request keeps the pin, uncolored.
+      String? color;
+      try {
+        color = await config.services.twitchApi.getUserChatColor(
+          auth,
+          userId: event.senderId,
+        );
+      } catch (e) {
+        logDebug('[ChatConn] pin color fetch failed for $channel: $e');
+      }
+      if (_pinRequests[channel] != request || config.session.userId != userId) {
+        return;
+      }
       if (color != null) event = event.withSenderColor(color);
     }
     onPinned(event);
@@ -535,6 +546,8 @@ class ChatConnectionManager {
   /// Drops per-channel subscription state (channel left); the next join
   /// re-subscribes from scratch.
   void forgetChannel(String channel) {
+    // Invalidate an in-flight pin read: it must not repaint a left channel.
+    _pinRequests[channel] = (_pinRequests[channel] ?? 0) + 1;
     _sender.forgetChannel(channel);
     config.services.pubSub?.forgetChannel(channel);
     _channelSetup.forgetChannel(channel);

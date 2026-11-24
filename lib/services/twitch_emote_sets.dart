@@ -174,7 +174,7 @@ class TwitchEmoteSets {
     }
   }
 
-  // Pending wait for the user id; an account reset releases it with null.
+  // Pending wait for the user id; an account reset or timeout releases it.
   Completer<String?>? _userIdWaiter;
 
   Future<String?> _awaitUserId(TwitchAuth auth) {
@@ -185,7 +185,12 @@ class TwitchEmoteSets {
     }
 
     auth.addListener(check);
+    final timeout = Timer(const Duration(seconds: 10), () {
+      if (!done.isCompleted) done.complete(null);
+    });
+    check();
     return done.future.whenComplete(() {
+      timeout.cancel();
       auth.removeListener(check);
       if (identical(_userIdWaiter, done)) _userIdWaiter = null;
     });

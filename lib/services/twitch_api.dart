@@ -452,7 +452,9 @@ class TwitchApi {
   }
 
   Future<String?> getUserId(TwitchAuth auth, String login) async {
-    final uri = Uri.parse('$_base/users?login=$login');
+    final uri = Uri.parse(
+      '$_base/users',
+    ).replace(queryParameters: {'login': login});
     final res = await _get('getUserId', auth, uri);
     if (res == null) return null;
     try {
@@ -704,7 +706,9 @@ class TwitchApi {
     TwitchAuth auth,
     String login,
   ) async {
-    final uri = Uri.parse('$_base/users?login=$login');
+    final uri = Uri.parse(
+      '$_base/users',
+    ).replace(queryParameters: {'login': login});
     final res = await _get('getUserProfile', auth, uri);
     if (res == null) return null;
     try {
@@ -816,10 +820,10 @@ class TwitchApi {
     TwitchAuth auth, {
     required String userId,
   }) async {
-    final uri = Uri.parse('$_base/chat/color?user_id=$userId');
-    final res = await _get('getUserChatColor', auth, uri);
-    if (res == null) return null;
     try {
+      final uri = Uri.parse('$_base/chat/color?user_id=$userId');
+      final res = await _get('getUserChatColor', auth, uri);
+      if (res == null) return null;
       final list = (jsonDecode(res.body) as Map)['data'] as List;
       final color = list.isEmpty ? null : (list[0] as Map)['color'] as String?;
       return color == null || color.isEmpty ? null : color;
@@ -883,8 +887,9 @@ class TwitchApi {
     fromJson: BannedUser.fromJson,
   );
 
-  /// Unban requests for a channel, newest first. Empty on failure. [status]
-  /// is pending/approved/denied/etc; null leaves the server default.
+  /// Unban requests for a channel, newest first. Empty on failure. Helix
+  /// requires [status] (pending/approved/denied/...); null or empty asks for
+  /// pending.
   Future<List<UnbanRequest>> getUnbanRequests(
     TwitchAuth auth, {
     required String broadcasterId,
@@ -894,9 +899,9 @@ class TwitchApi {
     final query = <String, String>{
       'broadcaster_id': broadcasterId,
       'moderator_id': moderatorId,
+      'status': status == null || status.isEmpty ? 'pending' : status,
       'first': '100',
     };
-    if (status != null && status.isNotEmpty) query['status'] = status;
     final uri = Uri.parse(
       '$_base/moderation/unban_requests',
     ).replace(queryParameters: query);

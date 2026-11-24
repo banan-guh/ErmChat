@@ -142,8 +142,10 @@ class EventSubDecoder {
   };
 
   AutomodTermsAction _automodTermsAction(String wire) => switch (wire) {
-    'add' => AutomodTermsAction.add,
-    'remove' => AutomodTermsAction.remove,
+    'add' || 'add_blocked' || 'add_permitted' => AutomodTermsAction.add,
+    'remove' ||
+    'remove_blocked' ||
+    'remove_permitted' => AutomodTermsAction.remove,
     _ => AutomodTermsAction.unknown,
   };
 
@@ -314,7 +316,8 @@ class EventSubDecoder {
       contributions.add(
         HypeTrainContribution(
           userName: m['user_name'] as String? ?? 'Anonymous',
-          type: m['type'] as String? ?? '',
+          // EventSub sends lowercase, while the event keeps Helix's casing.
+          type: (m['type'] as String? ?? '').toUpperCase(),
           total: m['total'] as int? ?? 0,
         ),
       );
@@ -458,12 +461,16 @@ class EventSubDecoder {
   void _emitAutomodTerms(String channel, Map<String, dynamic> event) {
     final rawTerms = event['terms'];
     final action = event['action'] as String? ?? 'add';
+    // The wire names the list inside the action and may omit the list field.
+    final list =
+        event['list'] as String? ??
+        (action.endsWith('_permitted') ? 'permitted' : 'blocked');
     _automodTermsController.add(
       AutomodTermsEvent(
         channel: channel,
         action: _automodTermsAction(action),
         rawAction: action,
-        list: event['list'] as String? ?? 'blocked',
+        list: list,
         terms: rawTerms is List
             ? rawTerms.whereType<String>().toList()
             : const [],

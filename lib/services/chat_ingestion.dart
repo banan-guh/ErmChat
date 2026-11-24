@@ -542,14 +542,19 @@ class ChatIngestion {
   void _stampEmoteResolution(TwitchMessage msg, String channel) {
     if (msg.isSystem) return;
     final source = msg.sourceBroadcasterId;
-    final lookupChannel = source == null
-        ? channel
-        : badgeService.resolveChannelLogin(source) ?? channel;
+    final sourceLogin = source == null
+        ? null
+        : badgeService.resolveChannelLogin(source);
+    final lookupChannel = sourceLogin ?? channel;
     msg.emoteTokens = emoteManager.parseMessageEmotes(
       msg,
       lookupChannel: lookupChannel,
     );
-    msg.emotesPartial = !emoteManager.catalogComplete(lookupChannel);
+    // The source login lands after the first mirrored rows, so those resolve
+    // against the local channel: not final, and never stored as such.
+    msg.emotesPartial =
+        (source != null && sourceLogin == null) ||
+        !emoteManager.catalogComplete(lookupChannel);
   }
 
   // Own echo: the emotes actually sent become the recents that fill the emote
