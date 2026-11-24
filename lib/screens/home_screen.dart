@@ -1023,6 +1023,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
   /// first install shows neither: it has no previous version.
   Future<void> _runAppUpdates() async {
     final info = await PackageInfo.fromPlatform();
+    if (!mounted) return;
     final updates = ref.read(appUpdatesProvider);
     final from = await updates.takeWhatsNew(info.version);
     if (from != null) {
@@ -1714,6 +1715,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
     _fakeChat.dispose();
     _isMobile.dispose();
     _emotesVersion.dispose();
+    _selectedTabIndex.dispose();
     for (final unsubscribe in _signalUnsubs) {
       unsubscribe();
     }
@@ -1766,6 +1768,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
     _chat.mentions.version.removeListener(_onMentionsContent);
     _dropChannelSubs();
     _channelManager.dispose();
+    _channelNotifier.dispose();
     _session.version.removeListener(_onSessionApplied);
     _notificationTapSub?.cancel();
     _apnsTapSub?.cancel();
@@ -1888,6 +1891,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
   /// Pastes the current clipboard text into the chat input at the cursor.
   Future<void> _pasteFromClipboard() async {
     final data = await Clipboard.getData(Clipboard.kTextPlain);
+    if (!mounted) return;
     final text = data?.text;
     if (text == null || text.isEmpty) return;
     final controller = _composer.messageController;

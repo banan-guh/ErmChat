@@ -173,6 +173,7 @@ class _ChatHold {
   String? anchorId;
 
   /// The anchor's content-space layout offset at the last settled layout.
+  /// Dropped when rows change while the reader is not holding.
   double anchorOffset = 0;
 
   /// The message list the current build is rendering.
@@ -256,6 +257,9 @@ class _ChatViewState extends State<ChatView>
   void initState() {
     super.initState();
     _hold.resolve = _resolveCorrection;
+    // A pane can mount scrolled up with its offset restored. Adopt the pane's
+    // last at-bottom state so the first arrival does not snap to the newest row.
+    _follow = widget.atBottomNotifier.value;
   }
 
   @override
@@ -623,6 +627,7 @@ class _ChatViewState extends State<ChatView>
     if (pos == null || !pos.hasPixels) {
       _hold.paused = false;
       _hold.pending = false;
+      _hold.anchorId = null;
       return;
     }
     if (_follow) {
@@ -631,12 +636,14 @@ class _ChatViewState extends State<ChatView>
       if (pos.pixels > _followEps) _scheduleFollowSnap();
       _hold.paused = false;
       _hold.pending = false;
+      _hold.anchorId = null;
       return;
     }
     final paused = pos.pixels > _followEps;
     _hold.paused = paused;
     if (!paused) {
       _hold.pending = false;
+      _hold.anchorId = null;
       return;
     }
     if (widget.keepPosition && _hold.anchorId != null) {

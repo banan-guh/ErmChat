@@ -615,8 +615,12 @@ class _EmoteImageCompleter extends ImageStreamCompleter {
       codec.dispose();
       return;
     }
-    final frame = await codec.getNextFrame();
-    codec.dispose();
+    final ui.FrameInfo frame;
+    try {
+      frame = await codec.getNextFrame();
+    } finally {
+      codec.dispose();
+    }
     if (_disposed) {
       frame.image.dispose();
       return;
@@ -748,10 +752,11 @@ class _EmoteImageCompleter extends ImageStreamCompleter {
 
   /// Emits frame [index] as a clone. [setImage] clones again per listener and
   /// disposes the previous source, so the original must stay in [_frames].
-  void _emitFrame(int index) {
-    if (_disposed) return;
+  /// Returns false when nothing was emitted. A failed clone stops playback.
+  bool _emitFrame(int index) {
+    if (_disposed) return false;
     final frames = _frames;
-    if (frames == null || frames.frames.isEmpty) return;
+    if (frames == null || frames.frames.isEmpty) return false;
     _frameIndex = index;
     final ui.Image clone;
     try {
@@ -759,9 +764,10 @@ class _EmoteImageCompleter extends ImageStreamCompleter {
     } on StateError {
       // Frame disposed prematurely: freeze on the last good frame.
       _stopPlayback();
-      return;
+      return false;
     }
     setImage(ImageInfo(image: clone, scale: 1.0, debugLabel: 'emote-$url'));
+    return true;
   }
 
   /// Retains a clone of a decoded frame while streaming, so a completed cycle
@@ -967,9 +973,7 @@ class _EmoteImageCompleter extends ImageStreamCompleter {
       posUs = (posUs + (timeStamp - shown).inMicroseconds) % totalUs;
       _cyclePosition = Duration(microseconds: posUs);
       final index = _frameForOffset(frames, posUs);
-      if (index != _frameIndex) {
-        _emitFrame(index);
-      }
+      if (index != _frameIndex && !_emitFrame(index)) return;
     }
     _shownTimestamp = timeStamp;
 
@@ -992,8 +996,13 @@ class _EmoteImageCompleter extends ImageStreamCompleter {
     if (_frameCallbackId != null || _streamDecoding) return;
     if (_frames != null || (_codec == null && _compositor == null)) return;
     _frameCallbackId = SchedulerBinding.instance.scheduleFrameCallback(
-      _onStreamAppFrame,
+      _animating ? _onStreamFrameRequest : _onStreamAppFrame,
     );
+  }
+
+  void _onStreamFrameRequest(Duration _) {
+    _frameCallbackId = null;
+    _onStreamTick();
   }
 
   Future<void> _onStreamAppFrame(Duration timeStamp) async {
@@ -1355,6 +1364,8 @@ class _EmoteImageCompleter extends ImageStreamCompleter {
       bitmap = null;
       codec = null;
       if (_disposed || _compositor != compositor || !hasListeners) {
+        // The compositor owns the canvas, so free it once the loop is gone.
+        if (_disposed || _compositor != compositor) compositor.resetStream();
         _streamDecoding = false;
         return;
       }
@@ -1452,6 +1463,8 @@ class _EmoteImageCompleter extends ImageStreamCompleter {
     if (live) EmoteUrlProvider._liveByUrl.remove(url);
     _stopPlayback();
     _cancelStreamDecode();
+    // A disposed completer must not stay queued for a decode slot.
+    _slotWaiters.remove(this);
     _seedFromUrl = null;
     EmoteUrlProvider._pendingSeeds.remove(url);
     final codec = _codec;

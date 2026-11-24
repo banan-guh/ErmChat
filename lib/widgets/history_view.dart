@@ -610,16 +610,25 @@ class _HistoryViewState extends State<HistoryView> {
     _loadStreams();
   }
 
+  int _streamsRequest = 0;
+
   /// Reads the broadcasts and re-marks the rows; again whenever one starts,
   /// ends or reopens, so a page never keeps a stale end.
   void _loadStreams() {
-    widget.source.streams().then((streams) {
-      if (!mounted || (streams.isEmpty && _window.streams.isEmpty)) return;
-      setState(() {
-        _window.setStreams(streams);
-        _rebuildItems();
-      });
-    });
+    final request = ++_streamsRequest;
+    widget.source
+        .streams()
+        .then((streams) {
+          if (!mounted || request != _streamsRequest) return;
+          if (streams.isEmpty && _window.streams.isEmpty) return;
+          setState(() {
+            _window.setStreams(streams);
+            _rebuildItems();
+          });
+        })
+        .catchError((Object e) {
+          logDebug('[hist!] ${widget.channel}: stream read failed: $e');
+        });
   }
 
   // ---- Reading position ----------------------------------------------------
@@ -702,16 +711,24 @@ class _HistoryViewState extends State<HistoryView> {
   Future<void> _refreshKept() async {
     final actions = widget.actions;
     if (actions == null) return;
-    final starts = await actions.keptDays();
-    if (mounted) {
-      _kept.value = {for (final s in starts) dayNumber(s.toLocal())};
+    try {
+      final starts = await actions.keptDays();
+      if (mounted) {
+        _kept.value = {for (final s in starts) dayNumber(s.toLocal())};
+      }
+    } catch (e) {
+      logDebug('[hist!] ${widget.channel}: kept days read failed: $e');
     }
   }
 
   Future<void> _keepDay(int day, bool keep) async {
     final bounds = dayBounds(day);
-    await widget.actions!.keepDay(bounds.start, bounds.end, keep);
-    await _refreshKept();
+    try {
+      await widget.actions!.keepDay(bounds.start, bounds.end, keep);
+      await _refreshKept();
+    } catch (e) {
+      logDebug('[hist!] ${widget.channel}: keep day failed: $e');
+    }
   }
 
   /// The sheet for a day, with a stream's VOD when it is a stream's row.
@@ -955,12 +972,9 @@ class _HistoryViewState extends State<HistoryView> {
     final actions = widget.actions!;
     final at = actions.follow.value;
     if (at == null) return;
-    final live = actions.vodLive.value = !actions.vodLive.value;
-    if (live) {
-      _endReplay();
-    } else {
-      _startReplay(at.time);
-    }
+    final live = !actions.vodLive.value;
+    actions.vodLive.value = live;
+    if (live) _endReplay();
   }
 
   /// Leaves the replay for the newest rows.
@@ -1062,7 +1076,7 @@ class _HistoryViewState extends State<HistoryView> {
       }
       if (again) {
         _settleAtEnd(oldest: oldest, tries: tries - 1);
-      } else if (oldest && _endCache != null) {
+      } else if (oldest && epoch == _epoch && _endCache != null) {
         setState(() => _endCache = null);
       }
     });
@@ -1218,7 +1232,12 @@ class _HistoryViewState extends State<HistoryView> {
       'jump ${time ?? 'newest'} rows=${_window.length} '
       'liveFirst=$liveFirst load=${sw.elapsedMilliseconds}ms',
     );
-    _settleAfterJump(time: time, replay: replay, pinOldest: pinOldest);
+    _settleAfterJump(
+      epoch: epoch,
+      time: time,
+      replay: replay,
+      pinOldest: pinOldest,
+    );
   }
 
   /// Rows to attach above [loaded] for a jump to [time], and whether that read
@@ -1275,7 +1294,7 @@ class _HistoryViewState extends State<HistoryView> {
       if (time == null) _attachLive();
       // A replay's rows end at the VOD's time, which is its newest row.
       if (replay) _window.atNewest = true;
-      final target = time == null || replay
+      var target = time == null || replay
           ? _window.end
           : _window.positionAt(time);
       // A restored row newer than everything the read returned sits past
@@ -1288,6 +1307,9 @@ class _HistoryViewState extends State<HistoryView> {
           widget.live != null) {
         _attachLive();
         _follow = true;
+        // The attached live rows sit past the old end, and following pins the
+        // newest row, so the anchor belongs at the end to lay out one screen.
+        target = _window.end;
       }
       // At the oldest end the anchor moves newer so the older sliver stays
       // long enough; the list then rests on the oldest row.
@@ -1305,12 +1327,13 @@ class _HistoryViewState extends State<HistoryView> {
   /// clamps or pins the offset to the end, snaps a following list to the
   /// newest row, and keeps waiting on the ends still estimated.
   void _settleAfterJump({
+    required int epoch,
     required DateTime? time,
     required bool replay,
     required bool pinOldest,
   }) {
     WidgetsBinding.instance.addPostFrameCallback((_) {
-      if (!mounted) return;
+      if (!mounted || epoch != _epoch) return;
       if (!_firstPainted) {
         _firstPainted = true;
         final ms = _open.elapsedMilliseconds;
@@ -1503,8 +1526,9 @@ class _HistoryViewState extends State<HistoryView> {
       if (!mounted) return;
       final w = _window;
       final cache = widget.tileCache?[widget.channel];
+      final end = _liveAttached && _liveStart < w.end ? _liveStart : w.end;
       var hit = false;
-      for (var p = w.first; p < w.end; p++) {
+      for (var p = w.first; p < end; p++) {
         final m = w[p];
         if (m.isSystem ||
             m.deleted ||
@@ -1722,6 +1746,8 @@ class _HistoryViewState extends State<HistoryView> {
   /// Physics hook, run in the layout that applies new content.
   double? _resolve(ScrollMetrics m, bool bouncing) {
     if (_follow && _window.atNewest) {
+      // The pin places the newest row, so a hold from before following is stale.
+      _hold = null;
       // Past the newest row while bouncing is the iOS overscroll, so leave
       // it alone. Otherwise content shrank (a mount refining row estimates).
       if (bouncing && m.pixels < m.minScrollExtent) return null;
@@ -2102,6 +2128,8 @@ class _HistoryViewState extends State<HistoryView> {
     try {
       final next = await widget.source.rail(_window.streams);
       if (mounted && next != null) _railReady.value = next;
+    } catch (e) {
+      logDebug('[hist!] ${widget.channel}: rail read failed: $e');
     } finally {
       _railBuilding = false;
     }
