@@ -151,7 +151,9 @@ class TwitchAuth extends ChangeNotifier {
           if (entry is Map<String, dynamic>) TwitchAccount.fromJson(entry),
       ];
     } catch (e) {
-      logDebug('[TwitchAuth] account registry unreadable: $e');
+      // A FormatException's text quotes its source, which is the registry.
+      final reason = e is FormatException ? e.message : e.runtimeType;
+      logDebug('[TwitchAuth] account registry unreadable: $reason');
       return [];
     }
   }
@@ -170,6 +172,8 @@ class TwitchAuth extends ChangeNotifier {
     userId = account.userId;
     profileImageUrl = account.profileImageUrl;
     _activeExpired = account.expired;
+    // An interrupted login's cookies belong to no saved account.
+    _pendingCookies = null;
   }
 
   void _clearActive() {
@@ -322,7 +326,11 @@ class TwitchAuth extends ChangeNotifier {
     if (account == null) return;
     _applyAccount(account);
     _scopeStale = false;
-    await _writeKey(_kActiveLogin, login);
+    await Future.wait([
+      _writeKey(_kActiveLogin, login),
+      _deleteKey(_kPendingToken),
+      _deleteKey(_kPendingRefresh),
+    ]);
     notifyListeners();
   }
 
@@ -352,13 +360,18 @@ class TwitchAuth extends ChangeNotifier {
         // Fall back to the first remaining account.
         _applyAccount(accounts.first);
         _scopeStale = false;
-        await _writeKey(_kActiveLogin, accounts.first.login);
+        await Future.wait([
+          _writeKey(_kActiveLogin, accounts.first.login),
+          _deleteKey(_kPendingToken),
+          _deleteKey(_kPendingRefresh),
+        ]);
       }
       await _saveAccounts();
     }
     notifyListeners();
   }
 
+  /// Disconnects the active account, or cancels a pending login.
   Future<void> clear() async {
     final current = login;
     if (current != null) {
@@ -366,11 +379,15 @@ class TwitchAuth extends ChangeNotifier {
       return;
     }
     _clearActive();
-    accounts = [];
-    await _writeKey(_kAccounts, '[]');
-    await _deleteKey(_kActiveLogin);
-    await _deleteKey(_kPendingToken);
-    await _deleteKey(_kPendingRefresh);
+    await Future.wait([
+      _deleteKey(_kPendingToken),
+      _deleteKey(_kPendingRefresh),
+      if (accounts.isEmpty) ...[
+        _writeKey(_kAccounts, '[]'),
+        _deleteKey(_kActiveLogin),
+      ] else
+        _writeKey(_kActiveLogin, _kAnonymousLogin),
+    ]);
     notifyListeners();
   }
 }

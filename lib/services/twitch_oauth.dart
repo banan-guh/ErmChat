@@ -2,6 +2,7 @@ import 'dart:convert';
 import 'dart:math';
 import '../l10n/l10n.dart';
 import '../twitch_config.dart';
+import '../util/log.dart';
 
 /// A function that starts the OAuth flow and resolves with the access token
 /// on success or null on failure/cancel. Defined here so both the settings
@@ -194,10 +195,16 @@ class TwitchOAuth {
     return base64Url.encode(bytes).replaceAll('=', '');
   }
 
+  /// Params from a redirect URL's fragment. Empty when the URL or its
+  /// encoding does not parse, since bad input carries no login.
   static Map<String, String?> parseFragment(String url) {
-    final uri = Uri.parse(url);
-    final fragment = uri.fragment;
-    if (fragment.isEmpty) return {};
-    return Uri.splitQueryString(fragment);
+    try {
+      final fragment = Uri.parse(url).fragment;
+      if (fragment.isEmpty) return {};
+      return Uri.splitQueryString(fragment);
+    } on FormatException {
+      logDebug('[OAuth] redirect fragment did not parse');
+      return {};
+    }
   }
 }

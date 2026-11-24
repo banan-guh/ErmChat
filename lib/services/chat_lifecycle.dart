@@ -128,6 +128,7 @@ class ChatLifecycle {
   StreamSubscription<Map<String, dynamic>>? _revocationSub;
 
   Future<Map<String, dynamic>?>? _currentUserFetch;
+  String? _currentUserFetchToken;
 
   /// Whether the read socket participates in readiness gating: yes for
   /// authenticated sessions, no for anonymous read-only sessions.
@@ -150,25 +151,34 @@ class ChatLifecycle {
   }
 
   Future<Map<String, dynamic>?> ensureCurrentUser(TwitchAuth auth) {
-    return _currentUserFetch ??= () {
-      // Attribute the resolution to the credential it was made with so a
-      // late result landing after an account switch is discarded (setUser).
-      final tokenAtStart = auth.accessToken;
-      return twitchApi
-          .getCurrentUser(auth)
-          .then((user) {
-            if (user != null) {
-              auth.setUser(
-                user['login'],
-                user['id'],
-                profileImageUrl: user['profile_image_url'],
-                resolvedWithToken: tokenAtStart,
-              );
-            }
-            return user;
-          })
-          .whenComplete(() => _currentUserFetch = null);
-    }();
+    // Keyed by token: a lookup still running for the previous credential must
+    // not answer the account that replaced it.
+    final tokenAtStart = auth.accessToken;
+    final inflight = _currentUserFetch;
+    if (inflight != null && _currentUserFetchToken == tokenAtStart) {
+      return inflight;
+    }
+    // Attribute the resolution to the credential it was made with, so a late
+    // result after an account switch is dropped along with its answer.
+    final fetch = twitchApi.getCurrentUser(auth).then((user) {
+      if (auth.accessToken != tokenAtStart) return null;
+      if (user != null) {
+        auth.setUser(
+          user['login'],
+          user['id'],
+          profileImageUrl: user['profile_image_url'],
+          resolvedWithToken: tokenAtStart,
+        );
+      }
+      return user;
+    });
+    _currentUserFetch = fetch;
+    _currentUserFetchToken = tokenAtStart;
+    return fetch.whenComplete(() {
+      if (!identical(_currentUserFetch, fetch)) return;
+      _currentUserFetch = null;
+      _currentUserFetchToken = null;
+    });
   }
 
   /// Posts the per-channel "Connected" once, when the channel becomes fully
@@ -222,9 +232,8 @@ class ChatLifecycle {
       }
     });
 
-    // The write socket also echoes ROOMSTATE after its own JOIN. Its JOIN
-    // confirmations let anonymous sessions resolve readiness without a read
-    // socket, and complete the both-sockets check for authenticated ones.
+    // The read socket is the sole JOINer. Write-side ROOMSTATE remains
+    // accepted for tests that drive readiness through the write decoder.
     _writeRoomStateSub?.cancel();
     _writeRoomStateSub = writeDecoder.onRoomState.listen((event) {
       if (_disposed) return;
