@@ -159,8 +159,8 @@ class ComposerBar extends StatelessWidget {
                 endItems: const [],
               )
             else
-              // The hint carries status when there is no footer for it, so
-              // it follows the selected channel and its updates.
+              // The hint carries the channel status, so it follows the
+              // selected channel and its status updates.
               _ChannelListener(
                 controller: controller,
                 selectedTabIndex: selectedTabIndex,
@@ -178,7 +178,7 @@ class ComposerBar extends StatelessWidget {
                   onEmoteToggle: controller.toggleEmoteMenu,
                   enabled: controller.enabled,
                   hintText: controller.hintText(
-                    withStatus: landscape || hideRowTyping,
+                    withStatus: landscape,
                     modesInRow:
                         modeRow &&
                         controller.selectedChannel != null &&
@@ -549,7 +549,8 @@ class ComposerStatusRow extends StatelessWidget {
   /// and eases in over a longer beat.
   final bool classic;
 
-  /// The field hint carries channel status, leaving only the retry line here.
+  /// Compact layouts reserve one status line so a changing splash never
+  /// resizes the island. The splash still shows here, not in the field hint.
   final bool compact;
 
   @override
@@ -583,9 +584,10 @@ TextStyle _statusStyle(BuildContext context, {Color? color}) {
   );
 }
 
-/// Height the status row takes for [channel], or zero when [hidden].
-/// Compact layouts keep status in the field hint, so only the retry line
-/// contributes. Pages pre-place their own footer height for channel switches.
+/// Height the status row takes for [channel], or zero when [hidden] (see
+/// [composerStatusHidden]). Each chat page adds its own channel's, so a page
+/// is already placed for the island it is about to show, and only the
+/// island moves on a switch. The row renders at this same height.
 double composerStatusHeight(
   BuildContext context,
   ComposerController controller,
@@ -595,33 +597,38 @@ double composerStatusHeight(
   bool hidden = false,
 }) {
   if (hidden) return 0;
-  final lines = _statusLines(
-    context,
-    controller,
-    channel,
-    modeRow: modeRow,
-    compact: compact,
+  final lines = _statusLines(context, controller, channel, modeRow: modeRow);
+  return _statusRowHeight(
+    lines,
+    _statusLineHeight(context),
+    reserved: _reservedStatusSlot(context, compact: compact),
   );
-  return _statusRowHeight(lines, _statusLineHeight(context));
 }
 
-/// What the status row shows for [channel]: its status line (portrait only,
-/// landscape and compact layouts move it into the field's hint) and whether
-/// the retry link for failed emotes shows.
+/// What the status row shows for [channel]: its status line (portrait only;
+/// landscape moves it into the field's hint) and whether the retry link for
+/// failed emotes shows.
 ({String status, bool failed}) _statusLines(
   BuildContext context,
   ComposerController controller,
   String channel, {
   required bool modeRow,
-  required bool compact,
 }) {
   final portrait = MediaQuery.orientationOf(context) != Orientation.landscape;
   return (
-    status: portrait && !compact
+    status: portrait
         ? _footerStatus(context, controller, channel, modeRow: modeRow)
         : '',
     failed: controller.chat.loadFailedChannels.value.contains(channel),
   );
+}
+
+/// Compact portrait keeps one line for the status even when it is empty, so a
+/// splash arriving, leaving or ticking never changes the island's height.
+double _reservedStatusSlot(BuildContext context, {required bool compact}) {
+  if (!compact) return 0;
+  if (MediaQuery.orientationOf(context) == Orientation.landscape) return 0;
+  return _statusLineHeight(context);
 }
 
 /// One status line's height: its text and the gap under it.
@@ -637,11 +644,14 @@ double _statusLineHeight(BuildContext context) {
   return h;
 }
 
-double _statusRowHeight(({String status, bool failed}) lines, double lineH) {
-  if (lines.status.isEmpty && !lines.failed) return 0;
-  return (lines.status.isEmpty ? 0 : lineH) +
-      (lines.failed ? lineH : 0) +
-      _statusFoot;
+double _statusRowHeight(
+  ({String status, bool failed}) lines,
+  double lineH, {
+  double reserved = 0,
+}) {
+  final statusH = lines.status.isEmpty ? reserved : lineH;
+  if (statusH == 0 && !lines.failed) return 0;
+  return statusH + (lines.failed ? lineH : 0) + _statusFoot;
 }
 
 /// The status line's text: the stream part alone when the room modes ride
@@ -698,27 +708,23 @@ class _StatusRow extends StatelessWidget {
   );
 
   Widget _lines(BuildContext context, String channel) {
-    final lines = _statusLines(
-      context,
-      controller,
-      channel,
-      modeRow: modeRow,
-      compact: compact,
-    );
+    final lines = _statusLines(context, controller, channel, modeRow: modeRow);
     final lineH = _statusLineHeight(context);
+    final reserved = _reservedStatusSlot(context, compact: compact);
+    final statusH = lines.status.isEmpty ? reserved : lineH;
     // Sized by the same numbers [composerStatusHeight] predicts, so a page
     // placed for this island matches it exactly.
     return SizedBox(
-      height: _statusRowHeight(lines, lineH),
+      height: _statusRowHeight(lines, lineH, reserved: reserved),
       child: Column(
         mainAxisSize: MainAxisSize.min,
         crossAxisAlignment: classic
             ? CrossAxisAlignment.start
             : CrossAxisAlignment.center,
         children: [
-          if (lines.status.isNotEmpty)
+          if (statusH > 0)
             SizedBox(
-              height: lineH,
+              height: statusH,
               child: Padding(
                 padding: EdgeInsets.only(
                   left: classic ? 20 : 12,

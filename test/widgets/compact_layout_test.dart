@@ -108,9 +108,7 @@ void main() {
     }
   });
 
-  testWidgets('compact status stays out of the measured footer', (
-    tester,
-  ) async {
+  testWidgets('compact splash stays in a fixed-height footer', (tester) async {
     await pumpJoined(tester, density: LayoutDensity.compact);
     final prefs = await Prefs.load();
     final spec = ChromeTheme.ermchat.spec.copyWith(compact: true);
@@ -134,20 +132,33 @@ void main() {
       expect(tester.getRect(island).bottom, closeTo(closed.bottom, 0.5));
     }
 
+    // The splash is its own footer line, not the field's placeholder.
     const short = 'Live with 1 viewer';
     info.setStatus(short, live: true);
     await tester.pumpAndSettle();
     expectClosedUnchanged();
-    expect(tester.widget<TextField>(field).decoration!.hintText, short);
-    expect(tester.widget<TextField>(field).decoration!.hintMaxLines, 1);
+    expect(find.text(short), findsOneWidget);
+    expect(
+      tester.widget<TextField>(field).decoration!.hintText,
+      isNot(short),
+      reason: 'compact status is not folded into the input hint',
+    );
 
     const long =
         'Live with 123456 viewers for 123h 59m · Slow (30s) · Followers only';
     info.setStatus(long, live: true);
     await tester.pumpAndSettle();
     expectClosedUnchanged();
-    expect(tester.widget<TextField>(field).decoration!.hintText, long);
+    expect(find.text(long), findsOneWidget);
 
+    // Typing keeps the splash visible.
+    await tester.tap(field);
+    await tester.enterText(field, 'hello');
+    await tester.pumpAndSettle();
+    expect(find.text(long), findsOneWidget);
+    expectClosedUnchanged();
+
+    // A retry line may add its own row, but splash ticks do not move it.
     chat.recordLoadFailure('testchannel', 'emotes');
     await tester.pumpAndSettle();
     expect(find.text(home.l10n.retryFailedEmotes), findsOneWidget);
@@ -157,6 +168,7 @@ void main() {
     expect(tester.getRect(island).top, closeTo(failed.top, 0.5));
     expect(tester.getRect(island).bottom, closeTo(failed.bottom, 0.5));
 
+    // The same holds with the keyboard open.
     await tester.tap(field);
     await tester.pump();
     for (final kb in <double>[100, 200, 300]) {
