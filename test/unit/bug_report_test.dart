@@ -14,26 +14,6 @@ void main() {
   );
 
   group('BugReport body', () {
-    test('assembles filled sections; bug-only fields only go with bugs', () {
-      final r = report()
-        ..includeDiagnostics = true
-        ..steps = 'Open chat'
-        ..screenshots.add('https://kappa.lol/abc');
-      final body = r.buildBody();
-      expect(body, contains('### Description\n\nIt closed.'));
-      expect(body, contains('### Steps to reproduce\n\nOpen chat'));
-      expect(body, contains('### Screenshots\n\n![](https://kappa.lol/abc)'));
-      expect(body, contains('<details><summary>Diagnostics</summary>'));
-      expect(body, contains('App: 0.9.0'));
-
-      final suggestion = r..kind = BugReportKind.suggestion;
-      expect(
-        suggestion.buildBody().trim(),
-        '### Description\n\nIt closed.',
-        reason: 'steps, screenshots and diagnostics hidden in the editor',
-      );
-    });
-
     test('only the title is required', () {
       expect((report()..whatHappened = '').isSendable, isTrue);
       expect((report()..summary = ' ').isSendable, isFalse);

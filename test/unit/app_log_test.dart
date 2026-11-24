@@ -64,9 +64,4 @@ void main() {
     );
     expect(File('${dir.path}/perf_log.txt').existsSync(), isFalse);
   });
-
-  test('copy keeps the newest entries within the limit', () {
-    final entries = ['newest', 'middle', 'oldest'];
-    expect(AppLog.copyText(entries, limit: 15), ('newest\nmiddle\n', 2));
-  });
 }

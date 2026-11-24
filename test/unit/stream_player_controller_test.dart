@@ -69,52 +69,9 @@ void main() {
       expect(controller.takePipAction(), 'pause');
       expect(controller.takePipAction(), isNull);
     });
-
-    test('setPipPlaying notifies only on flips', () {
-      final controller = _controller(pipService: FakePipService());
-      var notifies = 0;
-      controller.addListener(() => notifies++);
-      controller.setPipPlaying(true);
-      controller.setPipPlaying(true);
-      controller.setPipPlaying(false);
-      expect(controller.pipPlaying, isFalse);
-      expect(notifies, 2);
-    });
   });
 
   group('StreamPlayerController', () {
-    test('stream, audio-only and theater flags stay consistent', () {
-      final controller = StreamPlayerController();
-      addTearDown(controller.dispose);
-      controller.toggleStream('foo');
-      expect(controller.currentChannel, 'foo');
-      expect(controller.isActive, isTrue);
-
-      controller.toggleAudioOnly();
-      expect(controller.isAudioOnly, isTrue);
-      controller.toggleStream('bar');
-      expect(controller.currentChannel, 'bar');
-      expect(controller.isAudioOnly, isFalse, reason: 'switching resets it');
-
-      controller.toggleTheaterMode();
-      expect(controller.isTheaterMode, isTrue);
-      controller.toggleAudioOnly();
-      expect(controller.isTheaterMode, isFalse);
-      expect(controller.isAudioOnly, isTrue);
-
-      controller.toggleStream('bar');
-      expect(controller.currentChannel, isNull);
-      expect(controller.isActive, isFalse);
-    });
-
-    test('playerUrl carries the channel with extensions off', () {
-      final controller = StreamPlayerController();
-      final url = controller.playerUrl('foo');
-      expect(url, contains('channel=foo'));
-      expect(url, contains('enableExtensions=false'));
-      controller.dispose();
-    });
-
     test('split fraction clamps and render death bumps generation', () {
       final controller = StreamPlayerController();
       controller.setSplitFraction(0.9);

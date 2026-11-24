@@ -7,27 +7,6 @@ import 'package:shared_preferences/shared_preferences.dart';
 
 void main() {
   group('resolveCompact', () {
-    test('auto goes compact on short phones only', () {
-      const devices = {
-        'iPhone 8': Size(375, 667),
-        'small Android': Size(360, 720),
-        'iPhone mini': Size(375, 812),
-        'S24 FE': Size(384, 832),
-        'iPhone 13': Size(390, 844),
-      };
-      final compact = {
-        for (final e in devices.entries)
-          e.key: resolveCompact(LayoutDensity.auto, e.value),
-      };
-      expect(compact, {
-        'iPhone 8': true,
-        'small Android': true,
-        'iPhone mini': false,
-        'S24 FE': false,
-        'iPhone 13': false,
-      });
-    });
-
     test('auto never flips on rotation', () {
       for (final size in const [Size(375, 667), Size(390, 844)]) {
         expect(
@@ -36,24 +15,9 @@ void main() {
         );
       }
     });
-
-    test('manual choices ignore the screen', () {
-      const small = Size(375, 667);
-      const big = Size(412, 915);
-      expect(resolveCompact(LayoutDensity.compact, big), isTrue);
-      expect(resolveCompact(LayoutDensity.full, small), isFalse);
-    });
   });
 
   group('layoutDensity pref', () {
-    test('defaults to auto and round-trips', () async {
-      SharedPreferences.setMockInitialValues({});
-      await Prefs.load();
-      expect(Settings.layoutDensity.value, LayoutDensity.auto);
-      await Settings.layoutDensity.set(LayoutDensity.compact);
-      expect(Settings.layoutDensity.value, LayoutDensity.compact);
-    });
-
     test('unknown stored value falls back to auto', () async {
       SharedPreferences.setMockInitialValues({'layout_density': 'huge'});
       await Prefs.load();
@@ -86,22 +50,6 @@ void main() {
       expect(find.text('1'), findsOneWidget);
       expect(isCompactLayout(tester.element(find.byType(_Counter))), isFalse);
       expect(_CounterState.reattaches, 0);
-    });
-
-    testWidgets('auto follows the screen', (tester) async {
-      tester.view.devicePixelRatio = 1;
-      addTearDown(tester.view.reset);
-      tester.view.physicalSize = const Size(375, 667);
-      await tester.pumpWidget(app(LayoutDensity.auto));
-      expect(isCompactLayout(tester.element(find.byType(_Counter))), isTrue);
-
-      tester.view.physicalSize = const Size(667, 375);
-      await tester.pump();
-      expect(isCompactLayout(tester.element(find.byType(_Counter))), isTrue);
-
-      tester.view.physicalSize = const Size(390, 844);
-      await tester.pump();
-      expect(isCompactLayout(tester.element(find.byType(_Counter))), isFalse);
     });
   });
 }

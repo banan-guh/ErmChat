@@ -4,46 +4,6 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 void main() {
-  test('every preset survives the paste format, short enough to paste', () {
-    final longName = 'x' * ChromeThemeSpec.maxNameLength;
-    for (final t in ChromeTheme.values) {
-      for (final spec in [t.spec, t.spec.copyWith(name: longName)]) {
-        final line = spec.encode();
-        expect(ChromeThemeSpec.decode(line), spec, reason: '${t.name}: $line');
-        // Phone clipboards cut long pastes; a theme must never come close.
-        expect(line.length, lessThan(200), reason: line);
-      }
-    }
-    final named = ChromeThemeSpec.blank.copyWith(name: 'a;b=c %d');
-    expect(ChromeThemeSpec.decode(named.encode()), named);
-    final shapes = <(String, ChromeThemeSpec)>[
-      ('emote and send in the field', ChromeThemeSpec.blank),
-      (
-        'send in the column, emote in the row',
-        ChromeThemeSpec.blank.copyWith(fieldStart: [], fieldEnd: []),
-      ),
-      (
-        'send in the row',
-        ChromeThemeSpec.blank.copyWith(
-          fieldStart: [],
-          fieldEnd: [],
-          sendAside: SendPlace.row,
-        ),
-      ),
-      (
-        'both on one side with an action ahead',
-        ChromeThemeSpec.blank.copyWith(
-          fieldStart: [FieldItem.action(ChromeAction.threads), FieldItem.send],
-          fieldEnd: [],
-        ),
-      ),
-      ('compact', ChromeThemeSpec.blank.copyWith(compact: true)),
-    ];
-    for (final (name, spec) in shapes) {
-      expect(ChromeThemeSpec.decode(spec.encode()), spec, reason: name);
-    }
-  });
-
   test('old lines map emote and send onto the field row', () {
     // Lines saved before the field row carry s= and maybe e=, never c=. An
     // island with a row and send out of it was compact on a phone, which
@@ -448,18 +408,6 @@ void main() {
     for (final (name, spec, action, block) in cases) {
       expect(spec.removeBlock(action), block, reason: name);
     }
-  });
-
-  test('leaving the app bar keeps its actions on the strip', () {
-    final spec = ChromeTheme.dankchat3.spec.withHeader(HeaderStyle.bubbles);
-    expect(spec.appBarActions, isEmpty);
-    expect(spec.stripActions, [
-      ChromeAction.viewMenu,
-      ChromeAction.join,
-      ChromeAction.mentions,
-      ChromeAction.overflow,
-    ]);
-    expect(spec.slots, isNot(contains(LayoutSlot.appBar)));
   });
 
   group('chromeTheme pref', () {

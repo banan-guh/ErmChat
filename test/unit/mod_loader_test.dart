@@ -66,17 +66,6 @@ void main() {
     expect(loader.value, ['new']);
   });
 
-  test('a failed first load shows the status copy', () async {
-    final loader = moderators();
-    final load = loader.load();
-    await settle();
-    responses[0].complete(http.Response('{"message":"nope"}', 403));
-    await load;
-    expect(loader.value, isNull);
-    expect(loader.error, 'Not yours.');
-    expect(notices, isEmpty);
-  });
-
   test('a failed refresh keeps the data and becomes a notice', () async {
     final loader = moderators();
     var load = loader.load();

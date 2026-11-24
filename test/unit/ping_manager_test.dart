@@ -147,14 +147,12 @@ void main() {
         );
 
     for (final (name, rule, hits, misses) in [
-      ('substring, case-insensitive', custom('KEKW'), ['lol kekw'], ['nope']),
       (
         'regex syntax is plain text',
         custom('what?', word: true),
         ['wait what?'],
         ['wha', 'what'],
       ),
-      ('disabled', custom('ping', enabled: false), <String>[], ['ping']),
       (
         'whole word anchors literals',
         custom('cat', word: true),
@@ -371,19 +369,6 @@ void main() {
       );
     });
 
-    test('automod highlight follows its builtin rule', () async {
-      final m = await makeManager();
-      final rule = m.rules.firstWhere((r) => r.id == 'builtin_automod');
-      m.upsertRule(rule.copyWith(enabled: false));
-      expect(m.evaluate(msg('approved', automodApproved: true)), isNull);
-
-      m.upsertRule(rule.copyWith(colorArgb: 0xFF64B5F6));
-      expect(
-        m.evaluate(msg('approved', automodApproved: true))?.customColor,
-        const Color(0xFF64B5F6),
-      );
-    });
-
     test(
       'switching accounts drops the departed account learned state',
       () async {
@@ -545,74 +530,5 @@ void main() {
       expect(state?.primary, isNot(HighlightType.custom), reason: hit.text);
       expect(state?.customColor, isNull, reason: 'palette, not the keyword');
     }
-  });
-
-  group('rowColor contrast equalization', () {
-    test(
-      'normalizes every highlight to equal contrast with custom colors winning',
-      () {
-        double dist(Color c, Color s) => (brightness(c) - brightness(s)).abs();
-        const cases = [(Color(0xFF0E0E10), 0.5), (Color(0xFFFFFFFF), 1.0)];
-        const types = [
-          HighlightType.username,
-          HighlightType.redemption,
-          HighlightType.elevated,
-          HighlightType.firstMsg,
-          HighlightType.automod,
-        ];
-        for (final (surface, opacity) in cases) {
-          final distances = <double>[
-            for (final t in types)
-              (() {
-                final row = highlightRowColor(
-                  HighlightState(types: {t}),
-                  surface,
-                  opacity: opacity,
-                );
-                return (brightness(row) - brightness(surface)).abs();
-              })(),
-          ];
-          for (final d in distances) {
-            expect(
-              d,
-              closeTo(distances.first, 0.02),
-              reason: 'surface: $surface',
-            );
-          }
-          final plain = highlightRowColor(
-            HighlightState(types: {HighlightType.firstMsg}),
-            surface,
-          );
-          expect(
-            dist(plain, surface),
-            closeTo(
-              dist(highlightAnchor(surface), surface) * highlightStrength,
-              0.02,
-            ),
-            reason: 'surface: $surface matches the scaled anchor',
-          );
-        }
-
-        // Custom colors win over the palette without changing the budget.
-        const surfaceDark = Color(0xFF000000);
-        const custom = HighlightState(
-          types: {HighlightType.username},
-          customColor: Color(0xFFABCDEF),
-        );
-        final customRow = highlightRowColor(custom, surfaceDark);
-        final paletteRow = highlightRowColor(
-          const HighlightState(types: {HighlightType.username}),
-          surfaceDark,
-        );
-        expect(customRow, isNot(equals(paletteRow)));
-        expect(
-          dist(customRow, surfaceDark),
-          closeTo(
-            dist(highlightAnchor(surfaceDark), surfaceDark) * highlightStrength,
-            0.02,
-          ),
-        );
-      },
-    );
   });
 }

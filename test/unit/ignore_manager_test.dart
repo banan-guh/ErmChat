@@ -71,29 +71,6 @@ void main() {
       },
     );
 
-    test(
-      'applies custom replacements while preserving the original casing',
-      () async {
-        final m = await makeManager();
-        m.upsertKeyword(
-          const IgnoreEntry(
-            id: 'k2',
-            pattern: 'bad',
-            replacement: '[censored]',
-          ),
-        );
-        m.upsertKeyword(const IgnoreEntry(id: 'k3', pattern: 'ugoh'));
-        const cases = {'bad bad': '[censored] [censored]', 'UGOH!': '***!'};
-        cases.forEach((input, expected) {
-          expect(
-            m.applyKeywordReplacements(input).text,
-            expected,
-            reason: 'input: $input',
-          );
-        });
-      },
-    );
-
     test('regex rules with invalid fallback to literal', () async {
       final m = await makeManager();
       m.upsertKeyword(

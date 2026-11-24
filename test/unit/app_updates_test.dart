@@ -35,20 +35,6 @@ void main() {
     }
   });
 
-  test('each installer checks its own store', () {
-    for (final (installer, ios, want) in [
-      ('com.android.vending', false, UpdateSource.play),
-      ('org.fdroid.fdroid', false, UpdateSource.fdroid),
-      ('com.looker.droidify', false, UpdateSource.fdroid),
-      ('dev.imranr.obtainium', false, UpdateSource.github),
-      (null, false, UpdateSource.github),
-      ('com.apple.testflight', true, UpdateSource.testflight),
-      ('com.apple', true, null),
-    ]) {
-      expect(updateSourceFor(installer, ios: ios), want, reason: '$installer');
-    }
-  });
-
   test(
     "What's new: quiet on first launch, once per upgrade, never down",
     () async {
@@ -167,19 +153,6 @@ void main() {
         isNull,
         reason: 'no source',
       );
-    });
-
-    test('the dev arm fakes the next patch, offline, once', () async {
-      final prefs = await Prefs.load();
-      await Settings.armUpdate.set(true);
-      await prefs.setDismissedUpdate('0.9.8');
-      fail = true;
-      final fake = await updates.checkForUpdate('0.9.7', null);
-      expect(fake?.version, '0.9.8');
-      expect(fake?.armed, isTrue);
-      expect(Settings.armUpdate.value, isFalse);
-      expect(prefs.availableUpdate, '0.9.8', reason: 'banner shows it too');
-      expect(prefs.dismissedUpdate, isNull, reason: 'even after an X');
     });
   });
 

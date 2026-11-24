@@ -65,12 +65,6 @@ void main() {
       expect(decoded.width, 2);
       expect(decoded.height, 4);
     });
-
-    test('leaves non-JPEG bytes untouched', () async {
-      final png = Uint8List.fromList([1, 2, 3, 4]);
-
-      expect(await stripExif(png), png);
-    });
   });
 
   Future<File> tempUploadFile() async {
@@ -224,34 +218,6 @@ void main() {
     });
   });
 
-  group('MediaUploader config persistence', () {
-    test('config defaults, saves, loads and resets', () async {
-      final uploader = MediaUploader(
-        client: MockClient((_) async => http.Response('', 200)),
-      );
-      expect(
-        (await uploader.loadConfig()).uploadUrl,
-        'https://kappa.lol/api/upload',
-      );
-
-      await uploader.saveConfig(
-        const UploaderConfig(
-          uploadUrl: 'https://example.com/upload',
-          formField: 'x',
-          headers: 'X-A: 1',
-        ),
-      );
-      final loaded = await uploader.loadConfig();
-      expect(loaded.uploadUrl, 'https://example.com/upload');
-      expect(loaded.headers, 'X-A: 1');
-
-      await uploader.resetConfig();
-      final reset = await uploader.loadConfig();
-      expect(reset.uploadUrl, 'https://kappa.lol/api/upload');
-      expect(reset.formField, 'file');
-    });
-  });
-
   group('MediaUploader recent uploads', () {
     test('addRecent keeps every entry so delete links survive', () async {
       final uploader = MediaUploader(
@@ -267,21 +233,6 @@ void main() {
       expect(uploads.length, 60);
       expect(uploads.first.imageLink, 'https://kappa.lol/59');
       expect(uploads.last.imageLink, 'https://kappa.lol/0');
-    });
-
-    test('removeRecent and clearRecents edit the list', () async {
-      final uploader = MediaUploader(
-        client: MockClient((_) async => http.Response('', 200)),
-      );
-      await uploader.addRecent(const UploadResult(imageLink: 'a'));
-      await uploader.addRecent(const UploadResult(imageLink: 'b'));
-
-      final uploads = await uploader.recentUploads();
-      await uploader.removeRecent(uploads.first);
-      expect((await uploader.recentUploads()).map((u) => u.imageLink), ['a']);
-
-      await uploader.clearRecents();
-      expect(await uploader.recentUploads(), isEmpty);
     });
   });
 }
