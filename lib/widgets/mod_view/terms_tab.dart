@@ -6,7 +6,7 @@ import 'scope.dart';
 import 'widgets.dart';
 import '../island_metrics.dart';
 
-/// Public blocked terms. New terms are typed into the borrowed composer.
+/// Blocked terms, including private broadcaster terms from Helix.
 class TermsTab extends ModTabWidget {
   const TermsTab({super.key, required super.mod, required this.termsVersion});
 

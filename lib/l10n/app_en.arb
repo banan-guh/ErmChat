@@ -1446,7 +1446,7 @@
   "monitored": "Monitored",
   "flagged": "Flagged",
   "loadTermsFailed": "Could not load blocked terms.",
-  "termsHint": "Only moderators can see this list. Public terms only; private terms live in the dashboard. Type in the chat box below to add one.",
+  "termsHint": "Broadcasters see private terms through Helix.",
   "noBlockedTerms": "No blocked terms yet.",
   "wildcardHint": "A * wildcard is allowed at the start or the end.",
   "addedAgo": "Added {time}",
