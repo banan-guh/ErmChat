@@ -1,3 +1,5 @@
+import 'package:ermchat/composer/composer_bar.dart';
+import 'package:ermchat/l10n/l10n.dart';
 import 'package:ermchat/util/chrome_theme.dart';
 import 'package:ermchat/util/layout_density.dart';
 import 'package:ermchat/util/prefs.dart';
@@ -104,6 +106,70 @@ void main() {
       expect(node.hasFocus, isTrue, reason: 'flip to $density');
       expect(tester.testTextInput.isVisible, isTrue);
     }
+  });
+
+  testWidgets('compact status stays out of the measured footer', (
+    tester,
+  ) async {
+    await pumpJoined(tester, density: LayoutDensity.compact);
+    final prefs = await Prefs.load();
+    final spec = ChromeTheme.ermchat.spec.copyWith(compact: true);
+    await prefs.setCustomChromeThemes([spec]);
+    await prefs.setChromeThemeKey('${Prefs.customChromeThemePrefix}0');
+    await settlePrefs(tester);
+
+    final home = tester.element(find.byType(HomeScreen));
+    final chat = ProviderScope.containerOf(home).read(chatProvider);
+    final info = chat.channelFor('testchannel')!.info;
+    final input = find.byKey(inputBarKey);
+    final field = find.byKey(const Key('message_input'));
+    final island = find.byKey(const ValueKey('composer_island'));
+    info.setStatus('');
+    await tester.pumpAndSettle();
+    final inputH = tester.getSize(input).height;
+    final closed = tester.getRect(island);
+    void expectClosedUnchanged() {
+      expect(tester.getSize(input).height, inputH);
+      expect(tester.getRect(island).top, closeTo(closed.top, 0.5));
+      expect(tester.getRect(island).bottom, closeTo(closed.bottom, 0.5));
+    }
+
+    const short = 'Live with 1 viewer';
+    info.setStatus(short, live: true);
+    await tester.pumpAndSettle();
+    expectClosedUnchanged();
+    expect(tester.widget<TextField>(field).decoration!.hintText, short);
+    expect(tester.widget<TextField>(field).decoration!.hintMaxLines, 1);
+
+    const long =
+        'Live with 123456 viewers for 123h 59m · Slow (30s) · Followers only';
+    info.setStatus(long, live: true);
+    await tester.pumpAndSettle();
+    expectClosedUnchanged();
+    expect(tester.widget<TextField>(field).decoration!.hintText, long);
+
+    chat.recordLoadFailure('testchannel', 'emotes');
+    await tester.pumpAndSettle();
+    expect(find.text(home.l10n.retryFailedEmotes), findsOneWidget);
+    final failed = tester.getRect(island);
+    info.setStatus('$long · Unique chat', live: true);
+    await tester.pumpAndSettle();
+    expect(tester.getRect(island).top, closeTo(failed.top, 0.5));
+    expect(tester.getRect(island).bottom, closeTo(failed.bottom, 0.5));
+
+    await tester.tap(field);
+    await tester.pump();
+    for (final kb in <double>[100, 200, 300]) {
+      tester.view.viewInsets = FakeViewPadding(bottom: kb);
+      await tester.pump(const Duration(milliseconds: 16));
+    }
+    await tester.pump(const Duration(milliseconds: 400));
+    final open = tester.getRect(island);
+    info.setStatus('Live with 7 viewers for 2h 3m', live: true);
+    await tester.pump(const Duration(milliseconds: 300));
+    expect(tester.getSize(input).height, inputH);
+    expect(tester.getRect(island).top, closeTo(open.top, 0.5));
+    expect(tester.getRect(island).bottom, closeTo(open.bottom, 0.5));
   });
 
   // A softlock: with the view menu in the row or the field, hiding the input

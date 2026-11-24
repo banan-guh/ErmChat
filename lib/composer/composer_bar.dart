@@ -159,8 +159,8 @@ class ComposerBar extends StatelessWidget {
                 endItems: const [],
               )
             else
-              // The hint carries the channel status, so it follows the
-              // selected channel and its status updates.
+              // The hint carries status when there is no footer for it, so
+              // it follows the selected channel and its updates.
               _ChannelListener(
                 controller: controller,
                 selectedTabIndex: selectedTabIndex,
@@ -178,7 +178,7 @@ class ComposerBar extends StatelessWidget {
                   onEmoteToggle: controller.toggleEmoteMenu,
                   enabled: controller.enabled,
                   hintText: controller.hintText(
-                    withStatus: landscape,
+                    withStatus: landscape || hideRowTyping,
                     modesInRow:
                         modeRow &&
                         controller.selectedChannel != null &&
@@ -533,6 +533,7 @@ class ComposerStatusRow extends StatelessWidget {
     required this.dragTick,
     this.modeRow = false,
     this.classic = false,
+    this.compact = false,
   });
 
   final ComposerController controller;
@@ -548,6 +549,9 @@ class ComposerStatusRow extends StatelessWidget {
   /// and eases in over a longer beat.
   final bool classic;
 
+  /// The field hint carries channel status, leaving only the retry line here.
+  final bool compact;
+
   @override
   Widget build(BuildContext context) => ListenableBuilder(
     listenable: _enabledInputs(controller, mod, dragTick),
@@ -558,6 +562,7 @@ class ComposerStatusRow extends StatelessWidget {
         selectedTabIndex: selectedTabIndex,
         modeRow: modeRow,
         classic: classic,
+        compact: compact,
       );
     },
   );
@@ -578,34 +583,41 @@ TextStyle _statusStyle(BuildContext context, {Color? color}) {
   );
 }
 
-/// Height the status row takes for [channel], or zero when [hidden] (see
-/// [composerStatusHidden]). Each chat page adds its own channel's, so a page
-/// is already placed for the island it is about to show, and only the
-/// island moves on a switch. The row renders at this same height.
+/// Height the status row takes for [channel], or zero when [hidden].
+/// Compact layouts keep status in the field hint, so only the retry line
+/// contributes. Pages pre-place their own footer height for channel switches.
 double composerStatusHeight(
   BuildContext context,
   ComposerController controller,
   String channel, {
   bool modeRow = false,
+  bool compact = false,
   bool hidden = false,
 }) {
   if (hidden) return 0;
-  final lines = _statusLines(context, controller, channel, modeRow: modeRow);
+  final lines = _statusLines(
+    context,
+    controller,
+    channel,
+    modeRow: modeRow,
+    compact: compact,
+  );
   return _statusRowHeight(lines, _statusLineHeight(context));
 }
 
-/// What the status row shows for [channel]: its status line (portrait only;
-/// landscape moves it into the field's hint) and whether the retry link for
-/// failed emotes shows.
+/// What the status row shows for [channel]: its status line (portrait only,
+/// landscape and compact layouts move it into the field's hint) and whether
+/// the retry link for failed emotes shows.
 ({String status, bool failed}) _statusLines(
   BuildContext context,
   ComposerController controller,
   String channel, {
   required bool modeRow,
+  required bool compact,
 }) {
   final portrait = MediaQuery.orientationOf(context) != Orientation.landscape;
   return (
-    status: portrait
+    status: portrait && !compact
         ? _footerStatus(context, controller, channel, modeRow: modeRow)
         : '',
     failed: controller.chat.loadFailedChannels.value.contains(channel),
@@ -659,12 +671,14 @@ class _StatusRow extends StatelessWidget {
     required this.selectedTabIndex,
     required this.modeRow,
     required this.classic,
+    required this.compact,
   });
 
   final ComposerController controller;
   final ValueListenable<int> selectedTabIndex;
   final bool modeRow;
   final bool classic;
+  final bool compact;
 
   @override
   Widget build(BuildContext context) => _ChannelListener(
@@ -684,7 +698,13 @@ class _StatusRow extends StatelessWidget {
   );
 
   Widget _lines(BuildContext context, String channel) {
-    final lines = _statusLines(context, controller, channel, modeRow: modeRow);
+    final lines = _statusLines(
+      context,
+      controller,
+      channel,
+      modeRow: modeRow,
+      compact: compact,
+    );
     final lineH = _statusLineHeight(context);
     // Sized by the same numbers [composerStatusHeight] predicts, so a page
     // placed for this island matches it exactly.

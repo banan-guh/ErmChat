@@ -1945,6 +1945,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
     _composer,
     channel,
     modeRow: _modeRow,
+    compact: (_layoutEdit?.draft ?? _chromeTheme).compact,
     hidden: composerStatusHidden(_search),
   );
 
@@ -2505,6 +2506,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
                       dragTick: _panelDragTick,
                       modeRow: modeRow,
                       classic: spec.composer == ComposerStyle.classic,
+                      compact: spec.compact,
                     )
                   : null,
               // Send runs down the island's side while the row stays up.
