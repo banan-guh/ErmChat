@@ -8,9 +8,12 @@ import '../util/signal.dart';
 import 'twitch_auth.dart';
 
 class TwitchBadgeService {
-  TwitchBadgeService({http.Client? client}) : _client = client ?? http.Client();
+  TwitchBadgeService({http.Client? client, DateTime Function()? now})
+    : _client = client ?? http.Client(),
+      _now = now ?? DateTime.now;
 
   final http.Client _client;
+  final DateTime Function() _now;
 
   /// Closes the underlying HTTP client; the provider calls this on teardown.
   void close() {
@@ -31,6 +34,12 @@ class TwitchBadgeService {
   // broadcasterId -> login / display name (shared-chat source channels).
   final _channelLogins = <String, String>{};
   final _channelDisplayNames = <String, String>{};
+  // A settled users read with no avatar still has a login, so later messages
+  // must not re-issue the same Helix request. A failed read gets a retry
+  // window instead of one request per mirrored chat message.
+  final _avatarSettled = <String>{};
+  final _avatarRetryAt = <String, DateTime>{};
+  static const _avatarRetryBackoff = Duration(minutes: 1);
 
   int _version = 0;
 
@@ -128,7 +137,15 @@ class TwitchBadgeService {
   }
 
   Future<void> fetchChannelAvatar(TwitchAuth auth, String broadcasterId) async {
-    if (_channelAvatars.containsKey(broadcasterId)) return;
+    if (_channelAvatars.containsKey(broadcasterId) ||
+        _avatarSettled.contains(broadcasterId)) {
+      return;
+    }
+    final retryAt = _avatarRetryAt[broadcasterId];
+    if (retryAt != null) {
+      if (_now().isBefore(retryAt)) return;
+      _avatarRetryAt.remove(broadcasterId);
+    }
     final existing = _inflightAvatars[broadcasterId];
     if (existing != null) return existing;
     final future = _doFetchChannelAvatar(auth, broadcasterId);
@@ -153,10 +170,16 @@ class TwitchBadgeService {
         'Authorization': 'Bearer ${auth.accessToken ?? ''}',
       };
       final res = await _client.get(uri, headers: headers).timeout(httpTimeout);
-      if (res.statusCode != 200) return;
+      if (res.statusCode != 200) {
+        _avatarRetryAt[broadcasterId] = _now().add(_avatarRetryBackoff);
+        return;
+      }
       final data = jsonDecode(res.body) as Map<String, dynamic>;
       final list = data['data'] as List<dynamic>?;
-      if (list == null || list.isEmpty) return;
+      if (list == null || list.isEmpty) {
+        _avatarRetryAt[broadcasterId] = _now().add(_avatarRetryBackoff);
+        return;
+      }
       final user = list[0] as Map<String, dynamic>;
       final avatarUrl = user['profile_image_url'] as String?;
       final login = user['login'] as String?;
@@ -168,9 +191,11 @@ class TwitchBadgeService {
       if (displayName != null && displayName.isNotEmpty) {
         _channelDisplayNames[broadcasterId] = displayName;
       }
+      _avatarSettled.add(broadcasterId);
       _version++;
     } catch (e) {
       logDebug('Channel avatar fetch error: $e');
+      _avatarRetryAt[broadcasterId] = _now().add(_avatarRetryBackoff);
     }
   }
 
@@ -182,6 +207,8 @@ class TwitchBadgeService {
     _channelAvatars.clear();
     _channelLogins.clear();
     _channelDisplayNames.clear();
+    _avatarSettled.clear();
+    _avatarRetryAt.clear();
     _globalFetched = false;
   }
 

@@ -137,11 +137,15 @@ class ChatLiveness {
       unawaited(points.forceReconnect());
     }
     final sevenTv = sevenTvClient;
-    if (sevenTv != null &&
-        !sevenTv.isRateLimited &&
-        (needsDial(sevenTv.isConnected, sevenTv.isReconnecting) ||
-            sevenTv.isStale)) {
-      unawaited(sevenTv.forceReconnect());
+    if (sevenTv != null && !sevenTv.isRateLimited) {
+      // The socket's own heartbeat watchdog owns zombie detection while the
+      // app runs. Only a resume probe needs isStale, since the OS can freeze
+      // a socket without ending it; checking it on every 30s tick would race
+      // the socket watchdog at the same 3x-interval deadline.
+      final stale = probe && sevenTv.isStale;
+      if (needsDial(sevenTv.isConnected, sevenTv.isReconnecting) || stale) {
+        unawaited(sevenTv.forceReconnect());
+      }
     }
   }
 

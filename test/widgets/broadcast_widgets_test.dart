@@ -96,6 +96,32 @@ void main() {
         expect(refreshes, ['c'], reason: 'a removed pin stops refreshing');
       }
 
+      final switched = <String>[];
+      var selected = 'c';
+      final switching = BroadcastWidgets(
+        selectedChannel: () => selected,
+        onPinRefresh: switched.add,
+      );
+      addTearDown(switching.dispose);
+      for (final channel in ['c', 'd']) {
+        switching.onPinned(
+          PinnedMessageEvent(channel: channel, id: channel, text: 'hi'),
+        );
+      }
+      await tester.pump(const Duration(minutes: 5));
+      expect(switched, ['c'], reason: 'background pins are not re-read');
+
+      selected = 'd';
+      switching.onSelectionChanged('d');
+      await tester.pump(const Duration(minutes: 5));
+      expect(switched, ['c', 'd'], reason: 'selection moves the re-read');
+
+      selected = 'c';
+      switching.onSelectionChanged('c');
+      await tester.pump(const Duration(minutes: 5));
+      expect(switched, ['c', 'd', 'c'], reason: 'a returning pin resumes it');
+      switching.onSelectionChanged(null);
+
       final cards = BroadcastWidgets(selectedChannel: () => 'c');
       addTearDown(cards.dispose);
       cards.onPinned(PinnedMessageEvent(channel: 'c', id: 'a', text: 'hi'));

@@ -7,6 +7,7 @@ import 'package:ermchat/services/emote_providers/ffz_emotes.dart';
 import 'package:ermchat/services/emote_providers/bttv_emotes.dart';
 import 'package:ermchat/services/emote_providers/twitch_emotes.dart';
 import 'package:ermchat/services/emote_providers/seven_tv_emotes.dart';
+import 'package:ermchat/services/emote_providers/emote_http.dart';
 
 class _FakeHttpOverrides extends HttpOverrides {
   final Map<String, String> responses;
@@ -169,6 +170,18 @@ String _url(String id, String scale) =>
 /// exposes; the render layer picks the role.
 void main() {
   tearDown(() => HttpOverrides.global = null);
+
+  test('concurrent emote list reads share one download', () async {
+    final uri = Uri.parse('https://7tv.io/v3/users/twitch/1234');
+    HttpOverrides.global = _FakeHttpOverrides({
+      uri.toString(): '{"user":{"id":"x"}}',
+    });
+    final a = getEmoteList(uri);
+    final b = getEmoteList(uri);
+    expect(identical(a, b), isTrue, reason: 'same URL shares one request');
+    final responses = await Future.wait([a, b]);
+    expect(identical(responses[0], responses[1]), isTrue);
+  });
 
   group('FfzEmoteProvider scales', () {
     const globalUrl = 'https://api.frankerfacez.com/v1/set/global';

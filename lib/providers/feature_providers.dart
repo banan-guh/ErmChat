@@ -220,6 +220,9 @@ final broadcastWidgetsProvider = Provider<BroadcastWidgets>((ref) {
     messageColor: (channel, id) =>
         ref.read(chatProvider).channelFor(channel)?.messages.byId(id)?.color,
   );
+  ref.listen(selectedChannelProvider, (_, next) {
+    widgets.onSelectionChanged(next);
+  });
   ref.onDispose(widgets.dispose);
   return widgets;
 });

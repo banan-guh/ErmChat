@@ -27,12 +27,39 @@ HttpOverrides? _heldFor;
 /// the hop.
 const _isolateUnpackBytes = 64 * 1024;
 
+// Concurrent callers for the same URL share one download and unpack. A
+// channel resolve and a personal-set bootstrap both read the 7TV user URL
+// when viewing your own channel; without this they download it twice and
+// count the bytes twice. Nothing is kept after the request settles, so a
+// later refresh still sees fresh data.
+final _inflight = <String, Future<http.Response>>{};
+
 /// GETs [uri] for an emote provider: counted, unpacked, and failing on a
 /// transient status like the other provider requests.
 Future<http.Response> getEmoteList(
   Uri uri, {
   Map<String, String> headers = const {},
-}) async {
+}) {
+  final keys = headers.keys.toList()..sort();
+  final signature = [
+    uri.toString(),
+    for (final key in keys) '$key=${headers[key]}',
+  ].join('|');
+  final existing = _inflight[signature];
+  if (existing != null) return existing;
+  late final Future<http.Response> future;
+  future = _fetchEmoteList(uri, headers).whenComplete(() {
+    if (identical(_inflight[signature], future)) {
+      _inflight.remove(signature);
+    }
+  });
+  return _inflight[signature] = future;
+}
+
+Future<http.Response> _fetchEmoteList(
+  Uri uri,
+  Map<String, String> headers,
+) async {
   final res = await _client
       .get(uri, headers: {...headers, 'accept-encoding': 'gzip'})
       .timeout(httpTimeout);

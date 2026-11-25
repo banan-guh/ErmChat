@@ -49,7 +49,8 @@ class BroadcastWidgets {
   // Lapses timed pins, which get no unpin event.
   final _pinExpiry = <String, Timer>{};
 
-  // Re-reads untimed pins, which can outlive a missed PubSub unpin.
+  // Re-reads the selected channel's pin, which can outlive a missed PubSub
+  // unpin. Background channels keep their card but cost no Helix read.
   final _pinRefresh = <String, Timer>{};
   final widgetsMinimized = <String, bool>{};
   // One card pager per channel: two channels' cards show mid-swipe.
@@ -154,15 +155,30 @@ class BroadcastWidgets {
           () => _dropPin(channel),
         );
       }
-      if (onPinRefresh != null) {
-        _pinRefresh[channel] = Timer.periodic(
-          const Duration(minutes: 5),
-          (_) => onPinRefresh!(channel),
-        );
-      }
+      _armPinRefresh(channel);
     }
     notifier.value++;
     _clampPage(shown);
+  }
+
+  /// Polls [channel]'s pin only while it is selected. A missed unpin on a
+  /// background channel stays hidden until that channel is viewed again.
+  void _armPinRefresh(String channel) {
+    if (onPinRefresh == null || channel != selectedChannel()) return;
+    _pinRefresh[channel]?.cancel();
+    _pinRefresh[channel] = Timer.periodic(
+      const Duration(minutes: 5),
+      (_) => onPinRefresh!(channel),
+    );
+  }
+
+  /// Moves the pin re-read to the newly selected channel.
+  void onSelectionChanged(String? channel) {
+    for (final timer in _pinRefresh.values) {
+      timer.cancel();
+    }
+    _pinRefresh.clear();
+    if (channel != null && pins.containsKey(channel)) _armPinRefresh(channel);
   }
 
   /// Pins the user closed (message id to channel); a repeat push of the same

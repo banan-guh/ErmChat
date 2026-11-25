@@ -3530,8 +3530,9 @@ void main() {
       });
     }
 
-    // 7TV has no PING/PONG check, so isStale is its only zombie signal. A
-    // rate-limited client must be left to its own retry timer.
+    // The 7TV socket watchdog owns zombie detection during normal running;
+    // isStale is only checked on a resume probe. A rate-limited client must
+    // be left to its own retry timer.
     for (final (name, stale, connected, reconnecting, rateLimited, probe, calls)
         in [
           (
@@ -3550,6 +3551,15 @@ void main() {
             false,
             false,
             true,
+            0,
+          ),
+          (
+            'the watchdog leaves stale detection to the 7TV socket',
+            true,
+            true,
+            false,
+            false,
+            false,
             0,
           ),
           (
@@ -4062,6 +4072,50 @@ void main() {
         expect(badgeService.version, greaterThan(0));
       },
     );
+
+    test(
+      'a failed users lookup backs off instead of refetching per message',
+      () async {
+        var requests = 0;
+        var now = DateTime(2026, 1, 1);
+        final failing = TwitchBadgeService(
+          client: http_testing.MockClient((_) async {
+            requests++;
+            return http.Response('nope', 503);
+          }),
+          now: () => now,
+        );
+        addTearDown(failing.close);
+        final auth = TwitchAuth()..accessToken = 'fake-token';
+        for (var i = 0; i < 5; i++) {
+          await failing.fetchChannelAvatar(auth, '9999');
+        }
+        expect(requests, 1, reason: 'a failed source retries once per window');
+        now = now.add(const Duration(minutes: 2));
+        await failing.fetchChannelAvatar(auth, '9999');
+        expect(requests, 2, reason: 'the retry window allows a fresh attempt');
+      },
+    );
+
+    test('a settled source without an avatar is not refetched', () async {
+      var requests = 0;
+      final noAvatar = TwitchBadgeService(
+        client: http_testing.MockClient((_) async {
+          requests++;
+          return http.Response(
+            '{"data":[{"id":"1234","login":"forsen"}]}',
+            200,
+          );
+        }),
+      );
+      addTearDown(noAvatar.close);
+      final auth = TwitchAuth()..accessToken = 'fake-token';
+      for (var i = 0; i < 5; i++) {
+        await noAvatar.fetchChannelAvatar(auth, '1234');
+      }
+      expect(requests, 1, reason: 'login resolves without an avatar');
+      expect(noAvatar.resolveChannelLogin('1234'), 'forsen');
+    });
   });
 
   group('RecentMessagesService', () {
