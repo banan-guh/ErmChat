@@ -248,6 +248,11 @@ class _ChatBodyState extends State<ChatBody>
   // reads as a bounce.
   bool _keyboardEngaged = false;
 
+  // Stable identity: IslandMetrics compares footerFor by reference, so a
+  // closure built in build would republish metrics on every frame.
+  // ignore: prefer_function_declarations_over_variables
+  final double Function(String) _zeroFooter = (_) => 0.0;
+
   // Keyboard height the decisions read: the learned open height from the
   // first tick of an open, the real one once it settles, zero once closed.
   double _liftH = 0;
@@ -762,10 +767,8 @@ class _ChatBodyState extends State<ChatBody>
                               // switch moves only the island. With the
                               // keyboard up the footer is gone, so every
                               // page predicts zero and none carries an offset.
-                              footerFor:
-                                  _keyboardEngaged &&
-                                      widget.hideFooterOnKeyboard
-                                  ? (String _) => 0.0
+                              footerFor: hideFooter
+                                  ? _zeroFooter
                                   : widget.islandFooterHeightFor,
                               // The footer is clipped away with the row, so
                               // its laid-out height must not reach the page
