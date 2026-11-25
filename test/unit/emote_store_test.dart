@@ -505,6 +505,20 @@ void main() {
     expect(focusedB['chanA']!.map((e) => e.code), isNot(contains('FolA')));
   });
 
+  test('account switch drops the old 7TV connection indexes', () {
+    final store = EmoteStore();
+    store.setSevenTvConnectionIndex('ch', 3);
+    expect(store.getSevenTvConnectionIndex('ch'), 3);
+
+    store.clearAccountScopedState();
+
+    expect(
+      store.getSevenTvConnectionIndex('ch'),
+      isNull,
+      reason: 'the index belongs to the previous 7TV user connection list',
+    );
+  });
+
   group('canonical pool', () {
     Emote sevenTv(String id, String code) => Emote(
       id: id,

@@ -1332,8 +1332,10 @@ class EmoteStore {
     _channelCatalogs.clear();
     _channelLoaded.clear();
     // Channel 7TV set ids are channel identity, not account identity, so they
-    // stay for live delta routing; the 7TV user id is refreshed on re-resolve.
+    // stay for live delta routing; the user id and connection index belong to
+    // the old account and are refreshed on re-resolve.
     _sevenTvUserIds.clear();
+    _sevenTvConnectionIndexes.clear();
     _channelFetchTimes.clear();
     _sevenTvLive.clear();
     _sevenTvFull.clear();

@@ -265,6 +265,34 @@ void main() {
       expect(channel.threads.activeThreads(), isEmpty);
     });
 
+    test('a nested reply with a parent root tag decays from its walked thread',
+      () {
+        final chat = _tickingChat(DateTime(2026, 1, 1));
+        addTearDown(chat.dispose);
+        final channel = chat.channelFor('test')!;
+        final root = _root('r1');
+        final parent = _reply('c1', 'r1');
+        final byId = {for (final m in [root, parent]) m.messageId!: m};
+        channel.threads.index([root, parent], lookupRoot: (id) => byId[id]);
+
+        // The codec stores the parent in replyThreadRootId when Twitch omits
+        // the thread tag, but the index walks up to r1. Decay must find the
+        // entry that actually holds the reply.
+        final nested = _fallbackReply('c2', 'c1');
+        channel.threads.index([nested], lookupRoot: (id) => byId[id]);
+        expect(
+          channel.threads.threadFor('r1')!.map((m) => m.messageId),
+          contains('c2'),
+        );
+
+        channel.threads.decay([nested]);
+        expect(
+          channel.threads.threadFor('r1')!.map((m) => m.messageId),
+          isNot(contains('c2')),
+          reason: 'an evicted nested reply must be released',
+        );
+      });
+
     test('a thread stays until pushed past the limit', () {
       final chat = Chat();
       addTearDown(chat.dispose);

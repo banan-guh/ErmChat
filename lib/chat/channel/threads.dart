@@ -16,6 +16,8 @@ class ThreadEntry {
   bool hasMessage(String messageId) =>
       root?.messageId == messageId || _replyIds.contains(messageId);
 
+  bool holdsReply(String id) => _replyIds.contains(id);
+
   void addReply(TwitchMessage msg) {
     replies.add(msg);
     final id = msg.messageId;
@@ -279,18 +281,34 @@ class Threads {
     for (final msg in evicted) {
       final id = msg.messageId;
       if (id == null) continue;
-      final rootId = msg.replyThreadRootId;
-      if (rootId == null || rootId == id) continue;
-      if (_savedRootIds.contains(rootId)) continue;
-      final held = heldCache.putIfAbsent(rootId, () => _isHeld(rootId));
+      // A nested reply carries its parent in replyThreadRootId, while the
+      // index files it under the walked thread root. Find the entry that
+      // actually holds the reply so an evicted row is released.
+      final direct = _threads[msg.replyThreadRootId];
+      ThreadEntry? entry;
+      String? rootId;
+      if (direct != null && direct.holdsReply(id)) {
+        entry = direct;
+        rootId = msg.replyThreadRootId;
+      } else {
+        for (final candidate in _threads.entries) {
+          if (candidate.value.holdsReply(id)) {
+            entry = candidate.value;
+            rootId = candidate.key;
+            break;
+          }
+        }
+      }
+      if (entry == null || rootId == null) continue;
+      final root = rootId;
+      if (_savedRootIds.contains(root)) continue;
+      final held = heldCache.putIfAbsent(root, () => _isHeld(root));
       if (held) continue;
-      final entry = _threads[rootId];
-      if (entry == null) continue;
       final before = entry.replies.length;
       entry.removeReply(msg);
       if (entry.replies.length != before) changed = true;
       if (entry.replies.isEmpty && entry.root == null) {
-        _threads.remove(rootId);
+        _threads.remove(root);
         changed = true;
       }
     }

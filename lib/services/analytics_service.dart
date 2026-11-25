@@ -19,8 +19,8 @@ class _EmoteCount {
 
 class _ChannelStats {
   int totalMessages = 0;
+  // Keys are the unique chatters, so a separate set would duplicate them.
   final chatterCounts = <String, int>{};
-  final uniqueChatters = <String>{};
   final emoteCounts = <String, _EmoteCount>{};
   final wordCounts = <String, int>{};
   final minuteBuckets = <int, int>{};
@@ -36,7 +36,7 @@ class _ChannelStats {
   Map<String, dynamic> toJson() => {
     'total': totalMessages,
     'chatters': chatterCounts,
-    'unique': uniqueChatters.toList(),
+    'unique': chatterCounts.keys.toList(),
     'emotes': [
       for (final e in emoteCounts.values)
         {'emote': e.emote.toJson(), 'count': e.count},
@@ -66,10 +66,6 @@ class _ChannelStats {
     };
     stats.chatterCounts.addAll(counts(raw['chatters']));
     stats.wordCounts.addAll(counts(raw['words']));
-    stats.uniqueChatters.addAll([
-      for (final u in raw['unique'] as List<dynamic>? ?? const [])
-        if (u is String) u,
-    ]);
     for (final e in counts(raw['minutes']).entries) {
       final minute = int.tryParse(e.key);
       if (minute != null) stats.minuteBuckets[minute] = e.value;
@@ -321,9 +317,7 @@ class AnalyticsService extends ChangeNotifier {
     stats.totalMessages++;
     final login = msg.login.trim().toLowerCase();
     if (login.isNotEmpty) {
-      stats.uniqueChatters.add(login);
       stats.chatterCounts[login] = (stats.chatterCounts[login] ?? 0) + 1;
-      _capSet(stats.uniqueChatters);
       _capMap(stats.chatterCounts);
     }
     final minute = now.millisecondsSinceEpoch ~/ 60000;
@@ -366,7 +360,7 @@ class AnalyticsService extends ChangeNotifier {
   int totalMessages(String channel) => _stats(channel)?.totalMessages ?? 0;
 
   int uniqueChatters(String channel) {
-    return _stats(channel)?.uniqueChatters.length ?? 0;
+    return _stats(channel)?.chatterCounts.length ?? 0;
   }
 
   int banCount(String channel) => _stats(channel)?.banCount ?? 0;
@@ -494,12 +488,6 @@ class AnalyticsService extends ChangeNotifier {
   static void _capMap<K, V>(Map<K, V> map) {
     while (map.length > _maxTrackedPerChannel) {
       map.remove(map.keys.first);
-    }
-  }
-
-  static void _capSet(Set<String> set) {
-    while (set.length > _maxTrackedPerChannel) {
-      set.remove(set.first);
     }
   }
 
