@@ -397,12 +397,12 @@ class MessageBuilder {
   /// chat avatar first, Twitch sets in tag order (unresolvable skipped),
   /// then one third-party badge.
   List<CardBadge> resolveCardBadges(String channel, TwitchMessage msg) {
-    final out = <CardBadge>[];
+    List<CardBadge>? out;
     final sharedChannelId = msg.sharedChatChannelId ?? msg.sourceBroadcasterId;
     if (sharedChannelId != null) {
       final avatarUrl = badgeService.resolveChannelAvatar(sharedChannelId);
       if (avatarUrl != null) {
-        out.add(
+        (out ??= <CardBadge>[]).add(
           CardBadge(
             url: avatarUrl,
             label:
@@ -419,7 +419,7 @@ class MessageBuilder {
             badge.drawn ??
             badgeService.resolveBadge(channel, badge.setId, badge.versionId);
         if (version == null) continue;
-        out.add(
+        (out ??= <CardBadge>[]).add(
           CardBadge(
             url: version.imageUrl,
             label: version.title ?? _humanizeSetId(badge.setId),
@@ -432,10 +432,10 @@ class MessageBuilder {
     if (msg.userId != null) {
       final tp = thirdPartyBadgeService.resolveBadge(msg.userId!);
       if (tp != null) {
-        out.add(CardBadge(url: tp.url, label: tp.name));
+        (out ??= <CardBadge>[]).add(CardBadge(url: tp.url, label: tp.name));
       }
     }
-    return out;
+    return out ?? const <CardBadge>[];
   }
 
   List<WidgetSpan> _computeBadgeSpans(
@@ -443,9 +443,11 @@ class MessageBuilder {
     TwitchMessage msg,
     double badgeScale,
   ) {
+    final badges = resolveCardBadges(channel, msg);
+    if (badges.isEmpty) return const <WidgetSpan>[];
     final badgeSize = 18.0 * badgeScale;
     final spans = <WidgetSpan>[];
-    for (final badge in resolveCardBadges(channel, msg)) {
+    for (final badge in badges) {
       // BTTV serves its badges as SVG only, which the image decoder can't
       // read.
       final image = badge.isSvg

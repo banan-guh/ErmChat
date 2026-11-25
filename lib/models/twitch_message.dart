@@ -163,10 +163,28 @@ class TwitchMessage {
 
   /// Source-channel message id (source-id tag). Stable across mirrored copies, unlike [messageId].
   final String? sourceMessageId;
-  late final String formattedUsername =
-      displayName.toLowerCase() == login.toLowerCase()
-      ? displayName
-      : '$login($displayName)';
+  late final String formattedUsername = _joinName(login, displayName);
+
+  /// The display name alone when it differs from the login only by case.
+  /// ASCII names compare in place, so the common row spends no lowercased
+  /// string copies; other names fall back to the exact case-fold comparison.
+  static String _joinName(String login, String displayName) {
+    if (login.length == displayName.length) {
+      var i = 0;
+      for (; i < login.length; i++) {
+        final a = login.codeUnitAt(i);
+        final b = displayName.codeUnitAt(i);
+        if (a > 0x7F || b > 0x7F) break;
+        final fa = a >= 0x41 && a <= 0x5A ? a + 0x20 : a;
+        final fb = b >= 0x41 && b <= 0x5A ? b + 0x20 : b;
+        if (fa != fb) break;
+      }
+      if (i == login.length) return displayName;
+    }
+    return login.toLowerCase() == displayName.toLowerCase()
+        ? displayName
+        : '$login($displayName)';
+  }
 
   static ({String login, String displayName}) resolveUser({
     required String login,

@@ -365,17 +365,20 @@ class EmoteText {
     // as text when nothing is cached on the nothing tier, or when the image no
     // longer loads (a 7TV emote deleted after the row was baked).
     final style = TextStyle(fontSize: 14 * scale);
-    return EmoteScaleResolver(
-      emote: emote,
-      surface: EmoteSurface.chat,
-      images: emoteImages,
-      width: width,
-      height: height,
-      fit: BoxFit.contain,
-      lean: true,
-      animateGifs: animateGifs,
-      textStyle: style,
-      errorWidget: Text(emote.code, style: style),
+    // Stock GIF frames must not repaint the row's text around this span.
+    return RepaintBoundary(
+      child: EmoteScaleResolver(
+        emote: emote,
+        surface: EmoteSurface.chat,
+        images: emoteImages,
+        width: width,
+        height: height,
+        fit: BoxFit.contain,
+        lean: true,
+        animateGifs: animateGifs,
+        textStyle: style,
+        errorWidget: Text(emote.code, style: style),
+      ),
     );
   }
 

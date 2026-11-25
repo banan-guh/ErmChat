@@ -202,8 +202,11 @@ class _ChatViewState extends State<ChatView>
   double _cachedSystemScale = 1.0;
   int _lastMsgLen = -1;
   Map<String, int> _idToIndex = {};
-  String? _endsFirst;
-  String? _endsLast;
+
+  /// The end rows of the last index build, held by identity so detecting a
+  /// shifted buffer costs no key strings.
+  TwitchMessage? _endsFirst;
+  TwitchMessage? _endsLast;
 
   // The sliver's materialized row-index range at the last build start, plus
   // the range the current build is filling. [_findChildIndex] gates a move on
@@ -524,7 +527,8 @@ class _ChatViewState extends State<ChatView>
   }
 
   /// Rebuilds the live-id to index map used to evict tiles that left the
-  /// buffer before the least recently used ones.
+  /// buffer before the least recently used ones. The map is reused across
+  /// arrivals so a shifting buffer allocates no fresh map or end-key strings.
   void _refreshIndexMap(List<TwitchMessage> msgs, Map<String?, Widget>? cache) {
     if (msgs.isEmpty) {
       _lastMsgLen = 0;
@@ -534,14 +538,14 @@ class _ChatViewState extends State<ChatView>
       return;
     }
     if (msgs.length == _lastMsgLen &&
-        _rowKey(msgs.first) == _endsFirst &&
-        _rowKey(msgs.last) == _endsLast) {
+        identical(msgs.first, _endsFirst) &&
+        identical(msgs.last, _endsLast)) {
       return;
     }
     _lastMsgLen = msgs.length;
-    _endsFirst = _rowKey(msgs.first);
-    _endsLast = _rowKey(msgs.last);
-    final idToIndex = <String, int>{};
+    _endsFirst = msgs.first;
+    _endsLast = msgs.last;
+    final idToIndex = _idToIndex..clear();
     if (cache != null) {
       // Stop once every cached row has been located, without materializing
       // the cached id set on every message.

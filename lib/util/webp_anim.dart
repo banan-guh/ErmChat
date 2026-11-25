@@ -86,27 +86,31 @@ WebpAnimInfo parseWebpAnim(Uint8List bytes) {
     final bodyStart = pos + 8;
     final bodyEnd = bodyStart + size;
     if (bodyEnd > bytes.length) break;
-    final body = bytes.sublist(bodyStart, bodyEnd);
     if (fourcc == 'VP8X' && size >= 10) {
-      hasAlpha = (body[0] & 0x10) != 0;
-      canvasW = _u24(body, 4) + 1;
-      canvasH = _u24(body, 7) + 1;
+      hasAlpha = (bytes[bodyStart] & 0x10) != 0;
+      canvasW = _u24(bytes, bodyStart + 4) + 1;
+      canvasH = _u24(bytes, bodyStart + 7) + 1;
     } else if (fourcc == 'ANIM' && size >= 6) {
       isAnimated = true;
-      bgColor = body[0] | (body[1] << 8) | (body[2] << 16) | (body[3] << 24);
+      bgColor =
+          bytes[bodyStart] |
+          (bytes[bodyStart + 1] << 8) |
+          (bytes[bodyStart + 2] << 16) |
+          (bytes[bodyStart + 3] << 24);
     } else if (fourcc == 'ANMF' && size >= 16) {
       isAnimated = true;
       // ANMF stores each offset halved: the true coordinate is 2 * value.
-      final x = _u24(body, 0) * 2;
-      final y = _u24(body, 3) * 2;
-      final w = _u24(body, 6) + 1;
-      final h = _u24(body, 9) + 1;
-      final dur = _u24(body, 12);
-      final flags = body[15];
+      final x = _u24(bytes, bodyStart) * 2;
+      final y = _u24(bytes, bodyStart + 3) * 2;
+      final w = _u24(bytes, bodyStart + 6) + 1;
+      final h = _u24(bytes, bodyStart + 9) + 1;
+      final dur = _u24(bytes, bodyStart + 12);
+      final flags = bytes[bodyStart + 15];
       final disposeToBackground = (flags & 0x01) != 0;
       // ANMF flags: bit 1 = blending (0=alpha-blend, 1=overwrite).
       final noBlend = ((flags >> 1) & 0x01) != 0;
-      final bitstream = bytes.sublist(bodyStart + 16, bodyEnd);
+      // A view keeps the whole bitstream out of the steady-path copy heap.
+      final bitstream = Uint8List.sublistView(bytes, bodyStart + 16, bodyEnd);
       frames.add(
         WebpFrameMeta(
           x: x,
