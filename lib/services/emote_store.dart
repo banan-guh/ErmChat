@@ -1,3 +1,5 @@
+import 'dart:collection';
+
 import '../emotes/emote.dart';
 import '../emotes/emote_catalog.dart';
 import '../models/twitch_message.dart';
@@ -108,10 +110,9 @@ class EmoteStore {
     _emoteIndexDirty = true;
     if (channel != null) {
       _dropMergedCaches(channel);
-      _foreignLookupCache.remove(channel);
     } else {
       _clearMergedCaches();
-      _foreignLookupCache.clear();
+      _foreignOverlayCache.clear();
     }
     for (final listener in List.of(_listeners)) {
       listener(change);
@@ -221,14 +222,17 @@ class EmoteStore {
   // other senders never inherit the viewer's private emotes from the cache.
   final _mergedCache = <String, EmoteLookup?>{};
   final _mergedPersonalCache = <String, EmoteLookup?>{};
-  // Per-sender overlay lookups keyed by the sender's foreign lookup object.
-  // Ingest and render ask for the same sender lookup within one emote
-  // version, so sharing the result avoids rebuilding the foreign merge per
-  // message. Owner rebuilds allocate a new key object and orphan the old
-  // entry (bounded by the cap below, cleared on every emit), which is what
-  // keeps the cache correct without trusting emit discipline.
-  final _foreignLookupCache = <String, Map<EmoteLookup, EmoteLookup>>{};
-  static const _maxForeignLookupsPerChannel = 256;
+  // Per-sender foreign overlays keyed by the sender's lookup object. The
+  // overlay depends only on global visibility settings, not the channel, so
+  // one global cache serves every channel. The merged view wraps the current
+  // channel's base at read time.
+  final _foreignOverlayCache = <EmoteLookup, Map<String, Emote>>{};
+  static const _maxForeignOverlays = 256;
+  // Locked Twitch emotes (subs/bits) the account actually unlocked, from the
+  // entitlement fetch. The channel list also contains bits the viewer never
+  // cheered; those stay for rendering the sender but are never shared into
+  // other channels' autocomplete or picker.
+  final _ownedTwitchIds = <String>{};
   Map<String, List<Emote>>? _subsByChannelCache;
 
   final Set<EmoteType> _disabledProviders = {};
@@ -501,6 +505,12 @@ class EmoteStore {
         if (meta is! TwitchMeta || isTwitchFollower(e)) {
           continue;
         }
+        // A channel's list holds bits/subs the viewer never unlocked. Only
+        // the entitlement fetch grants cross-channel use; the rest stay in
+        // their home channel for rendering other senders' messages.
+        if (isTwitchLocked(e) && !_ownedTwitchIds.contains(e.id)) {
+          continue;
+        }
         if (merged == null) {
           merged = [...?own?.twitchSubs];
           seenCodes = {for (final s in merged) s.code};
@@ -527,20 +537,31 @@ class EmoteStore {
   }) {
     final base = byCode(channel, personal: personal, unlocks: unlocks);
     if (foreign == null || foreign.byCode.isEmpty) return base;
-    final cache = _foreignLookupCache.putIfAbsent(channel, () => {});
-    final cached = cache[foreign];
-    if (cached != null) return cached;
-    final visible = _filterVisible(foreign);
-    if (visible == null) return base;
-    final merged = {...visible.byCode};
-    if (base != null) merged.addAll(base.byCode);
-    final suggestions = merged.values.toList()
-      ..sort((a, b) => a.code.compareTo(b.code));
-    final result = _internLookup(
-      EmoteLookup(byCode: merged, suggestions: suggestions),
+    final overlay = _foreignOverlayCache[foreign] ??= _buildForeignOverlay(
+      foreign,
     );
-    if (cache.length < _maxForeignLookupsPerChannel) cache[foreign] = result;
-    return result;
+    if (overlay.isEmpty) return base;
+    final mergedByCode = base == null
+        ? overlay
+        : _ForeignByCode(base.byCode, overlay);
+    return EmoteLookup(
+      byCode: mergedByCode,
+      suggestionsBuilder: () =>
+          mergedByCode.values.toList()
+            ..sort((a, b) => a.code.compareTo(b.code)),
+    );
+  }
+
+  Map<String, Emote> _buildForeignOverlay(EmoteLookup foreign) {
+    final visible = _filterVisible(foreign);
+    if (visible == null || visible.byCode.isEmpty) return const {};
+    if (_foreignOverlayCache.length >= _maxForeignOverlays) {
+      _foreignOverlayCache.remove(_foreignOverlayCache.keys.first);
+    }
+    return {
+      for (final entry in visible.byCode.entries)
+        entry.key: intern(entry.value),
+    };
   }
 
   // Catalog merge plus the per-account unlock overlay and visibility
@@ -696,6 +717,10 @@ class EmoteStore {
       // identical() to the merged lookups and baked tokens.
       for (final e in _internAll(raw)) {
         if (!isTwitchLocked(e)) continue;
+        // Channel lists carry bits/subs the account never unlocked. The
+        // Subs tab is the account's grants, not every channel's catalogue.
+        // Followers stay grouped under their home channel.
+        if (!isTwitchFollower(e) && !_ownedTwitchIds.contains(e.id)) continue;
         final meta = e.meta as TwitchMeta;
         final key = e.id.isNotEmpty
             ? e.id
@@ -928,7 +953,7 @@ class EmoteStore {
       _subsByChannelCache = null;
       // Other channels' lookups include this channel's bits and subs.
       _clearMergedCaches();
-      _foreignLookupCache.clear();
+      _foreignOverlayCache.clear();
     }
     _channelCatalogs[channel] = _withoutDead(catalog);
     // Like commitGlobal: an early provider doesn't make the channel loaded.
@@ -1003,12 +1028,19 @@ class EmoteStore {
     Map<String, List<Emote>> perChannel, {
     bool authoritative = false,
   }) {
+    // The entitlement fetch replaces the owned set: lapsed grants drop out.
+    if (authoritative) _ownedTwitchIds.clear();
     final changedChannels = <String>[];
     for (final entry in perChannel.entries) {
       final channel = entry.key;
       final emotes = entry.value;
       if (emotes.isEmpty && !authoritative) continue;
       final catalog = _channelCatalogs[channel] ?? EmoteCatalog();
+      for (final e in emotes) {
+        if (isTwitchLocked(e) && e.id.isNotEmpty) {
+          _ownedTwitchIds.add(e.id);
+        }
+      }
       final existing = catalog.twitchSubs;
       // Fresh first, then non-sub existing; dedup by id, by code for
       // empty-id entries (which would otherwise grow on every USERSTATE).
@@ -1038,7 +1070,7 @@ class EmoteStore {
     changedChannels.sort();
     // Every channel's lookup includes the others' subs.
     _clearMergedCaches();
-    _foreignLookupCache.clear();
+    _foreignOverlayCache.clear();
     for (final channel in changedChannels) {
       emitChange(channel: channel);
     }
@@ -1252,7 +1284,6 @@ class EmoteStore {
     _sevenTvUserIds.remove(channel);
     _sevenTvConnectionIndexes.remove(channel);
     _dropMergedCaches(channel);
-    _foreignLookupCache.remove(channel);
     _sevenTvLive.remove(channel);
     _sevenTvFull.remove(channel);
     _emoteIndexDirty = true;
@@ -1264,7 +1295,7 @@ class EmoteStore {
     _globalCatalog = EmoteCatalog();
     _globalAttempted = false;
     _clearMergedCaches();
-    _foreignLookupCache.clear();
+    _foreignOverlayCache.clear();
     _emoteIndexDirty = true;
     _prunePool();
   }
@@ -1296,7 +1327,7 @@ class EmoteStore {
     }
     _subsByChannelCache = null;
     _clearMergedCaches();
-    _foreignLookupCache.clear();
+    _foreignOverlayCache.clear();
     _emoteIndexDirty = true;
     _prunePool();
     emitChange(channel: null);
@@ -1331,6 +1362,7 @@ class EmoteStore {
     }
     _channelCatalogs.clear();
     _channelLoaded.clear();
+    _ownedTwitchIds.clear();
     // Channel 7TV set ids are channel identity, not account identity, so they
     // stay for live delta routing; the user id and connection index belong to
     // the old account and are refreshed on re-resolve.
@@ -1340,7 +1372,7 @@ class EmoteStore {
     _sevenTvLive.clear();
     _sevenTvFull.clear();
     _clearMergedCaches();
-    _foreignLookupCache.clear();
+    _foreignOverlayCache.clear();
     _prunePool();
     emitChange(channel: null);
   }
@@ -1387,4 +1419,36 @@ class EmoteStore {
     }
     return null;
   }
+}
+
+// Read-only code map for one foreign sender. The base wins on a shared code,
+// matching the copied merge. Iteration keeps overlay codes first, then the
+// base-only ones, so keys and suggestions keep their order.
+class _ForeignByCode extends MapBase<String, Emote> {
+  _ForeignByCode(this.base, this.overlay);
+
+  final Map<String, Emote> base;
+  final Map<String, Emote> overlay;
+
+  @override
+  Emote? operator [](Object? key) => base[key] ?? overlay[key];
+
+  @override
+  Iterable<String> get keys sync* {
+    yield* overlay.keys;
+    for (final key in base.keys) {
+      if (!overlay.containsKey(key)) yield key;
+    }
+  }
+
+  @override
+  void operator []=(String key, Emote value) =>
+      throw UnsupportedError('Foreign emote lookups are read-only');
+
+  @override
+  Emote? remove(Object? key) =>
+      throw UnsupportedError('Foreign emote lookups are read-only');
+
+  @override
+  void clear() => throw UnsupportedError('Foreign emote lookups are read-only');
 }

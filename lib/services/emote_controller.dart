@@ -72,9 +72,6 @@ class EmoteController {
   final Map<String, String> Function() getChannelUserIds;
 
   StreamSubscription<SevenTvEntitlementEvent>? _entitlementSub;
-  StreamSubscription<SevenTvEventStatus>? _sevenTvStatusSub;
-  StreamSubscription<void>? _sevenTvGapSub;
-  Future<void>? _gapReconcile;
   bool _disposed = false;
 
   /// Boot entry point: persisted prefs, cache GC, the 7TV entitlement stream,
@@ -84,10 +81,6 @@ class EmoteController {
     primeForAccount();
     unawaited(emoteManager.startCacheGc());
     _entitlementSub ??= sevenTvClient.onEntitlement.listen(_onEntitlement);
-    _sevenTvStatusSub ??= sevenTvClient.onStatus.listen(_onSevenTvStatus);
-    _sevenTvGapSub ??= sevenTvClient.onGapEvidence.listen((_) {
-      _reconcileAfterGap(sevenTvClient.takeInterruptedEmoteSetIds());
-    });
   }
 
   void _onEntitlement(SevenTvEntitlementEvent event) {
@@ -111,66 +104,9 @@ class EmoteController {
     }
   }
 
-  void _onSevenTvStatus(SevenTvEventStatus status) {
-    if (status != SevenTvEventStatus.connected) return;
-    final interrupted = sevenTvClient.takeInterruptedEmoteSetIds();
-    // First connect, enable toggles and short clean reconnects carry no gap.
-    if (!sevenTvClient.takeMissedEventGap()) return;
-    _reconcileAfterGap(interrupted);
-  }
-
-  void _reconcileAfterGap(Set<String> changedSetIds) {
-    final running = _gapReconcile;
-    if (running != null) return;
-    final future = _healSevenTvGap(changedSetIds).whenComplete(() {
-      _gapReconcile = null;
-    });
-    _gapReconcile = future;
-  }
-
-  Future<void> _healSevenTvGap(Set<String> changedSetIds) async {
-    final before = {
-      for (final channel in chat.names)
-        channel: emoteManager.getSevenTvEmoteSetId(channel),
-    };
-    await emoteManager.reconcileOpenSevenTvChannels(
-      changedSetIds: changedSetIds,
-    );
-    for (final entry in before.entries) {
-      final current = emoteManager.getSevenTvEmoteSetId(entry.key);
-      final previous = entry.value;
-      if (current == null || current == previous) continue;
-      final owner = SevenTvEmoteSetOwner.channel(entry.key);
-      if (previous != null) {
-        sevenTvClient.unsubscribeEmoteSet(previous, owner: owner);
-      }
-      sevenTvClient.subscribeEmoteSet(current, owner: owner);
-    }
-    final oldViewerSets = [...emoteManager.viewerPersonalSetIds];
-    await _loadViewerPersonalSets(
-      reconcile: true,
-      changedSetIds: changedSetIds,
-    );
-    final newViewerSets = emoteManager.viewerPersonalSetIds.toSet();
-    final viewerId = emoteManager.personalSets.viewerTwitchId;
-    if (viewerId == null) return;
-    final owner = SevenTvEmoteSetOwner.viewer(viewerId);
-    for (final setId in oldViewerSets) {
-      if (!newViewerSets.contains(setId)) {
-        sevenTvClient.unsubscribeEmoteSet(setId, owner: owner);
-      }
-    }
-  }
-
   /// Loads the viewer's personal sets, then subscribes to their live edits.
-  Future<void> _loadViewerPersonalSets({
-    bool reconcile = false,
-    Set<String> changedSetIds = const {},
-  }) async {
-    await emoteManager.loadViewerPersonalSevenTvSets(
-      reconcile: reconcile,
-      changedSetIds: changedSetIds,
-    );
+  Future<void> _loadViewerPersonalSets() async {
+    await emoteManager.loadViewerPersonalSevenTvSets();
     final viewerId = emoteManager.personalSets.viewerTwitchId;
     if (viewerId == null) return;
     final owner = SevenTvEmoteSetOwner.viewer(viewerId);
@@ -213,10 +149,6 @@ class EmoteController {
     _disposed = true;
     _entitlementSub?.cancel();
     _entitlementSub = null;
-    _sevenTvStatusSub?.cancel();
-    _sevenTvStatusSub = null;
-    _sevenTvGapSub?.cancel();
-    _sevenTvGapSub = null;
   }
 
   int manualTierIndex = EmoteFetchTier.high.index;

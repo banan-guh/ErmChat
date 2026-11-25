@@ -358,18 +358,47 @@ void main() {
 
     expect(store.byCode('a')?.byCode.containsKey('FollowA'), isTrue);
     expect(store.byCode('a')?.byCode.containsKey('SubA'), isTrue);
-    expect(store.byCode('b')?.byCode.containsKey('FollowA'), isFalse);
-    expect(store.byCode('b')?.byCode.containsKey('SubA'), isTrue);
+    expect(store.byCode('b')?.byCode.containsKey('FollowA'), isNot(true));
+    expect(
+      store.byCode('b')?.byCode.containsKey('SubA'),
+      isNot(true),
+      reason: 'a channel-list sub the viewer never unlocked stays home-only',
+    );
     expect(
       store.sendableEmotes('b').map((e) => e.code),
       isNot(contains('FollowA')),
       reason: 'autocomplete must not suggest another channel follower',
     );
-    final subs = store.subsGrouped(pinnedChannel: 'b');
-    expect(subs.values.expand((e) => e).map((e) => e.code), contains('SubA'));
     expect(
-      subs.values.expand((e) => e).map((e) => e.code),
-      isNot(contains('FollowA')),
+      store
+          .subsGrouped(pinnedChannel: 'b')
+          .values
+          .expand((e) => e)
+          .map((e) => e.code),
+      isNot(contains('SubA')),
+      reason: 'the Subs tab lists the account grants, not channel offerings',
+    );
+    expect(
+      store
+          .subsGrouped(pinnedChannel: 'a')
+          .values
+          .expand((e) => e)
+          .map((e) => e.code),
+      contains('FollowA'),
+    );
+
+    // The entitlement fetch grants cross-channel use and Subs-tab entry.
+    store.storeUserTwitchEmotes({
+      'a': [_lockedTwitchSub('s1', 'SubA')],
+    });
+    expect(store.byCode('b')?.byCode.containsKey('SubA'), isTrue);
+    expect(
+      store
+          .subsGrouped(pinnedChannel: 'b')
+          .values
+          .expand((e) => e)
+          .map((e) => e.code),
+      contains('SubA'),
     );
   });
 
@@ -396,9 +425,10 @@ void main() {
     );
     expect(
       store.byCode('late')?.byCode.containsKey('Bits'),
-      isTrue,
-      reason: 'a cached lookup of another channel must see the new bits',
+      isNot(true),
+      reason: 'channel-list bits are home-only until the account unlocks them',
     );
+    expect(store.byCode('a')?.byCode.containsKey('Bits'), isTrue);
 
     store.storeUserTwitchEmotes({
       'a': [_lockedTwitchSub('s1', 'SubA')],
@@ -412,7 +442,21 @@ void main() {
       reason: 'a partial or reconnect store must not wipe valid subs',
     );
     store.storeUserTwitchEmotes({'a': const []}, authoritative: true);
-    expect(store.byCode('late')?.byCode.containsKey('SubA'), isFalse);
+    expect(store.byCode('late')?.byCode.containsKey('SubA'), isNot(true));
+    expect(store.byCode('late')?.byCode.containsKey('Bits'), isNot(true));
+
+    // The authoritative fetch grants the channel-list bits once owned.
+    store.storeUserTwitchEmotes({
+      'a': [
+        Emote(
+          id: 'b1',
+          code: 'Bits',
+          meta: const TwitchMeta(kind: TwitchEmoteKind.bits),
+          scales: {EmoteScale.medium: 'https://example.com/b1.png'},
+          scope: EmoteScope.channel,
+        ),
+      ],
+    }, authoritative: true);
     expect(store.byCode('late')?.byCode.containsKey('Bits'), isTrue);
   });
 

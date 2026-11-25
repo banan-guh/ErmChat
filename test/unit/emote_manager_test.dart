@@ -18,6 +18,8 @@ import 'package:ermchat/models/emote_fetch_tier.dart';
 import 'package:ermchat/emotes/emote.dart';
 import 'package:ermchat/emotes/emote_catalog.dart';
 import 'package:ermchat/services/emote_manager.dart';
+import 'package:ermchat/services/emote_store.dart';
+import 'package:ermchat/services/emote_fetcher.dart';
 import 'package:ermchat/services/emote_usage_registry.dart';
 import 'package:ermchat/services/twitch_auth.dart';
 import 'package:ermchat/services/emote_meta_store.dart';
@@ -1140,7 +1142,7 @@ void main() {
       },
     );
 
-    test('a gap heal fetches only changed or uncached channels', () async {
+    test('a set switch reconciles only its own channel', () async {
       SharedPreferences.setMockInitialValues({});
       final fetched = <String>[];
       final manager = EmoteManager(
@@ -1162,11 +1164,11 @@ void main() {
       await pumpEventQueue();
       fetched.clear();
 
-      await manager.reconcileOpenSevenTvChannels(changedSetIds: {'set-b1'});
+      await manager.reconcileSevenTvChannel('ch1');
 
       expect(fetched, [
         'b1',
-      ], reason: 'a fresh cached channel must not refetch its 7TV set');
+      ], reason: 'a set switch fetches only the switched channel');
     });
 
     // The live stash re-applied over the forced fetch, so an emote added
@@ -2137,6 +2139,129 @@ void main() {
       );
     });
 
+    test('follower emotes stay in their home channel lookup', () async {
+      final auth = TwitchAuth()
+        ..accessToken = 'tok'
+        ..userId = 'viewer';
+      final manager = EmoteManager(
+        fetchStagger: Duration.zero,
+        fetchUserEmotes: (userId, {accessToken}) async => {
+          'toma-id': [
+            makeTestEmote(
+              id: 'f1',
+              code: 'toemaSus',
+              type: EmoteType.twitch,
+              emoteType: 'follower',
+              scope: EmoteScope.channel,
+              ownerChannel: 'toma',
+              ownerId: 'toma-id',
+            ),
+          ],
+        },
+        resolveOwnerLogins: (a, ids) async => {'toma-id': 'toma'},
+      );
+
+      await manager.loadUserEmotes(auth, {
+        'toma': 'toma-id',
+        'ermugo2': 'ermugo2-id',
+      });
+
+      expect(
+        manager
+                .byCodeForSender('toma', 'viewer')
+                ?.suggestions
+                .map((e) => e.code) ??
+            const <String>[],
+        contains('toemaSus'),
+        reason: 'follower emote must appear in its home channel',
+      );
+      expect(
+        manager
+                .byCodeForSender('ermugo2', 'viewer')
+                ?.suggestions
+                .map((e) => e.code) ??
+            const <String>[],
+        isNot(contains('toemaSus')),
+        reason: 'follower emote must not leak into another channel',
+      );
+    });
+
+    test('owned and owner-less followers never reach other channels', () async {
+      final auth = TwitchAuth()
+        ..accessToken = 'tok'
+        ..userId = 'viewer';
+      final manager = EmoteManager(
+        fetchStagger: Duration.zero,
+        fetchUserEmotes: (userId, {accessToken}) async => {
+          // Owner-less follower: cannot be scoped, must never go global.
+          '': [
+            makeTestEmote(
+              id: 'f1',
+              code: 'OrphanFollow',
+              type: EmoteType.twitch,
+              emoteType: 'follower',
+              scope: EmoteScope.global,
+            ),
+          ],
+          // Owned follower: only toma may resolve it.
+          'toma-id': [
+            makeTestEmote(
+              id: 'f2',
+              code: 'toemaSus',
+              type: EmoteType.twitch,
+              emoteType: 'follower',
+              scope: EmoteScope.channel,
+              ownerId: 'toma-id',
+            ),
+            makeTestEmote(
+              id: 's1',
+              code: 'TomaSub',
+              type: EmoteType.twitch,
+              emoteType: 'subscriptions',
+              tier: '1',
+              scope: EmoteScope.channel,
+              ownerId: 'toma-id',
+            ),
+          ],
+        },
+        resolveOwnerLogins: (a, ids) async => {'toma-id': 'toma'},
+      );
+
+      await manager.loadUserEmotes(auth, {
+        'toma': 'toma-id',
+        'ermugo2': 'ermugo2-id',
+      });
+
+      final tomaCodes =
+          manager
+              .byCodeForSender('toma', 'viewer')
+              ?.suggestions
+              .map((e) => e.code) ??
+          const <String>[];
+      final otherCodes =
+          manager
+              .byCodeForSender('ermugo2', 'viewer')
+              ?.suggestions
+              .map((e) => e.code) ??
+          const <String>[];
+
+      expect(tomaCodes, contains('toemaSus'));
+      expect(tomaCodes, contains('TomaSub'));
+      expect(tomaCodes, isNot(contains('OrphanFollow')));
+      expect(otherCodes, isNot(contains('toemaSus')));
+      expect(otherCodes, isNot(contains('OrphanFollow')));
+      expect(
+        otherCodes,
+        contains('TomaSub'),
+        reason: 'owned subs remain usable in every channel',
+      );
+      expect(
+        manager.globalEmotesByProvider()['Twitch']?.map((e) => e.code) ??
+            const <String>[],
+        isNot(contains('toemaSus')),
+      );
+    });
+
     test(
       'loadUserEmoteSets routes owned standard grants to global unlocks',
       () async {
@@ -2838,6 +2963,65 @@ void main() {
       final loaded = await persistence.load('emotes5_global', ttl);
       expect(loaded.fresh, isTrue);
       expect(loaded.catalog?.sevenTvGlobal.map((e) => e.code), ['Second']);
+    });
+
+    test('follower grants never persist in Twitch lists', () async {
+      SharedPreferences.setMockInitialValues({});
+      final now = DateTime.utc(2026, 1, 1, 12);
+      final persistence = EmotePersistence(
+        tier: () => EmoteFetchTier.low,
+        isAccountUnlock: (_) => false,
+        now: () => now,
+      );
+      final follower = makeTestEmote(
+        id: 'f1',
+        code: 'FolLeak',
+        type: EmoteType.twitch,
+        emoteType: 'follower',
+        ownerChannel: 'chanA',
+        scope: EmoteScope.global,
+      );
+
+      await persistence.save(
+        'emotes5_global',
+        EmoteCatalog(
+          twitchGlobal: [follower],
+          sevenTvGlobal: [
+            makeTestEmote(id: 'g1', code: 'KeepMe', type: EmoteType.sevenTv),
+          ],
+        ),
+        const Duration(hours: 12),
+      );
+      final written = await EmoteMetaStore.I.read('emotes5_global');
+      expect(written, isNotNull);
+      final saved = EmoteCatalog.fromJsonMap(
+        (jsonDecode(written!) as Map<String, dynamic>)['emotes'],
+      );
+      expect(saved.twitchGlobal.map((e) => e.code), isEmpty);
+      expect(saved.sevenTvGlobal.map((e) => e.code), ['KeepMe']);
+
+      // Older builds wrote followed-channel emotes into the global list.
+      await EmoteMetaStore.I.write(
+        'emotes5_global',
+        jsonEncode({
+          'ts': now.toIso8601String(),
+          'tier': EmoteFetchTier.low.index,
+          'v': 2,
+          'emotes': {
+            'twitchGlobal': [follower.toJson()],
+          },
+        }),
+      );
+      final loaded = await persistence.load(
+        'emotes5_global',
+        const Duration(hours: 12),
+      );
+      expect(
+        loaded.catalog?.twitchGlobal.map((e) => e.code),
+        isEmpty,
+        reason:
+            'a stale global follower would reach every picker and autocomplete',
+      );
     });
   });
 
@@ -4327,5 +4511,51 @@ void main() {
       );
       expect(await EmoteMetaStore.I.read('emotes5_personal_sets'), isNull);
     });
+  });
+
+  test('channel-list bits stay out of another channel autocomplete', () {
+    SharedPreferences.setMockInitialValues({});
+    final store = EmoteStore();
+    final bits = makeTestEmote(
+      id: 'toemaSus',
+      code: 'toemaSus',
+      type: EmoteType.twitch,
+      emoteType: 'bitstier',
+      ownerChannel: 'toma',
+      scope: EmoteScope.channel,
+    );
+    store.commitChannel(
+      'toma',
+      store.channelEpoch('toma'),
+      ChannelEmoteFetch(
+        byProvider: {
+          EmoteType.twitch: [bits],
+        },
+      ),
+    );
+    store.commitChannel(
+      'berrycrepe',
+      store.channelEpoch('berrycrepe'),
+      ChannelEmoteFetch(
+        byProvider: {
+          EmoteType.bttv: [
+            makeTestEmote(id: 'b1', code: 'Berry', scope: EmoteScope.channel),
+          ],
+        },
+      ),
+    );
+    final manager = EmoteManager(store: store, fetchStagger: Duration.zero);
+    manager.viewerTwitchId = 'viewer-1';
+
+    expect(
+      manager.lookup('berrycrepe', 'viewer-1')?.suggestions.map((e) => e.code),
+      isNot(contains('toemaSus')),
+      reason: 'unowned channel bits never enter another channel autocomplete',
+    );
+    expect(
+      manager.lookup('toma', 'viewer-1')?.suggestions.map((e) => e.code),
+      contains('toemaSus'),
+      reason: 'the home channel keeps its own bits emotes',
+    );
   });
 }

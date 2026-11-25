@@ -12,10 +12,23 @@ const kEmoteProviderPriority = <EmoteType, int>{
 /// Derived, read-only view of a merged catalog: code->emote plus the same
 /// emotes sorted by code for suggestion lists.
 class EmoteLookup {
-  final Map<String, Emote> byCode;
-  final List<Emote> suggestions;
+  EmoteLookup({
+    required this.byCode,
+    List<Emote>? suggestions,
+    List<Emote> Function()? suggestionsBuilder,
+  }) : _eagerSuggestions = suggestions,
+       _lazySuggestions = suggestionsBuilder;
 
-  EmoteLookup({required this.byCode, required this.suggestions});
+  final Map<String, Emote> byCode;
+  final List<Emote>? _eagerSuggestions;
+  final List<Emote> Function()? _lazySuggestions;
+  List<Emote>? _builtSuggestions;
+
+  /// Sorted emotes for suggestion lists. A deferred builder runs on first read
+  /// so a cached lookup can skip the sorted copy while nothing asks for it.
+  List<Emote> get suggestions =>
+      _eagerSuggestions ??
+      (_builtSuggestions ??= _lazySuggestions?.call() ?? const <Emote>[]);
 }
 
 /// Immutable per-scope provider emote lists. The global catalog holds every

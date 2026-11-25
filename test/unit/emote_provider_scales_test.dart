@@ -532,6 +532,34 @@ void main() {
       expect((emote.meta as TwitchMeta).kind, TwitchEmoteKind.standard);
       expect(emote.scales[EmoteScale.medium], _url('prime1', '2.0'));
     });
+
+    test('user emotes keys follower by owner id', () async {
+      const url = 'https://api.twitch.tv/helix/chat/emotes/user?user_id=viewer';
+      HttpOverrides.global = _FakeHttpOverrides({
+        url: jsonEncode({
+          'data': [
+            {
+              'id': 'f1',
+              'name': 'toemaSus',
+              'format': ['static'],
+              'scale': ['1.0', '2.0', '3.0'],
+              'theme_mode': ['light'],
+              'emote_type': 'follower',
+              'owner_id': 'toma-id',
+              'emote_set_id': 'toma-set',
+            },
+          ],
+          'pagination': {},
+        }),
+      });
+      final result = await TwitchEmoteProvider.fetchUserEmotes('viewer');
+      expect(result.keys, ['toma-id']);
+      final emote = result['toma-id']!.single;
+      expect(emote.code, 'toemaSus');
+      expect(emote.scope, EmoteScope.channel);
+      expect((emote.meta as TwitchMeta).kind, TwitchEmoteKind.follower);
+      expect((emote.meta as TwitchMeta).ownerId, 'toma-id');
+    });
   });
 
   group('SevenTvEmoteProvider scales', () {

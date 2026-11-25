@@ -985,30 +985,8 @@ class EmoteManager implements EmoteLookupSource {
           '$channel ${e.id}',
   };
 
-  /// Reconciles only open channels whose set may have missed events: a set
-  /// named by the socket gap, one with no full cache, or a stale cached one.
-  Future<void> reconcileOpenSevenTvChannels({
-    Set<String> changedSetIds = const {},
-  }) {
-    final ttl = _fetcher.effectiveTtl();
-    final targets = <String>[];
-    for (final channel in _store.channelNames.toList()) {
-      final setId = _store.getSevenTvEmoteSetId(channel);
-      if (setId == null || setId.isEmpty) continue;
-      if (changedSetIds.contains(setId) ||
-          !_store.isSevenTvFull(channel) ||
-          _savedAt[channel] == null ||
-          _now().difference(_savedAt[channel]!) >= ttl) {
-        targets.add(channel);
-      }
-    }
-    return Future.wait([
-      for (final channel in targets) reconcileSevenTvChannel(channel),
-    ]);
-  }
-
   /// Reconciles the channel's 7TV set against the server. Used when a live
-  /// `user.update` switches the active set and after a socket gap.
+  /// `user.update` switches the active set.
   Future<void> reconcileSevenTvChannel(String channel) {
     final running = _sevenTvReconcileFutures[channel];
     if (running != null) return running;

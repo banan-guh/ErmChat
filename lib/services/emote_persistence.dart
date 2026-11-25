@@ -15,8 +15,8 @@ import 'seven_tv_personal_sets.dart';
 /// File-backed persistence for the emote catalog: global and per-channel
 /// provider lists, decoded off the main isolate on load.
 ///
-/// Twitch subscriber lists never persist (they are per-account), and low/
-/// nothing-tier caches persist Twitch lists too since those tiers do zero
+/// Subscriber and follower lists never persist (they are per-account), and
+/// low/nothing-tier caches persist Twitch lists too since those tiers do zero
 /// network. Per-account unlocks are stripped before writing.
 class EmotePersistence {
   EmotePersistence({
@@ -91,7 +91,11 @@ class EmotePersistence {
       final cachedTime = fetchTime ?? ts;
       final withinTtl = _now().difference(cachedTime) <= ttl;
       final fresh = withinTtl && parsed.tierMatches;
-      return (catalog: _dropSubs(parsed.catalog), fresh: fresh, savedAt: ts);
+      return (
+        catalog: _dropAccountGrants(parsed.catalog),
+        fresh: fresh,
+        savedAt: ts,
+      );
     } catch (_) {
       logDebug('[EmotePersistence] failed to parse cached emotes');
       return (catalog: null, fresh: false, savedAt: null);
@@ -110,10 +114,15 @@ class EmotePersistence {
             },
       );
 
-  // Persisted Twitch lists must never rehydrate another account's true subs.
-  EmoteCatalog _dropSubs(EmoteCatalog catalog) => catalog.copyWith(
-    twitchGlobal: catalog.twitchGlobal.where((e) => !isTwitchSub(e)).toList(),
-    twitchChannel: catalog.twitchChannel.where((e) => !isTwitchSub(e)).toList(),
+  // Persisted Twitch lists must never rehydrate another account's grants.
+  // Older builds wrote followers globally, where they leak into every channel.
+  EmoteCatalog _dropAccountGrants(EmoteCatalog catalog) => catalog.copyWith(
+    twitchGlobal: catalog.twitchGlobal
+        .where((e) => !isTwitchSub(e) && !isTwitchFollower(e))
+        .toList(),
+    twitchChannel: catalog.twitchChannel
+        .where((e) => !isTwitchSub(e) && !isTwitchFollower(e))
+        .toList(),
     twitchSubs: const [],
   );
 
@@ -132,7 +141,7 @@ class EmotePersistence {
     List<Emote> keepTwitch(List<Emote> emotes) {
       if (!persistTwitch) return const [];
       return emotes.where((e) {
-        if (isTwitchSub(e)) return false;
+        if (isTwitchSub(e) || isTwitchFollower(e)) return false;
         if (e.id.isNotEmpty && _isAccountUnlock(e.id)) return false;
         return true;
       }).toList();
