@@ -144,7 +144,18 @@ class ArchiveWriter {
     _leaving[channel] = chain;
     chain.whenComplete(() {
       if (identical(_leaving[channel], chain)) _leaving.remove(channel);
+      if (!_chans.containsKey(channel)) unawaited(_release(channel));
     });
+  }
+
+  /// Drops the store's copy of a left channel's tables once the seal lands.
+  Future<void> _release(String channel) async {
+    try {
+      final store = await _store;
+      if (store != null) await releaseChannelTables(store, channel);
+    } catch (e) {
+      logDebug('[ArchiveWriter] release failed for $channel: $e');
+    }
   }
 
   /// Whether [channel]'s tables belong to the writer: it holds rows for the

@@ -818,7 +818,12 @@ class ArchiveStore {
   void noteRead(String channel) {
     _reads.remove(channel);
     _reads[channel] = _now();
-    if (_reads.length > _readsKept) _reads.remove(_reads.keys.first);
+    if (_reads.length > _readsKept) {
+      final evicted = _reads.keys.first;
+      _reads.remove(evicted);
+      // Upkeep holds a table across awaits and releases it at the end.
+      if (_compacting == null) _release(evicted);
+    }
     if (_partialTables.length > _readsKept) {
       _partialTables.removeWhere((c, _) => !_reads.containsKey(c));
     }
@@ -1266,6 +1271,10 @@ class ArchiveStore {
   /// these spare it the decode. [dropSearchIndex] frees them.
   final Map<int, _BlockIndex> _searchIndex = {};
 
+  /// Most blocks a search keeps decoded. Older accesses go first, so a long
+  /// search over days of blocks stays flat. A dropped block decodes again.
+  static const int searchIndexLimit = 1024;
+
   /// The decoded lists of [rows], from [_searchIndex] while a block's bytes
   /// are unchanged. When [rows] are every block of [channels], blocks gone
   /// from them leave the index.
@@ -1281,7 +1290,11 @@ class ArchiveStore {
       if (e != null &&
           e.wordsRaw.sameAs(row['words'] as Uint8List?) &&
           e.sendersRaw.sameAs(row['senders'] as Uint8List?)) {
-        have[row['id']! as int] = e;
+        final id = row['id']! as int;
+        have[id] = e;
+        // Keep the map in access order for eviction below.
+        _searchIndex.remove(id);
+        _searchIndex[id] = e;
       } else {
         stale.add(row);
       }
@@ -1309,6 +1322,9 @@ class ArchiveStore {
       _searchIndex.removeWhere(
         (id, e) => channels.contains(e.channel) && !have.containsKey(id),
       );
+    }
+    while (_searchIndex.length > searchIndexLimit) {
+      _searchIndex.remove(_searchIndex.keys.first);
     }
     return (
       words: [for (final row in rows) have[row['id']]!.words],
@@ -2043,6 +2059,23 @@ class ArchiveStore {
     _tables.remove(channel);
     _tablesNow.remove(channel);
   }
+
+  /// Drops [channel]'s cached tables once its last seal lands, instead of
+  /// waiting for the next prune. A rejoin before then keeps them. The
+  /// maintenance lock keeps a prune from holding them across this drop.
+  Future<void> _forget(String channel) => serializeMaintenance(() async {
+    if (writing?.call(channel) ?? false) return;
+    final pending = _tables.remove(channel);
+    if (pending != null) {
+      try {
+        await pending;
+      } catch (_) {}
+    }
+    if (writing?.call(channel) ?? false) return;
+    _tablesNow.remove(channel);
+    _partialTables.remove(channel);
+    _reads.remove(channel);
+  });
 
   /// Closes the gaps pruning left in [channel]'s whos and looks. The stored
   /// rows that name them change first, so a failed write leaves memory
@@ -3034,3 +3067,8 @@ List<bool> matchBlocks(
             : byWords || bySender || hasWords(words[i], systemBits),
   ];
 }
+
+/// Releases [channel]'s cached tables after a leave. Declared here so the
+/// writer can drop them without widening the store's public API.
+Future<void> releaseChannelTables(ArchiveStore store, String channel) =>
+    store._forget(channel);
