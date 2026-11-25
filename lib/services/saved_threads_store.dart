@@ -75,8 +75,6 @@ class SavedThreadsStore {
   }
 
   static const _flushDelay = Duration(seconds: 1);
-  // Message bytes above which load decodes in an isolate.
-  static const _isolateBytes = 64 * 1024;
 
   final Future<ArchiveStore?> _store;
   final Timer Function(Duration, void Function()) _createTimer;
@@ -85,6 +83,9 @@ class SavedThreadsStore {
   // Bookmark by key, so the per-message append check stays O(1).
   final Map<String, SavedThread> _byKey = {};
   final Map<String, List<TwitchMessage>> _messages = {};
+  // Threads whose full persisted log is in memory. The rest hold only live
+  // replies appended this session until their log is ensured on open.
+  final Set<String> _loaded = {};
   // Message ids per thread, kept in sync with _messages so append dedupe is
   // O(1) instead of a scan of the whole (uncapped) thread log.
   final Map<String, Set<String>> _messageIds = {};
@@ -198,6 +199,7 @@ class SavedThreadsStore {
     final log = List.of(messages);
     _messages[entry.key] = log;
     _messageIds[entry.key] = _idsOf(log);
+    _loaded.add(entry.key);
     _removedWhileLoading.remove(entry.key);
     _pending.removeWhere((p) => p.$1.key == entry.key);
     _enqueue(
@@ -229,6 +231,7 @@ class SavedThreadsStore {
     _byKey.remove(t.key);
     _messages.remove(t.key);
     _messageIds.remove(t.key);
+    _loaded.remove(t.key);
     _pending.removeWhere((p) => p.$1.key == t.key);
     if (_loading != null) _removedWhileLoading.add(t.key);
     _enqueue((db) => db.deleteThread(t.channel, t.rootId));
@@ -286,6 +289,7 @@ class SavedThreadsStore {
     _byKey.clear();
     _messages.clear();
     _messageIds.clear();
+    _loaded.clear();
     _removedWhileLoading.clear();
     _refreshChannels();
     return _ioQueue;
@@ -330,17 +334,16 @@ class SavedThreadsStore {
     final generation = _generation;
     final db = await _store;
     final List<SavedThread> loaded;
-    final Map<String, List<TwitchMessage>> disk;
     if (db == null) {
       logDebug('[SavedThreads] archive unavailable, memory only');
       loaded = const [];
-      disk = const {};
     } else {
-      (loaded, disk) = await _readDb(db);
+      loaded = await _readDb(db);
     }
     if (generation != _generation) return;
 
-    // Everything in memory now was saved during load and wins over disk.
+    // Everything in memory now was saved during load and wins over disk. Only
+    // bookmarks load here; a thread's message log is read when it is opened.
     final early = {for (final t in _threads) t.key};
     final merged = [..._threads];
     for (final t in loaded) {
@@ -359,48 +362,43 @@ class SavedThreadsStore {
       ..clear()
       ..addAll({for (final t in _threads) t.key: t});
     _refreshChannels();
-    for (final t in _threads) {
-      final fromDisk = early.contains(t.key) ? null : disk[t.key];
-      if (fromDisk == null) continue;
-      final msgs = _messages[t.key] ?? [];
-      final ids = _messageIds[t.key] ?? _idsOf(msgs);
-      for (final m in fromDisk) {
-        if (m.messageId == null || ids.add(m.messageId!)) msgs.add(m);
-      }
-      msgs.sort((a, b) => b.timestamp.compareTo(a.timestamp));
-      _messages[t.key] = msgs;
-      _messageIds[t.key] = ids;
-    }
   }
 
-  Future<(List<SavedThread>, Map<String, List<TwitchMessage>>)> _readDb(
-    ArchiveStore db,
-  ) async {
-    final loaded = [
-      for (final t in await db.savedThreads()) _saved(t),
-    ].take(maxSavedThreads).toList();
-    final raw = <String, List<Uint8List>>{};
-    var bytes = 0;
-    for (final t in loaded) {
-      if (_removedWhileLoading.contains(t.key)) continue;
-      final rows = await db.threadMessages(t.channel, t.rootId);
-      for (final r in rows) {
-        bytes += r.data.length;
-      }
-      raw[t.key] = [for (final r in rows) r.data];
+  Future<List<SavedThread>> _readDb(ArchiveStore db) async => [
+    for (final t in await db.savedThreads()) _saved(t),
+  ].take(maxSavedThreads).toList();
+
+  /// Reads one saved thread's persisted log into memory. Live replies that
+  /// arrived before this call are kept and deduped by id. Repeated calls and
+  /// threads saved this session do no work.
+  Future<void> ensureMessages(String channel, String rootId) async {
+    final key = '${channel.toLowerCase()}:$rootId';
+    if (!_byKey.containsKey(key) || _loaded.contains(key)) return;
+    final db = await _store;
+    if (db == null) return;
+    final generation = _generation;
+    final rows = await db.threadMessages(channel, rootId);
+    if (generation != _generation || !_byKey.containsKey(key)) return;
+    final raw = [for (final r in rows) r.data];
+    final fromDisk = await Isolate.run(() => _decodeRows(raw));
+    if (generation != _generation || !_byKey.containsKey(key)) return;
+    final live = _messages[key] ?? const <TwitchMessage>[];
+    final seen = <String>{};
+    final merged = <TwitchMessage>[];
+    for (final m in [...fromDisk, ...live]) {
+      final id = m.messageId;
+      if (id != null && !seen.add(id)) continue;
+      merged.add(m);
     }
-    final decoded = bytes > _isolateBytes
-        ? await Isolate.run(() => _decodeAll(raw))
-        : _decodeAll(raw);
-    return (loaded, decoded);
+    merged.sort((a, b) => b.timestamp.compareTo(a.timestamp));
+    _messages[key] = merged;
+    _messageIds[key] = seen;
+    _loaded.add(key);
   }
 
-  static Map<String, List<TwitchMessage>> _decodeAll(
-    Map<String, List<Uint8List>> raw,
-  ) => {
-    for (final e in raw.entries)
-      e.key: [for (final data in e.value) ?_decodeMessage(data)],
-  };
+  static List<TwitchMessage> _decodeRows(List<Uint8List> raw) => [
+    for (final data in raw) ?_decodeMessage(data),
+  ];
 
   static TwitchMessage? _decodeMessage(Uint8List data) {
     try {

@@ -131,6 +131,7 @@ void main() {
       await other.load();
       expect(other.isSaved('forsen', 'r1'), isTrue);
       expect(other.hasChannel('forsen'), isTrue);
+      await other.ensureMessages('forsen', 'r1');
       final msgs = other.messagesFor('forsen', 'r1');
       expect(msgs.map((m) => m.messageId), [
         'c1',
@@ -243,9 +244,53 @@ void main() {
 
       final other = storeOn(db);
       await other.load();
+      expect(other.threads, hasLength(1), reason: 'bookmarks load eagerly');
+      expect(
+        other.messagesFor('forsen', 'm0'),
+        isEmpty,
+        reason: 'the message log is not decoded at startup',
+      );
+      await other.ensureMessages('forsen', 'm0');
       final msgs = other.messagesFor('forsen', 'm0');
       expect(msgs, hasLength(300));
       expect(msgs.first.messageId, 'm299');
+      await other.ensureMessages('forsen', 'm0');
+      expect(
+        other.messagesFor('forsen', 'm0'),
+        hasLength(300),
+        reason: 'a second ensure does not duplicate the log',
+      );
+    });
+
+    test('live replies merge with the loaded log and dedupe by id', () async {
+      final db = await openDb();
+      final seed = storeOn(db);
+      final root = _msg('r1', 'forsen', seconds: 0);
+      seed.toggle(SavedThread.fromMessage(root, 'r1'), [
+        root,
+        _msg('m1', 'forsen', seconds: 1),
+      ]);
+      await seed.flushIo();
+
+      final other = storeOn(db);
+      await other.load();
+      expect(
+        other.appendMessage(_msg('m2', 'forsen', rootId: 'r1', seconds: 2)),
+        isTrue,
+      );
+      await other.ensureMessages('forsen', 'r1');
+      final msgs = other.messagesFor('forsen', 'r1');
+      expect(msgs.map((m) => m.messageId), containsAll(['r1', 'm1', 'm2']));
+      expect(
+        msgs,
+        hasLength(3),
+        reason: 'the live reply merged without a dupe',
+      );
+      expect(
+        other.appendMessage(_msg('m2', 'forsen', rootId: 'r1', seconds: 2)),
+        isFalse,
+        reason: 'dedupe resumes after the log is loaded',
+      );
     });
 
     test('no database: saves work in memory for the session', () async {

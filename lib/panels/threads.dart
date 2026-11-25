@@ -219,6 +219,13 @@ class ThreadPanels {
       if (idx >= 0) switchChannelTo(idx);
     }
     if (!isMounted()) return;
+    final rootId = root.replyThreadRootId ?? root.messageId;
+    if (rootId != null) {
+      // A saved thread's log is read on open. The sheet stays hidden until it
+      // lands so no frame paints the previous thread's rows.
+      await savedThreads.ensureMessages(channel, rootId);
+      if (!isMounted()) return;
+    }
     panelManager.activePanel = OverlayPanel.thread;
     panelManager.openThreadRoot = root;
     _lastThreadRoot = root;
@@ -227,7 +234,6 @@ class ThreadPanels {
     _setThreadRows(computeThreadMessages());
     threadMsgCount.value++;
     unawaited(_loadArchivedThread(force: true));
-    final rootId = root.replyThreadRootId ?? root.messageId;
     if (rootId != null) {
       threadLastSeen['$channel:$rootId'] = DateTime.now();
       threadsListVersion.value++;
@@ -265,7 +271,6 @@ class ThreadPanels {
     tabDragFocus.reset();
     composer.unfocus();
     panelManager.activePanel = OverlayPanel.thread;
-    markDirty();
     // closePanel clears the manager's root; restore the open thread so the
     // Thread tab survives dashboard browsing. Active stays per selected
     // channel; the Thread tab may show another channel's thread.
@@ -289,6 +294,7 @@ class ThreadPanels {
     _openCount++;
     tabDragFocus.jumpTo(tab.clamp(0, 2));
     threadsListVersion.value++;
+    markDirty();
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (isMounted()) {
         panelManager.animateRatio(
