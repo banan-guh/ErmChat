@@ -166,23 +166,23 @@ void main() {
     expect(find.text('Live with 7 viewers'), findsOneWidget);
     expect(clearance(), closeTo(live, 0.5));
 
-    // With the keyboard up the footer, and its splash, are gone entirely.
+    // With the keyboard up the footer is clipped away with the row, so its
+    // splash no longer adds an offset to any page.
     await tester.pump();
     for (final kb in <double>[100, 200, 300]) {
       tester.view.viewInsets = FakeViewPadding(bottom: kb);
       await tester.pump(const Duration(milliseconds: 16));
     }
     await tester.pump(const Duration(milliseconds: 400));
-    expect(find.text('Live with 7 viewers'), findsNothing);
     final open = clearance();
     info.setStatus('Live with 7 viewers for 2h 3m', live: true);
     await tester.pump(const Duration(milliseconds: 300));
-    expect(find.text('Live with 7 viewers for 2h 3m'), findsNothing);
     expect(tester.getSize(input).height, inputH);
     expect(
       clearance(),
       closeTo(open, 0.5),
-      reason: 'no splash means no channel offset while the keyboard is up',
+      reason:
+          'a clipped splash adds no channel offset while the keyboard is up',
     );
 
     // Closing the keyboard brings the splash and its ease back.

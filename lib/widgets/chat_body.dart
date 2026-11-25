@@ -575,15 +575,14 @@ class _ChatBodyState extends State<ChatBody>
     // the shell from below as the keyboard rises, so its rim and corners
     // reshape around what is left instead of being cut off.
     // The footer resizes on its own (a channel switch swaps the status) and
-    // reports its height to the island's layout. With the keyboard up it is
-    // dropped entirely, so no channel carries a splash-driven offset.
+    // reports its height to the island's layout. It stays in the row so the
+    // keyboard retract clips it with the buttons from the island's real size.
+    // With the keyboard up it is left out of the page clearance below, so no
+    // channel carries a splash-driven offset.
+    final hideFooter = _keyboardEngaged && widget.hideFooterOnKeyboard;
     final footer = _Report(
       slot: _footerH,
-      child:
-          widget.islandFooter == null ||
-              (_keyboardEngaged && widget.hideFooterOnKeyboard)
-          ? const SizedBox.shrink()
-          : widget.islandFooter!,
+      child: widget.islandFooter ?? const SizedBox.shrink(),
     );
     // Edge to edge, one line carries the busy motion or an upload's progress.
     final busyLine = _busyLine(layout);
@@ -768,7 +767,10 @@ class _ChatBodyState extends State<ChatBody>
                                       widget.hideFooterOnKeyboard
                                   ? (String _) => 0.0
                                   : widget.islandFooterHeightFor,
-                              footer: widget.islandFooter == null
+                              // The footer is clipped away with the row, so
+                              // its laid-out height must not reach the page
+                              // clearance while the keyboard is up.
+                              footer: hideFooter || widget.islandFooter == null
                                   ? null
                                   : _footerH,
                               children: [
