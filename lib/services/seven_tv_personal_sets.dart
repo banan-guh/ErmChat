@@ -198,7 +198,8 @@ class SevenTvPersonalSets {
     required bool reconcile,
     required Set<String> changedSetIds,
   }) async {
-    await loadPersisted();
+    // A gap heal runs after boot, so the persisted seed is already in memory.
+    if (!reconcile) await loadPersisted();
     final viewerId = viewerTwitchId;
     if (viewerId == null || viewerId.isEmpty) return;
     if (_tier() == EmoteFetchTier.nothing) return;

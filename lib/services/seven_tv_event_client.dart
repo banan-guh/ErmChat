@@ -1067,20 +1067,31 @@ class SevenTvEventClient {
   }
 
   void _startHeartbeat() {
+    final interval = _heartbeatInterval;
+    if (interval == null) return;
+    _armHeartbeatCheck(Duration(milliseconds: 3 * interval));
+  }
+
+  // Fires at the deadline and re-arms for the remainder, so heartbeats only
+  // move the deadline instead of costing a timer wakeup each interval.
+  void _armHeartbeatCheck(Duration delay) {
+    final run = _run;
+    final socket = _channel;
     _heartbeatTimer?.cancel();
-    if (_heartbeatInterval == null) return;
-    _heartbeatTimer = Timer.periodic(
-      Duration(milliseconds: _heartbeatInterval!),
-      (_) {
-        if (_channel == null) return;
-        final elapsed = DateTime.now().difference(_lastHeartbeat);
-        if (elapsed.inMilliseconds > 3 * _heartbeatInterval!) {
-          logDebug('7TV heartbeat timeout - reconnecting');
-          _endSocket(SocketEnd.dropped);
-          return;
-        }
-      },
-    );
+    _heartbeatTimer = Timer(delay, () {
+      if (!identical(_run, run) || !identical(_channel, socket)) return;
+      final interval = _heartbeatInterval;
+      if (interval == null || !_handshakeComplete) return;
+      final remaining =
+          Duration(milliseconds: 3 * interval) -
+          DateTime.now().difference(_lastHeartbeat);
+      if (remaining <= Duration.zero) {
+        logDebug('7TV heartbeat timeout - reconnecting');
+        _endSocket(SocketEnd.dropped);
+        return;
+      }
+      _armHeartbeatCheck(remaining);
+    });
   }
 
   bool _send(String message) {

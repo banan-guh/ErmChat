@@ -56,7 +56,7 @@ class _EmoteScaleResolverState extends State<EmoteScaleResolver> {
     super.initState();
     widget.images.scaleRevision.addListener(_onRevision);
     _applySync();
-    _resolve();
+    if (!_resolved) _resolve();
   }
 
   @override
@@ -73,7 +73,7 @@ class _EmoteScaleResolverState extends State<EmoteScaleResolver> {
       _placeholder = null;
       _resolved = false;
       _applySync();
-      _resolve();
+      if (!_resolved) _resolve();
     }
   }
 
@@ -85,15 +85,17 @@ class _EmoteScaleResolverState extends State<EmoteScaleResolver> {
 
   void _onRevision() {
     setState(_applySync);
-    _resolve();
+    if (!_resolved) _resolve();
   }
 
   /// Applies the memoized answer when every scale is already known, so a warm
   /// emote paints on the first frame instead of after an async hop. Cold
-  /// emotes leave [_resolved] false and wait on [_resolve].
+  /// emotes leave [_resolved] false and wait on [_resolve]. A sync answer
+  /// supersedes any async resolve still in flight.
   void _applySync() {
     final sync = widget.images.resolveSync(widget.emote, widget.surface);
     if (sync == null) return;
+    _token = Object();
     _url = sync.url;
     _placeholder = sync.placeholder;
     _resolved = true;

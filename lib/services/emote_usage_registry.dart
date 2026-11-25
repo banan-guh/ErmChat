@@ -125,15 +125,11 @@ class EmoteUsageRecord {
       total += b;
     }
     if (total == 0) return r;
-    final steady = (total / _steadyRate).clamp(0.0, 1.0) * _entropy();
+    final steady = (total / _steadyRate).clamp(0.0, 1.0) * _entropy(total);
     return r + _steadyWeight * steady;
   }
 
-  double _entropy() {
-    var total = 0;
-    for (final b in buckets) {
-      total += b;
-    }
+  double _entropy(int total) {
     if (total == 0) return 0;
     var entropy = 0.0;
     for (final b in buckets) {

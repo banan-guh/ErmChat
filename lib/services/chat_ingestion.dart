@@ -358,6 +358,11 @@ class ChatIngestion {
     if (msg.isSystem || msg.isHistory) return;
     final tokens = msg.emoteTokens;
     if (tokens == null || tokens.isEmpty) return;
+    if (tokens.length == 1) {
+      final emote = tokens.first.emote;
+      if (emote != null) emoteManager.markEmotesViewed([emote]);
+      return;
+    }
     final seen = <String>{};
     final found = [
       for (final token in tokens)
@@ -380,14 +385,15 @@ class ChatIngestion {
       // default (PRIMARY) purple announcement: the notice stays a system
       // message but carries the accent.
       final accent = userNoticeAccent(event.msgId);
+      final noticeText = buildUserNoticeText(
+        msgId: event.msgId,
+        displayName: event.displayName,
+        announcementLabel: strings().announcementLabel,
+        systemMsg: event.systemMsg,
+      );
       onSystemMessage(
         event.channel,
-        buildUserNoticeText(
-          msgId: event.msgId,
-          displayName: event.displayName,
-          announcementLabel: strings().announcementLabel,
-          systemMsg: event.systemMsg,
-        ),
+        noticeText,
         accent: accent,
         messageId: userNoticeLabelId(event.messageId),
       );
@@ -427,12 +433,7 @@ class ChatIngestion {
         TwitchMessage(
           login: event.login,
           displayName: event.displayName,
-          text: buildUserNoticeText(
-            msgId: event.msgId,
-            displayName: event.displayName,
-            announcementLabel: strings().announcementLabel,
-            systemMsg: event.systemMsg,
-          ),
+          text: noticeText,
           channel: event.channel,
           isSystem: true,
         ),

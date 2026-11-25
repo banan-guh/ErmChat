@@ -1651,6 +1651,34 @@ void main() {
     await store.close();
   });
 
+  test('a repeat read adds only the states it needs to the partial cache',
+      () async {
+    final path = _newPath();
+    var now = _keptNow();
+    var store = await _open(path, now: () => now);
+    final writer = _writer(store, sealCount: 2);
+    writer.add(_channel, _msg(0, login: 'alice'));
+    writer.add(_channel, _msg(1, login: 'bobby'));
+    await writer.flush();
+    // Stamp the prune clock so the reopen skips upkeep, which would load the
+    // full user tables and leave no partial cache for the reads to build.
+    await store.pruneIfDue();
+    now = now.add(const Duration(minutes: 10));
+    await store.close();
+
+    store = await _open(path, now: () => now);
+    final reader = _reader(store);
+    // The first read caches only the state it names (bobby).
+    expect((await reader.newestRows(_channel, 1)).single.login, 'bobby');
+    // The next names another state, which the cache must load and merge.
+    expect(
+      [for (final m in await reader.newestRows(_channel, 100)) m.login],
+      ['alice', 'bobby'],
+      reason: 'a cached partial table gains the states a later read needs',
+    );
+    await store.close();
+  });
+
   test('reader returns rows in order across blocks and skips damage', () async {
     final store = await _open(_newPath());
     final writer = _writer(store, sealCount: 4);

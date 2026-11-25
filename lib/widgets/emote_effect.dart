@@ -324,6 +324,12 @@ class EmoteEffectPlan {
   }
 
   Matrix4? _ffzTransform(double? t, Size size, double unit) {
+    final motion = t == null ? _Motion.none : _motion;
+    // Color-only and slide animations have no matrix; skip the allocation.
+    if (motion == _Motion.none &&
+        effects & (FfzEffect.flipX | FfzEffect.flipY) == 0) {
+      return null;
+    }
     final flips = Matrix4.identity();
     var flipped = false;
     if (effects & FfzEffect.flipX != 0) {
@@ -334,7 +340,6 @@ class EmoteEffectPlan {
       flips.scaleByDouble(1, -1, 1, 1);
       flipped = true;
     }
-    final motion = t == null ? _Motion.none : _motion;
     final bounce = motion == _Motion.bounce;
     if (bounce && effects & FfzEffect.flipY != 0) {
       flips.translateByDouble(0, size.height, 0, 1);
@@ -355,25 +360,37 @@ class EmoteEffectPlan {
   }
 
   /// Color matrices to apply in order at [t] seconds. Separate steps where
-  /// CSS clamps in between.
-  List<List<double>> filters(double? t) => [
-    if (effects & FfzEffect.hyperRed != 0) ...[
-      _mul(
-        _contrast(3),
-        _mul(_brightness(2.2), _mul(_sepia, _brightness(0.2))),
-      ),
-      _saturate(8),
-    ],
-    if (effects & FfzEffect.cursed != 0) _cursed,
-    if (_rainbow && t != null) _hueRotate(360 * _phase(t, 2)),
-    // BTTV's party animation overrides its cursed filter while it runs.
-    if (effects & BttvEffect.party != 0 && t != null) ...[
-      _sepiaBy(0.5),
-      _hueRotate(360 * _phase(t, 1.5)),
-      _saturate(2.5),
-    ] else if (effects & BttvEffect.cursed != 0)
-      _cursed,
-  ];
+  /// CSS clamps in between. Effects without color changes share one empty
+  /// list instead of allocating a new one per painted frame.
+  List<List<double>> filters(double? t) {
+    if (effects &
+            (FfzEffect.hyperRed |
+                FfzEffect.cursed |
+                FfzEffect.rainbow |
+                BttvEffect.cursed |
+                BttvEffect.party) ==
+        0) {
+      return const [];
+    }
+    return [
+      if (effects & FfzEffect.hyperRed != 0) ...[
+        _mul(
+          _contrast(3),
+          _mul(_brightness(2.2), _mul(_sepia, _brightness(0.2))),
+        ),
+        _saturate(8),
+      ],
+      if (effects & FfzEffect.cursed != 0) _cursed,
+      if (_rainbow && t != null) _hueRotate(360 * _phase(t, 2)),
+      // BTTV's party animation overrides its cursed filter while it runs.
+      if (effects & BttvEffect.party != 0 && t != null) ...[
+        _sepiaBy(0.5),
+        _hueRotate(360 * _phase(t, 1.5)),
+        _saturate(2.5),
+      ] else if (effects & BttvEffect.cursed != 0)
+        _cursed,
+    ];
+  }
 
   /// Horizontal shift of the doubled slide strip at [t], or null. A box
   /// with no width or scale has no strip to slide: its period would be zero

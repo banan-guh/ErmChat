@@ -56,10 +56,6 @@ class ComposerController {
   }) {
     focusNode.addListener(_onInputFocusChanged);
     messageController.addListener(_onInputChanged);
-    _cooldownTickTimer = Timer.periodic(
-      const Duration(seconds: 1),
-      (_) => refreshCooldown(),
-    );
   }
 
   final ChatConnectionManager chatConn;
@@ -500,7 +496,23 @@ class ComposerController {
     return null;
   }
 
-  void refreshCooldown() => cooldownLabel.value = cooldownText();
+  // Ticks only while a cooldown is visible. ValueNotifier skips unchanged
+  // labels, so an idle composer wakes no timers at all.
+  void refreshCooldown() {
+    final text = cooldownText();
+    cooldownLabel.value = text;
+    if (text == null) {
+      _cooldownTickTimer?.cancel();
+      _cooldownTickTimer = null;
+      return;
+    }
+    _cooldownTickTimer ??= Timer(const Duration(seconds: 1), _onCooldownTick);
+  }
+
+  void _onCooldownTick() {
+    _cooldownTickTimer = null;
+    refreshCooldown();
+  }
 
   /// A thread older than Twitch's reply window: the composer closes rather
   /// than sending a message the server rejects.

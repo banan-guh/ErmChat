@@ -470,6 +470,7 @@ class ArchiveReader {
     t.mark('sets', drawn == null ? 'none' : 'loaded');
     final pending = edits ?? await store.edits(channel);
     t.mark('edits', 'n=${pending.length}');
+    final dead = deadIds?.call();
     final out = <ArchiveWindowBlock>[];
     for (var i = 0; i < blocks.length; i++) {
       final rows = decoded[i];
@@ -490,7 +491,7 @@ class ArchiveReader {
           sets: drawn,
           rewrite: rewrite,
         );
-        _dropDeadTokens(m);
+        _dropDeadTokens(m, dead);
         // The reconnect grey marks a catch-up in the session it happened.
         m.isBackfill = false;
         if (edit == ArchiveEdit.deleted) m.deleted = true;
@@ -527,8 +528,7 @@ class ArchiveReader {
   }
 
   /// Drops tokens whose emote 7TV confirmed gone. The row keeps its text.
-  void _dropDeadTokens(TwitchMessage m) {
-    final dead = deadIds?.call();
+  void _dropDeadTokens(TwitchMessage m, Set<String>? dead) {
     final tokens = m.emoteTokens;
     if (dead == null || dead.isEmpty || tokens == null || tokens.isEmpty) {
       return;

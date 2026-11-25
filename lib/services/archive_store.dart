@@ -118,6 +118,10 @@ class ArchiveStore {
   /// awaiting the future or reloading a partial table.
   final Map<String, UserTables> _tablesNow = {};
 
+  /// Partial user tables built by [tablesFor], by channel. A channel flip
+  /// reuses the states an earlier read loaded instead of querying them again.
+  final Map<String, UserTables> _partialTables = {};
+
   /// Channels read recently, oldest first, with the time of the read, so a
   /// prune does not drop the tables a read just loaded.
   final Map<String, DateTime> _reads = {};
@@ -664,6 +668,7 @@ class ArchiveStore {
       });
       _tables.clear();
       _tablesNow.clear();
+      _partialTables.clear();
       _vocab = null;
       _vocabChecked = null;
       _searchIndex.clear();
@@ -691,6 +696,8 @@ class ArchiveStore {
     final future = _tables.putIfAbsent(channel, () => _loadTables(channel));
     try {
       final loaded = await future;
+      // The full table is complete and mutable, so a partial one is stale.
+      _partialTables.remove(channel);
       return _tablesNow[channel] = loaded.tables;
     } catch (_) {
       _tables.remove(channel);
@@ -704,17 +711,19 @@ class ArchiveStore {
 
   /// Only the user tables the [stateIds] of one read name. A first read of a
   /// busy channel parses its whole user table otherwise, seconds before the
-  /// first rows show.
+  /// first rows show. States already loaded by an earlier read of [channel]
+  /// are skipped; later reads add only what they need.
   Future<UserTables> tablesFor(String channel, Iterable<int> stateIds) async {
     final t = SlowTrace('tablesFor $channel', limitMs: 200);
-    final out = UserTables();
-    final states = stateIds.toSet();
-    if (states.isEmpty) {
-      return out;
-    }
-    final whos = <int>{};
-    final looks = <int>{};
-    for (final part in _idChunks(states)) {
+    final wanted = stateIds.toSet();
+    if (wanted.isEmpty) return UserTables();
+    final out = _partialTables.putIfAbsent(channel, UserTables.new);
+    final missing = <int>[
+      for (final id in wanted)
+        if (out.states[id] == null) id,
+    ];
+    if (missing.isEmpty) return out;
+    for (final part in _idChunks(missing)) {
       final rows = await _db.rawQuery(
         'SELECT id, who, look FROM user_states WHERE channel = ? AND id IN '
         '(${part.join(', ')})',
@@ -724,12 +733,24 @@ class ArchiveStore {
         final who = r['who']! as int;
         final look = r['look']! as int;
         out.putState(r['id']! as int, who, look);
-        whos.add(who);
-        looks.add(look);
       }
     }
-    t.mark('states', 'states=${states.length} whos=${whos.length}');
-    for (final part in _idChunks(whos)) {
+    // Walk the wanted states, not just the ones just loaded, so a read
+    // interrupted between its queries still fills its missing whos and looks.
+    final whos = <int>{};
+    final looks = <int>{};
+    for (final id in wanted) {
+      final s = out.states[id];
+      if (s == null) continue;
+      whos.add(s.who);
+      looks.add(s.look);
+    }
+    t.mark('states', 'missing=${missing.length} whos=${whos.length}');
+    final missingWhos = [
+      for (final id in whos)
+        if (out.whos[id] == null) id,
+    ];
+    for (final part in _idChunks(missingWhos)) {
       final rows = await _db.rawQuery(
         'SELECT id, user_id, login, display_name, (display_name IS NULL) '
         'AS no_name FROM users WHERE channel = ? AND id IN '
@@ -737,8 +758,10 @@ class ArchiveStore {
         [channel],
       );
       for (final r in rows) {
+        final id = r['id']! as int;
+        if (out.whos[id] != null) continue;
         out.putWho(
-          r['id']! as int,
+          id,
           Who(
             userId: r['user_id']! as String,
             login: r['login']! as String,
@@ -749,16 +772,22 @@ class ArchiveStore {
         );
       }
     }
-    for (final part in _idChunks(looks)) {
+    final missingLooks = [
+      for (final id in looks)
+        if (out.looks[id] == null) id,
+    ];
+    for (final part in _idChunks(missingLooks)) {
       final rows = await _db.rawQuery(
         'SELECT id, color, (color IS NULL) AS no_color, badges, extra '
         'FROM looks WHERE channel = ? AND id IN (${part.join(', ')})',
         [channel],
       );
       for (final r in rows) {
+        final id = r['id']! as int;
+        if (out.looks[id] != null) continue;
         final extra = r['extra'] as String?;
         out.putLook(
-          r['id']! as int,
+          id,
           Look(
             color: r['no_color'] == 1 ? null : r['color'] as String?,
             badges: r['badges']! as String,
@@ -772,7 +801,7 @@ class ArchiveStore {
         );
       }
     }
-    t.end('whos=${out.whos.length} looks=${out.looks.length}');
+    t.end('whos=${out.whos.count} looks=${out.looks.count}');
     return out;
   }
 
@@ -790,6 +819,9 @@ class ArchiveStore {
     _reads.remove(channel);
     _reads[channel] = _now();
     if (_reads.length > _readsKept) _reads.remove(_reads.keys.first);
+    if (_partialTables.length > _readsKept) {
+      _partialTables.removeWhere((c, _) => !_reads.containsKey(c));
+    }
   }
 
   /// Reads the three tables as a few joined strings and parses them on a

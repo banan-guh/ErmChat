@@ -119,6 +119,17 @@ class Threads {
     _bump();
   }
 
+  /// Live path for one message: avoids wrapping it in a list per arrival.
+  void indexOne(
+    TwitchMessage msg, {
+    TwitchMessage? Function(String rootId)? lookupRoot,
+    bool own = false,
+  }) {
+    if (!_indexOne(msg, lookupRoot, own)) return;
+    _enforceCap();
+    _bump();
+  }
+
   bool _indexOne(
     TwitchMessage msg,
     TwitchMessage? Function(String rootId)? lookupRoot,
@@ -177,9 +188,10 @@ class Threads {
     // Only an explicit root different from the parent is authoritative.
     if (explicit != null && explicit != parentId) return explicit;
 
+    if (parentId == null) return explicit;
     var current = parentId;
     final seen = <String>{};
-    while (current != null && seen.add(current)) {
+    while (seen.add(current)) {
       // A pinned or saved root is authoritative even if it has a parent.
       if (_pinnedMessageIds.contains(current) ||
           _savedRootIds.contains(current)) {
@@ -191,7 +203,7 @@ class Threads {
       if (next == null) return parent.messageId ?? current;
       current = next;
     }
-    return current ?? explicit;
+    return current;
   }
 
   /// A parent the buffer no longer holds: a reply the index still tracks names
@@ -207,6 +219,7 @@ class Threads {
   /// Drops the oldest unheld threads over the cap. Returns true when any
   /// entry went.
   bool _enforceCap() {
+    if (_threads.length <= maxTrackedThreads) return false;
     var dropped = false;
     while (true) {
       final unsaved = _threads.entries

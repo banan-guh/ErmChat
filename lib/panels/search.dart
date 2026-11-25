@@ -113,12 +113,6 @@ class SearchPanels {
   List<TwitchMessage> visibleMessages(String channel) {
     final filter = stateFor(channel);
     final messages = chat.channelFor(channel)?.messages;
-    final items = (messages?.chatRows ?? const <TwitchMessage>[])
-        .where((m) => !m.isHeld)
-        .toList();
-    if (!open || !filter.isActive) {
-      return items;
-    }
     final version = messages?.version.value ?? 0;
     final frozen = _frozen[channel];
     final cached = _visibleCache[channel];
@@ -126,23 +120,31 @@ class SearchPanels {
         cached.matches(filter: filter, version: version, frozen: frozen)) {
       return cached.rows;
     }
-    final q = ChatQuery.parse(filter.query, filter.scope);
-    var base = filter.live == ChatSearchLive.pause
-        ? (frozen ?? const <TwitchMessage>[])
-        : items;
-    if (filter.live == ChatSearchLive.pause) {
-      // Drops rows evicted by truncation/deletes while frozen.
-      base = base
-          .where(
-            (m) =>
-                m.messageId == null ||
-                (messages?.containsId(m.messageId!) ?? false),
-          )
-          .toList();
+    final items = (messages?.chatRows ?? const <TwitchMessage>[])
+        .where((m) => !m.isHeld)
+        .toList();
+    late final List<TwitchMessage> rows;
+    if (!open || !filter.isActive) {
+      rows = items;
+    } else {
+      final q = ChatQuery.parse(filter.query, filter.scope);
+      var base = filter.live == ChatSearchLive.pause
+          ? (frozen ?? const <TwitchMessage>[])
+          : items;
+      if (filter.live == ChatSearchLive.pause) {
+        // Drops rows evicted by truncation/deletes while frozen.
+        base = base
+            .where(
+              (m) =>
+                  m.messageId == null ||
+                  (messages?.containsId(m.messageId!) ?? false),
+            )
+            .toList();
+      }
+      rows = filter.display == ChatSearchDisplay.dim
+          ? base
+          : base.where(q.matches).toList();
     }
-    final rows = filter.display == ChatSearchDisplay.dim
-        ? base
-        : base.where(q.matches).toList();
     _visibleCache[channel] = _SearchCache(
       query: filter.query,
       scope: filter.scope,

@@ -59,9 +59,11 @@ IrcMessage? parseIrcMessage(String line) {
     final trailingAt = line.indexOf(' :', pos);
     final head = line.substring(pos, trailingAt == -1 ? null : trailingAt);
     if (trailingAt != -1) trailing = line.substring(trailingAt + 2);
-    final parts = head.split(' ');
-    final command = parts[0];
-    final params = parts.sublist(1);
+    final firstSpace = head.indexOf(' ');
+    final command = firstSpace == -1 ? head : head.substring(0, firstSpace);
+    final params = firstSpace == -1
+        ? const <String>[]
+        : head.substring(firstSpace + 1).split(' ');
 
     final tagMap = <String, String>{};
     if (tags != null) {

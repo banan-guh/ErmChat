@@ -82,6 +82,8 @@ class SavedThreadsStore {
   final Timer Function(Duration, void Function()) _createTimer;
 
   final List<SavedThread> _threads = [];
+  // Bookmark by key, so the per-message append check stays O(1).
+  final Map<String, SavedThread> _byKey = {};
   final Map<String, List<TwitchMessage>> _messages = {};
   // Message ids per thread, kept in sync with _messages so append dedupe is
   // O(1) instead of a scan of the whole (uncapped) thread log.
@@ -116,9 +118,8 @@ class SavedThreadsStore {
         _messages['${channel.toLowerCase()}:$rootId'] ?? const [],
       );
 
-  bool isSaved(String channel, String rootId) => _threads.any(
-    (t) => t.channel == channel.toLowerCase() && t.rootId == rootId,
-  );
+  bool isSaved(String channel, String rootId) =>
+      _byKey.containsKey('${channel.toLowerCase()}:$rootId');
 
   /// Whether any saved thread belongs to [channel] (stored lowercase).
   bool hasChannel(String channel) => _channels.contains(channel.toLowerCase());
@@ -192,6 +193,7 @@ class SavedThreadsStore {
         _forget(_threads.removeLast());
       }
     }
+    _byKey[entry.key] = entry;
     _refreshChannels();
     final log = List.of(messages);
     _messages[entry.key] = log;
@@ -224,6 +226,7 @@ class SavedThreadsStore {
 
   // Drops [t] from memory and queues the delete of its rows.
   void _forget(SavedThread t) {
+    _byKey.remove(t.key);
     _messages.remove(t.key);
     _messageIds.remove(t.key);
     _pending.removeWhere((p) => p.$1.key == t.key);
@@ -239,14 +242,14 @@ class SavedThreadsStore {
     final channel = msg.channel?.toLowerCase();
     if (rootId == null || channel == null) return false;
     final key = '$channel:$rootId';
-    final idx = _threads.indexWhere((t) => t.key == key);
-    if (idx < 0) return false;
+    final saved = _byKey[key];
+    if (saved == null) return false;
     final log = _messages.putIfAbsent(key, () => []);
     final ids = _messageIds.putIfAbsent(key, () => _idsOf(log));
     final msgId = msg.messageId;
     if (msgId != null && !ids.add(msgId)) return false;
     log.insert(0, msg);
-    _pending.add((_threads[idx], msg));
+    _pending.add((saved, msg));
     // The first change arms the write and later ones join it, so a busy
     // thread still reaches disk every second instead of waiting for a quiet
     // one.
@@ -280,6 +283,7 @@ class SavedThreadsStore {
     _flushTimer = null;
     _pending.clear();
     _threads.clear();
+    _byKey.clear();
     _messages.clear();
     _messageIds.clear();
     _removedWhileLoading.clear();
@@ -351,6 +355,9 @@ class SavedThreadsStore {
     _threads
       ..clear()
       ..addAll(merged.take(maxSavedThreads));
+    _byKey
+      ..clear()
+      ..addAll({for (final t in _threads) t.key: t});
     _refreshChannels();
     for (final t in _threads) {
       final fromDisk = early.contains(t.key) ? null : disk[t.key];

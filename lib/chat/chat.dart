@@ -127,11 +127,11 @@ class Chat {
       rawHistory: rawHistory,
       maxMessages: maxMessages,
     );
-    final mirrored = [
-      for (final m in outcome.inserted)
-        if (_isMentionRow(m, ownLogin)) m,
-    ];
-    if (mirrored.isNotEmpty) {
+    List<TwitchMessage>? mirrored;
+    for (final m in outcome.inserted) {
+      if (_isMentionRow(m, ownLogin)) (mirrored ??= []).add(m);
+    }
+    if (mirrored != null) {
       mirrorMentions(mirrored, maxMessages: maxMessages);
     }
     return outcome;
@@ -247,12 +247,16 @@ class Chat {
     unreadVersion.value++;
   }
 
-  /// Rebuilds the load-failure aggregate from per-channel info.
+  /// Rebuilds the load-failure aggregate from per-channel info. Skips the
+  /// notifier when the set is unchanged, so a tracked load that was already
+  /// fine does not rebuild every listening tile.
   void rebuildLoadFailures() {
     final next = <String>{};
     for (final entry in _channels.entries) {
       if (entry.value.info.hasLoadFailure) next.add(entry.key);
     }
+    final current = loadFailedChannels.value;
+    if (current.length == next.length && current.containsAll(next)) return;
     loadFailedChannels.value = next;
   }
 

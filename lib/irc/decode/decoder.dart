@@ -196,16 +196,13 @@ class IrcChatDecoder {
   }
 
   void _handleUserState(IrcMessage msg) {
+    final channel = msg.command == 'USERSTATE' ? _channelNameOf(msg) : null;
     final badges = parseIrcBadges(msg.tags['badges']);
     final mod = msg.tags['mod'];
-    if (msg.command == 'USERSTATE' && mod != null) {
-      final channel = _channelNameOf(msg);
+    if (channel != null && mod != null) {
       final owner = badges?.any((b) => b.setId == 'broadcaster') ?? false;
-      if (channel != null) {
-        _selfModController.add((channel, mod == '1' || owner));
-      }
+      _selfModController.add((channel, mod == '1' || owner));
     }
-    final channel = msg.command == 'USERSTATE' ? _channelNameOf(msg) : null;
     if (badges == null) {
       // An empty badge set clears the stored one, so a lost mod or sub badge
       // stops bypassing slow mode.

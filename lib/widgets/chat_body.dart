@@ -1026,8 +1026,9 @@ class _ChatBodyState extends State<ChatBody>
     final showsBusy = busyListenable != null && isBusy != null;
     final lineUpload = layout.classic ? null : widget.progress;
     if (!showsBusy && lineUpload == null) return null;
+    if (busyListenable == null) return _busyLineBody(lineUpload, isBusy);
     return ListenableBuilder(
-      listenable: Listenable.merge([busyListenable]),
+      listenable: busyListenable,
       builder: (_, _) => _busyLineBody(lineUpload, isBusy),
     );
   }

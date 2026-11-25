@@ -82,7 +82,7 @@ class Channel {
     threads.decay(change.evicted);
     final own =
         ownLogin != null && msg.login.toLowerCase() == ownLogin.toLowerCase();
-    threads.index([msg], lookupRoot: messages.byId, own: own);
+    threads.indexOne(msg, lookupRoot: messages.byId, own: own);
     final mention = msg.highlight?.hasMention ?? false;
     // Own and hidden rows count for nothing.
     if (own || hidden) {

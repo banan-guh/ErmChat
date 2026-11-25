@@ -1106,6 +1106,15 @@ class Messages {
   /// when live and history rows share a boundary second.
   void _sortNewestFirst() {
     if (_items.length < 2) return;
+    // An already ordered buffer is the exact output of the stable sort below.
+    var ordered = true;
+    for (var i = 1; i < _items.length; i++) {
+      if (_items[i - 1].timestamp.compareTo(_items[i].timestamp) < 0) {
+        ordered = false;
+        break;
+      }
+    }
+    if (ordered) return;
     final indices = List<int>.generate(_items.length, (i) => i);
     indices.sort((a, b) {
       final byTime = _items[b].timestamp.compareTo(_items[a].timestamp);
@@ -1179,6 +1188,7 @@ class MessageMutations {
       _allListeners.remove(listener);
 
   void emit(String? id) {
+    if (_listeners.isEmpty) return;
     for (final listener in List.of(_listeners)) {
       listener(id);
     }
@@ -1188,6 +1198,7 @@ class MessageMutations {
   /// for the channel. Distinct from [emit] so a null id keeps its
   /// uncached-row no-op meaning.
   void emitAll() {
+    if (_allListeners.isEmpty) return;
     for (final listener in List.of(_allListeners)) {
       listener();
     }

@@ -178,7 +178,7 @@ class _IntroScreenState extends State<IntroScreen> {
                   _IntroPage(
                     title: l10n.introEmotesTitle,
                     body: l10n.introEmotesBody,
-                    child: const _EmoteTour(),
+                    child: _EmoteTour(active: last),
                   ),
                 ],
               ),
@@ -266,7 +266,11 @@ class _IntroPage extends StatelessWidget {
 /// A guided tour of the emote settings screenshot: the frame pans to each
 /// section in turn, outlines it, and captions what it does.
 class _EmoteTour extends StatefulWidget {
-  const _EmoteTour();
+  const _EmoteTour({required this.active});
+
+  /// The tour is the last page; other pages keep the widget mounted but
+  /// must not drive its animation.
+  final bool active;
 
   @override
   State<_EmoteTour> createState() => _EmoteTourState();
@@ -289,7 +293,22 @@ class _EmoteTourState extends State<_EmoteTour> {
   @override
   void initState() {
     super.initState();
-    _timer = Timer.periodic(
+    _syncTimer();
+  }
+
+  @override
+  void didUpdateWidget(_EmoteTour old) {
+    super.didUpdateWidget(old);
+    if (old.active != widget.active) _syncTimer();
+  }
+
+  void _syncTimer() {
+    if (!widget.active) {
+      _timer?.cancel();
+      _timer = null;
+      return;
+    }
+    _timer ??= Timer.periodic(
       _step,
       (_) => setState(() => _index = (_index + 1) % _sections.length),
     );
