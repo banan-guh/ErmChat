@@ -106,7 +106,7 @@ void main() {
 
     test('tokens, user and profile image persist through load', () async {
       final auth = TwitchAuth();
-      auth.setCredentials(accessToken: 'tok', refreshToken: 'ref');
+      auth.setCredentials(accessToken: 'tok');
       auth.setUser(
         'alice',
         '111',
@@ -118,7 +118,6 @@ void main() {
 
       final back = await reload();
       expect(back.accessToken, 'tok');
-      expect(back.refreshToken, 'ref');
       expect(back.login, 'alice');
       expect(back.userId, '111');
       expect(back.profileImageUrl, 'https://example.com/a.png');

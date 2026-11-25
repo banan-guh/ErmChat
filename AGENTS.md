@@ -51,7 +51,7 @@ Never route around a rule to make a check pass: no re-export shims, wrapper file
 
 A test earns its place when a bug there would be quiet, rare to trigger, or expensive. Loud bugs you would hit in a day of normal use don't need one.
 
-- Test: protocol parsing (IRC, EventSub, 7TV, history) with real payloads; chat kernel rules; reconnect, backoff, join rate limits; auth and token refresh; persisted data that must survive an upgrade; emote priority and eviction; leaks; and each bug that actually shipped (one regression test, named for the bug).
+- Test: protocol parsing (IRC, EventSub, 7TV, history) with real payloads; chat kernel rules; reconnect, backoff, join rate limits; auth; persisted data that must survive an upgrade; emote priority and eviction; leaks; and each bug that actually shipped (one regression test, named for the bug).
 - Don't test: that a widget renders or a label shows, that a toggle saves a pref, pixel sizes, copy text, getters/enums/constants, internal counters (unless guarding a leak), or third-party libraries.
 - Extend an existing table or flow before adding a test: one test per rule, not per input. Name the failing case with `reason:`.
 - Fake time, never real waits. New timing code takes an injectable clock instead of reading `DateTime.now()`.

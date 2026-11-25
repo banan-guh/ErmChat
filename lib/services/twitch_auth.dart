@@ -10,7 +10,6 @@ class TwitchAccount {
   final String login;
   final String? userId;
   final String accessToken;
-  final String? refreshToken;
   final String? profileImageUrl;
   final bool expired;
 
@@ -23,7 +22,6 @@ class TwitchAccount {
     required this.login,
     this.userId,
     required this.accessToken,
-    this.refreshToken,
     this.profileImageUrl,
     this.expired = false,
     this.webCookies,
@@ -33,7 +31,6 @@ class TwitchAccount {
     String? login,
     String? userId,
     String? accessToken,
-    String? refreshToken,
     String? profileImageUrl,
     bool? expired,
     String? webCookies,
@@ -41,7 +38,6 @@ class TwitchAccount {
     login: login ?? this.login,
     userId: userId ?? this.userId,
     accessToken: accessToken ?? this.accessToken,
-    refreshToken: refreshToken ?? this.refreshToken,
     profileImageUrl: profileImageUrl ?? this.profileImageUrl,
     expired: expired ?? this.expired,
     webCookies: webCookies ?? this.webCookies,
@@ -51,7 +47,6 @@ class TwitchAccount {
     'login': login,
     if (userId != null) 'user_id': userId,
     'access_token': accessToken,
-    if (refreshToken != null) 'refresh_token': refreshToken,
     if (profileImageUrl != null) 'profile_image_url': profileImageUrl,
     if (expired) 'expired': true,
     if (webCookies != null) 'web_cookies': webCookies,
@@ -61,7 +56,6 @@ class TwitchAccount {
     login: json['login'] as String? ?? '',
     userId: json['user_id'] as String?,
     accessToken: json['access_token'] as String? ?? '',
-    refreshToken: json['refresh_token'] as String?,
     profileImageUrl: json['profile_image_url'] as String?,
     expired: json['expired'] == true,
     webCookies: json['web_cookies'] as String?,
@@ -75,11 +69,9 @@ class TwitchAuth extends ChangeNotifier {
   // collide with a real Twitch login (alphanumerics/underscores only).
   static const _kAnonymousLogin = '__anonymous__';
   static const _kPendingToken = 'pending_token';
-  static const _kPendingRefresh = 'pending_refresh_token';
 
   /// Active account credentials. login/userId stay null until resolved.
   String? accessToken;
-  String? refreshToken;
   String? login;
   String? userId;
   String? profileImageUrl;
@@ -167,7 +159,6 @@ class TwitchAuth extends ChangeNotifier {
 
   void _applyAccount(TwitchAccount account) {
     accessToken = account.accessToken;
-    refreshToken = account.refreshToken;
     login = account.login;
     userId = account.userId;
     profileImageUrl = account.profileImageUrl;
@@ -178,7 +169,6 @@ class TwitchAuth extends ChangeNotifier {
 
   void _clearActive() {
     accessToken = null;
-    refreshToken = null;
     login = null;
     userId = null;
     profileImageUrl = null;
@@ -209,10 +199,6 @@ class TwitchAuth extends ChangeNotifier {
       final pending = await _readKey(_kPendingToken);
       if (pending != null && pending.isNotEmpty) {
         accessToken = pending;
-        final pendingRefresh = await _readKey(_kPendingRefresh);
-        refreshToken = (pendingRefresh == null || pendingRefresh.isEmpty)
-            ? null
-            : pendingRefresh;
         login = null;
         userId = null;
       }
@@ -225,11 +211,9 @@ class TwitchAuth extends ChangeNotifier {
 
   void setCredentials({
     required String accessToken,
-    String? refreshToken,
     String? webCookies,
   }) {
     this.accessToken = accessToken;
-    this.refreshToken = refreshToken;
     _pendingCookies = webCookies;
     // New credentials may belong to a different account; drop cached user.
     login = null;
@@ -239,7 +223,6 @@ class TwitchAuth extends ChangeNotifier {
     _scopeStale = false;
     // Persist as pending until setUser resolves the account identity.
     _writeKey(_kPendingToken, accessToken);
-    _writeKey(_kPendingRefresh, refreshToken ?? '');
     notifyListeners();
   }
 
@@ -267,7 +250,6 @@ class TwitchAuth extends ChangeNotifier {
       login: login,
       userId: userId,
       accessToken: token,
-      refreshToken: refreshToken,
       profileImageUrl: profileImageUrl,
       expired: _activeExpired,
       webCookies: cookies,
@@ -276,7 +258,6 @@ class TwitchAuth extends ChangeNotifier {
         existing == null ||
         existing.userId != userId ||
         existing.accessToken != token ||
-        existing.refreshToken != refreshToken ||
         existing.profileImageUrl != profileImageUrl ||
         existing.expired != _activeExpired ||
         existing.webCookies != cookies;
@@ -286,7 +267,6 @@ class TwitchAuth extends ChangeNotifier {
       accounts.add(account);
     }
     _deleteKey(_kPendingToken);
-    _deleteKey(_kPendingRefresh);
     if (changed) {
       _saveAccounts();
       _writeKey(_kActiveLogin, login);
@@ -329,7 +309,6 @@ class TwitchAuth extends ChangeNotifier {
     await Future.wait([
       _writeKey(_kActiveLogin, login),
       _deleteKey(_kPendingToken),
-      _deleteKey(_kPendingRefresh),
     ]);
     notifyListeners();
   }
@@ -339,7 +318,6 @@ class TwitchAuth extends ChangeNotifier {
     if (accessToken == null) return;
     _clearActive();
     await _deleteKey(_kPendingToken);
-    await _deleteKey(_kPendingRefresh);
     await _writeKey(_kActiveLogin, _kAnonymousLogin);
     notifyListeners();
   }
@@ -354,7 +332,6 @@ class TwitchAuth extends ChangeNotifier {
       await _writeKey(_kAccounts, '[]');
       await _deleteKey(_kActiveLogin);
       await _deleteKey(_kPendingToken);
-      await _deleteKey(_kPendingRefresh);
     } else {
       if (wasActive) {
         // Fall back to the first remaining account.
@@ -363,7 +340,6 @@ class TwitchAuth extends ChangeNotifier {
         await Future.wait([
           _writeKey(_kActiveLogin, accounts.first.login),
           _deleteKey(_kPendingToken),
-          _deleteKey(_kPendingRefresh),
         ]);
       }
       await _saveAccounts();
@@ -381,7 +357,6 @@ class TwitchAuth extends ChangeNotifier {
     _clearActive();
     await Future.wait([
       _deleteKey(_kPendingToken),
-      _deleteKey(_kPendingRefresh),
       if (accounts.isEmpty) ...[
         _writeKey(_kAccounts, '[]'),
         _deleteKey(_kActiveLogin),

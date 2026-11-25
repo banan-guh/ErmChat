@@ -232,7 +232,7 @@ void main() {
     await poll();
     restart();
 
-    // Helix fails while the token refreshes after the restart.
+    // Helix fails while the token is unavailable after the restart.
     status = 401;
     await composer.fetchChatStatus('test');
     await poll();
