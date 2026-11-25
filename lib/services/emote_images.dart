@@ -83,18 +83,14 @@ class EmoteImages {
     }
   }
 
-  /// Resolves the URL to render for [surface], probing scales in preference
-  /// order until one is cached.
+  /// Resolves the URL to render for [surface], probing every known scale.
   Future<({String url, String? placeholder})?> resolve(
     Emote emote,
     EmoteSurface surface,
   ) async {
     final available = <String, bool>{};
-    for (final scale in EmotePicker.preferences[surface]!) {
-      final url = emote.urlFor(scale);
-      if (url == null) continue;
+    for (final url in emote.scales.values) {
       available[url] = await isCached(url);
-      if (available[url]!) break;
     }
     return EmotePicker.resolve(
       emote,
