@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:convert';
 import 'dart:io';
 import 'dart:typed_data';
 
@@ -103,6 +104,41 @@ void main() {
       final empty = UploaderConfig.fromJson(const {});
       expect(empty.uploadUrl, UploaderConfig.defaultConfig.uploadUrl);
       expect(empty.formField, UploaderConfig.defaultConfig.formField);
+    });
+
+    test('presets resolve their id and round-trip through json', () {
+      expect(UploaderConfig.defaultConfig.presetId, 'kappa');
+      expect(uploaderPresets.length, greaterThan(3));
+
+      for (final preset in uploaderPresets) {
+        expect(preset.config.presetId, preset.id);
+        expect(
+          UploaderConfig.fromJson(preset.config.toJson()),
+          preset.config,
+          reason: '${preset.id} must survive a save and reload as itself',
+        );
+      }
+
+      expect(
+        const UploaderConfig(
+          uploadUrl: 'https://example.com/upload',
+          formField: 'file',
+        ).presetId,
+        isNull,
+        reason: 'an unknown endpoint is a custom setup',
+      );
+    });
+
+    test('parses extra form field pairs like headers', () {
+      const config = UploaderConfig(
+        uploadUrl: 'https://example.com/upload',
+        formField: 'fileToUpload',
+        extraFields: 'reqtype: fileupload; time: 24h; broken',
+      );
+      expect(config.parsedExtraFields, [
+        (name: 'reqtype', value: 'fileupload'),
+        (name: 'time', value: '24h'),
+      ]);
     });
   });
 
@@ -215,6 +251,86 @@ void main() {
       final file = await tempUploadFile();
 
       expect(uploader.uploadMedia(file), throwsA(isA<HttpException>()));
+    });
+
+    test('sends preset extra form fields alongside the file', () async {
+      final uploader = MediaUploader(
+        client: MockClient((request) async {
+          // Multipart carries binary file bytes, so decode as latin1.
+          final body = latin1.decode(request.bodyBytes);
+          expect(body, contains('name="reqtype"'));
+          expect(body, contains('fileupload'));
+          expect(body, contains('name="time"'));
+          expect(body, contains('24h'));
+          return http.Response('https://litterbox.catbox.moe/abc.png', 200);
+        }),
+      );
+      await uploader.saveConfig(
+        uploaderPresets.firstWhere((p) => p.id == 'litterbox').config,
+      );
+      final file = await tempUploadFile();
+
+      final result = await uploader.uploadMedia(file);
+
+      expect(result.imageLink, 'https://litterbox.catbox.moe/abc.png');
+    });
+
+    test('host presets match their documented responses', () async {
+      final cases = <(String, String, String, String)>[
+        (
+          'femboy',
+          '{"link":"https://femboy.beauty/abc"}',
+          'https://femboy.beauty/abc',
+          'file',
+        ),
+        (
+          'segs',
+          '{"link":"https://segs.lol/abc"}',
+          'https://segs.lol/abc',
+          'file',
+        ),
+        (
+          'gachi',
+          '{"link":"https://gachi.gay/abc"}',
+          'https://gachi.gay/abc',
+          'file',
+        ),
+        (
+          'nuuls',
+          'https://i.nuuls.com/abc',
+          'https://i.nuuls.com/abc',
+          'attachment',
+        ),
+        (
+          'olrite',
+          '{"success":true,"url":"https://olrite.lol/abc"}',
+          'https://olrite.lol/abc',
+          'file',
+        ),
+      ];
+      for (final (id, body, expected, field) in cases) {
+        final config = uploaderPresets.firstWhere((p) => p.id == id).config;
+        final uploader = MediaUploader(
+          client: MockClient((request) async {
+            expect(
+              latin1.decode(request.bodyBytes),
+              contains('name="$field"'),
+              reason: '$id sends the wrong multipart field',
+            );
+            return http.Response(body, 200);
+          }),
+        );
+        await uploader.saveConfig(config);
+        final file = await tempUploadFile();
+
+        final result = await uploader.uploadMedia(file);
+
+        expect(
+          result.imageLink,
+          expected,
+          reason: '$id misparses its response',
+        );
+      }
     });
   });
 

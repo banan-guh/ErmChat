@@ -13,6 +13,7 @@ class UploaderConfig {
   final String uploadUrl;
   final String formField;
   final String? headers;
+  final String? extraFields;
   final String? imageLinkPattern;
   final String? deletionLinkPattern;
 
@@ -20,6 +21,7 @@ class UploaderConfig {
     required this.uploadUrl,
     required this.formField,
     this.headers,
+    this.extraFields,
     this.imageLinkPattern,
     this.deletionLinkPattern,
   });
@@ -32,8 +34,13 @@ class UploaderConfig {
   );
 
   /// Extra headers as `Name: value` pairs, `;` separated.
-  List<({String name, String value})> get parsedHeaders {
-    final raw = headers;
+  List<({String name, String value})> get parsedHeaders => _parsePairs(headers);
+
+  /// Extra multipart text fields as `Name: value` pairs, `;` separated.
+  List<({String name, String value})> get parsedExtraFields =>
+      _parsePairs(extraFields);
+
+  static List<({String name, String value})> _parsePairs(String? raw) {
     if (raw == null || raw.isEmpty) return const [];
     final result = <({String name, String value})>[];
     for (final part in raw.split(';')) {
@@ -48,10 +55,39 @@ class UploaderConfig {
     return result;
   }
 
+  /// Id of the built-in preset this config matches, or null when custom.
+  String? get presetId {
+    for (final preset in uploaderPresets) {
+      if (preset.config == this) return preset.id;
+    }
+    return null;
+  }
+
+  @override
+  bool operator ==(Object other) =>
+      other is UploaderConfig &&
+      other.uploadUrl == uploadUrl &&
+      other.formField == formField &&
+      other.headers == headers &&
+      other.extraFields == extraFields &&
+      other.imageLinkPattern == imageLinkPattern &&
+      other.deletionLinkPattern == deletionLinkPattern;
+
+  @override
+  int get hashCode => Object.hash(
+    uploadUrl,
+    formField,
+    headers,
+    extraFields,
+    imageLinkPattern,
+    deletionLinkPattern,
+  );
+
   Map<String, Object?> toJson() => {
     'upload_url': uploadUrl,
     'form_field': formField,
     'headers': headers,
+    'extra_fields': extraFields,
     'image_link_pattern': imageLinkPattern,
     'deletion_link_pattern': deletionLinkPattern,
   };
@@ -60,10 +96,82 @@ class UploaderConfig {
     uploadUrl: json['upload_url'] as String? ?? defaultConfig.uploadUrl,
     formField: json['form_field'] as String? ?? defaultConfig.formField,
     headers: json['headers'] as String?,
+    extraFields: json['extra_fields'] as String?,
     imageLinkPattern: json['image_link_pattern'] as String?,
     deletionLinkPattern: json['deletion_link_pattern'] as String?,
   );
 }
+
+class UploaderPreset {
+  final String id;
+  final UploaderConfig config;
+
+  const UploaderPreset(this.id, this.config);
+}
+
+/// Hosts that fit the single-file multipart POST and the token patterns.
+/// The kappa-engine sites share one config, differing only by domain.
+const uploaderPresets = <UploaderPreset>[
+  UploaderPreset('kappa', UploaderConfig.defaultConfig),
+  UploaderPreset(
+    'femboy',
+    UploaderConfig(
+      uploadUrl: 'https://femboy.beauty/api/upload',
+      formField: 'file',
+      imageLinkPattern: '{link}',
+      deletionLinkPattern: '{delete}',
+    ),
+  ),
+  UploaderPreset(
+    'segs',
+    UploaderConfig(
+      uploadUrl: 'https://segs.lol/api/upload',
+      formField: 'file',
+      imageLinkPattern: '{link}',
+      deletionLinkPattern: '{delete}',
+    ),
+  ),
+  UploaderPreset(
+    'nuuls',
+    UploaderConfig(
+      uploadUrl: 'https://i.nuuls.com/upload',
+      formField: 'attachment',
+    ),
+  ),
+  UploaderPreset(
+    'gachi',
+    UploaderConfig(
+      uploadUrl: 'https://gachi.gay/api/upload',
+      formField: 'file',
+      imageLinkPattern: '{link}',
+      deletionLinkPattern: '{delete}',
+    ),
+  ),
+  UploaderPreset(
+    'olrite',
+    UploaderConfig(
+      uploadUrl: 'https://olrite.lol/api/upload',
+      formField: 'file',
+      imageLinkPattern: '{url}',
+    ),
+  ),
+  UploaderPreset(
+    'catbox',
+    UploaderConfig(
+      uploadUrl: 'https://catbox.moe/user/api.php',
+      formField: 'fileToUpload',
+      extraFields: 'reqtype: fileupload',
+    ),
+  ),
+  UploaderPreset(
+    'litterbox',
+    UploaderConfig(
+      uploadUrl: 'https://litterbox.catbox.moe/resources/internals/api.php',
+      formField: 'fileToUpload',
+      extraFields: 'reqtype: fileupload; time: 24h',
+    ),
+  ),
+];
 
 class UploadResult {
   final String imageLink;
@@ -192,6 +300,9 @@ class MediaUploader {
       ..headers['Referer'] = '${uri.origin}/';
     for (final header in config.parsedHeaders) {
       request.headers[header.name] = header.value;
+    }
+    for (final field in config.parsedExtraFields) {
+      request.fields[field.name] = field.value;
     }
     final chunks = Stream.fromIterable([
       for (var i = 0; i < bytes.length; i += _chunkBytes)

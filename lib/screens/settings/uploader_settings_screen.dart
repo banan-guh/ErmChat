@@ -20,8 +20,11 @@ class _UploaderSettingsScreenState extends State<UploaderSettingsScreen> {
   late final TextEditingController _uploadUrl;
   late final TextEditingController _formField;
   late final TextEditingController _headers;
+  late final TextEditingController _extraFields;
   late final TextEditingController _imageLinkPattern;
   late final TextEditingController _deletionLinkPattern;
+  String? _presetId;
+  int _presetFieldRevision = 0;
 
   @override
   void initState() {
@@ -29,21 +32,72 @@ class _UploaderSettingsScreenState extends State<UploaderSettingsScreen> {
     _uploadUrl = TextEditingController();
     _formField = TextEditingController();
     _headers = TextEditingController();
+    _extraFields = TextEditingController();
     _imageLinkPattern = TextEditingController();
     _deletionLinkPattern = TextEditingController();
     _loadConfig();
+  }
+
+  void _applyConfig(UploaderConfig config) {
+    _uploadUrl.text = config.uploadUrl;
+    _formField.text = config.formField;
+    _headers.text = config.headers ?? '';
+    _extraFields.text = config.extraFields ?? '';
+    _imageLinkPattern.text = config.imageLinkPattern ?? '';
+    _deletionLinkPattern.text = config.deletionLinkPattern ?? '';
   }
 
   Future<void> _loadConfig() async {
     final config = await _mediaUploader.loadConfig();
     if (!mounted) return;
     setState(() {
-      _uploadUrl.text = config.uploadUrl;
-      _formField.text = config.formField;
-      _headers.text = config.headers ?? '';
-      _imageLinkPattern.text = config.imageLinkPattern ?? '';
-      _deletionLinkPattern.text = config.deletionLinkPattern ?? '';
+      _presetId = config.presetId;
+      _applyConfig(config);
     });
+  }
+
+  String _presetLabel(BuildContext context, String? id) {
+    final l10n = context.l10n;
+    return switch (id) {
+      'kappa' => l10n.uploaderPresetKappa,
+      'femboy' => l10n.uploaderPresetFemboy,
+      'segs' => l10n.uploaderPresetSegs,
+      'nuuls' => l10n.uploaderPresetNuuls,
+      'gachi' => l10n.uploaderPresetGachi,
+      'olrite' => l10n.uploaderPresetOlrite,
+      'catbox' => l10n.uploaderPresetCatbox,
+      'litterbox' => l10n.uploaderPresetLitterbox,
+      _ => l10n.uploaderPresetCustom,
+    };
+  }
+
+  /// A preset overwrites the fields. A custom setup needs confirmation first
+  /// because its headers and patterns would be lost.
+  Future<void> _pickPreset(String? picked) async {
+    if (picked == null || !mounted) return;
+    if (_presetId == null) {
+      final confirmed = await confirmDialog(
+        context,
+        title: context.l10n.replaceCustomUploaderTitle,
+        message: context.l10n.replaceCustomUploaderMessage,
+        confirmLabel: context.l10n.confirm,
+        destructive: true,
+      );
+      if (!mounted) return;
+      if (!confirmed) {
+        // Rebuild the field to drop the pick it previewed.
+        setState(() => _presetFieldRevision++);
+        return;
+      }
+    }
+    final preset = uploaderPresets.firstWhere((p) => p.id == picked);
+    await _mediaUploader.saveConfig(preset.config);
+    if (!mounted) return;
+    setState(() {
+      _presetId = preset.id;
+      _applyConfig(preset.config);
+    });
+    AppSnack.show(context, context.l10n.uploaderSaved);
   }
 
   Future<void> _save() async {
@@ -51,20 +105,23 @@ class _UploaderSettingsScreenState extends State<UploaderSettingsScreen> {
     const defaults = UploaderConfig.defaultConfig;
     if (_uploadUrl.text.trim().isEmpty) _uploadUrl.text = defaults.uploadUrl;
     if (_formField.text.trim().isEmpty) _formField.text = defaults.formField;
-    await _mediaUploader.saveConfig(
-      UploaderConfig(
-        uploadUrl: _uploadUrl.text.trim(),
-        formField: _formField.text.trim(),
-        headers: _headers.text.trim().isNotEmpty ? _headers.text.trim() : null,
-        imageLinkPattern: _imageLinkPattern.text.trim().isNotEmpty
-            ? _imageLinkPattern.text.trim()
-            : null,
-        deletionLinkPattern: _deletionLinkPattern.text.trim().isNotEmpty
-            ? _deletionLinkPattern.text.trim()
-            : null,
-      ),
+    final config = UploaderConfig(
+      uploadUrl: _uploadUrl.text.trim(),
+      formField: _formField.text.trim(),
+      headers: _headers.text.trim().isNotEmpty ? _headers.text.trim() : null,
+      extraFields: _extraFields.text.trim().isNotEmpty
+          ? _extraFields.text.trim()
+          : null,
+      imageLinkPattern: _imageLinkPattern.text.trim().isNotEmpty
+          ? _imageLinkPattern.text.trim()
+          : null,
+      deletionLinkPattern: _deletionLinkPattern.text.trim().isNotEmpty
+          ? _deletionLinkPattern.text.trim()
+          : null,
     );
+    await _mediaUploader.saveConfig(config);
     if (!mounted) return;
+    setState(() => _presetId = config.presetId);
     AppSnack.show(context, context.l10n.uploaderSaved);
   }
 
@@ -78,13 +135,8 @@ class _UploaderSettingsScreenState extends State<UploaderSettingsScreen> {
     await _mediaUploader.resetConfig();
     if (!mounted) return;
     setState(() {
-      _uploadUrl.text = UploaderConfig.defaultConfig.uploadUrl;
-      _formField.text = UploaderConfig.defaultConfig.formField;
-      _headers.text = '';
-      _imageLinkPattern.text =
-          UploaderConfig.defaultConfig.imageLinkPattern ?? '';
-      _deletionLinkPattern.text =
-          UploaderConfig.defaultConfig.deletionLinkPattern ?? '';
+      _presetId = UploaderConfig.defaultConfig.presetId;
+      _applyConfig(UploaderConfig.defaultConfig);
     });
   }
 
@@ -94,6 +146,7 @@ class _UploaderSettingsScreenState extends State<UploaderSettingsScreen> {
     _uploadUrl.dispose();
     _formField.dispose();
     _headers.dispose();
+    _extraFields.dispose();
     _imageLinkPattern.dispose();
     _deletionLinkPattern.dispose();
     super.dispose();
@@ -107,6 +160,25 @@ class _UploaderSettingsScreenState extends State<UploaderSettingsScreen> {
         padding: const EdgeInsets.all(16),
         children: [
           Text(context.l10n.uploaderHint, style: const TextStyle(height: 1.4)),
+          DropdownButtonFormField<String>(
+            key: ValueKey(_presetFieldRevision),
+            initialValue: _presetId,
+            decoration: InputDecoration(
+              labelText: context.l10n.uploaderPresets,
+              floatingLabelBehavior: FloatingLabelBehavior.always,
+              border: OutlineInputBorder(),
+            ),
+            hint: Text(context.l10n.uploaderPresetCustom),
+            items: [
+              for (final preset in uploaderPresets)
+                DropdownMenuItem<String>(
+                  value: preset.id,
+                  child: Text(_presetLabel(context, preset.id)),
+                ),
+            ],
+            onChanged: _pickPreset,
+          ),
+          const Divider(height: 1),
           Align(
             alignment: Alignment.centerRight,
             child: TextButton.icon(
@@ -139,6 +211,16 @@ class _UploaderSettingsScreenState extends State<UploaderSettingsScreen> {
             autocorrect: false,
             decoration: InputDecoration(
               labelText: context.l10n.headers,
+              hintText: context.l10n.headersHint,
+              border: OutlineInputBorder(),
+            ),
+          ),
+          const SizedBox(height: 12),
+          TextField(
+            controller: _extraFields,
+            autocorrect: false,
+            decoration: InputDecoration(
+              labelText: context.l10n.extraFormFields,
               hintText: context.l10n.headersHint,
               border: OutlineInputBorder(),
             ),
