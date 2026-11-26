@@ -1025,7 +1025,7 @@ class ChannelPanels {
                     // end. Fullscreen hides the strip, so the view menu
                     // floats in its place then.
                     addTab: merged && homeAppBar.stripJoinTab
-                        ? homeAppBar.joinTab()
+                        ? homeAppBar.joinTab(context)
                         : null,
                     onAddTab: homeAppBar.onJoinTab,
                     stripBubbles:

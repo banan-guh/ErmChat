@@ -270,18 +270,14 @@ void main() {
     'ring_float': {
       'chrome_theme': 'custom:0',
       'chrome_themes_custom': [
-        ChromeTheme.ermchat.spec
-            .copyWith(busyBar: true, sendAside: SendPlace.column)
-            .encode(),
+        ChromeTheme.ermchat.spec.copyWith(sendAside: SendPlace.column).encode(),
       ],
     },
     'ring_float_glass': {
       'chrome_theme': 'custom:0',
       'liquid_glass': true,
       'chrome_themes_custom': [
-        ChromeTheme.ermchat.spec
-            .copyWith(busyBar: true, sendAside: SendPlace.column)
-            .encode(),
+        ChromeTheme.ermchat.spec.copyWith(sendAside: SendPlace.column).encode(),
       ],
     },
     'ring_flush': {'chrome_theme': 'dankchat4'},

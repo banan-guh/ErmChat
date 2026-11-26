@@ -1074,11 +1074,6 @@ class LayoutEditTray extends StatelessWidget {
       child: Wrap(
         spacing: 6,
         children: [
-          toggle(
-            l.layoutBusyBar,
-            draft.busyBar,
-            (v) => controller.update(draft.copyWith(busyBar: v)),
-          ),
           if (draft.isIsland || draft.islandFlush)
             toggle(l.layoutHideRowTyping, draft.compact, controller.setCompact),
         ],

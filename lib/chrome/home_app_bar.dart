@@ -180,14 +180,6 @@ class HomeAppBar {
   bool joinBusy() =>
       !disableJoinSpinner() && (chatLoading() || networkBusy.value);
 
-  /// Whether the join control spins. A busy bar carries an emote reload, so
-  /// the + only covers connects there; without a bar it stays the fallback.
-  bool joinSpinning() {
-    if (disableJoinSpinner()) return false;
-    if (chatLoading()) return true;
-    return networkBusy.value && !themeSpec().busyBar;
-  }
-
   Listenable get joinBusyListenable =>
       Listenable.merge([chatConn.connectionStateNotifier, networkBusy]);
 
@@ -197,7 +189,7 @@ class HomeAppBar {
       builder: (context, _) {
         final busy = joinBusy();
         return IconButton(
-          icon: joinSpinning() ? _joinSpinner(context) : const Icon(Icons.add),
+          icon: const Icon(Icons.add),
           tooltip: busy
               ? context.l10n.loadingEllipsis
               : context.l10n.addChannels,
@@ -209,31 +201,16 @@ class HomeAppBar {
     );
   }
 
-  Widget _joinSpinner(BuildContext context) => SizedBox(
-    width: 24,
-    height: 24,
-    child: CircularProgressIndicator(
-      strokeWidth: 2,
-      color: IconTheme.of(context).color,
-    ),
-  );
-
   /// Label for the compact layout's trailing join tab.
-  Widget joinTab() {
-    return ListenableBuilder(
-      listenable: joinBusyListenable,
-      builder: (context, _) {
-        if (joinSpinning()) return _joinSpinner(context);
-        return Tooltip(
-          message: context.l10n.addChannels,
-          child: Icon(
-            Icons.add,
-            color: chat.length >= kMaxChannels
-                ? Theme.of(context).disabledColor
-                : null,
-          ),
-        );
-      },
+  Widget joinTab(BuildContext context) {
+    return Tooltip(
+      message: context.l10n.addChannels,
+      child: Icon(
+        Icons.add,
+        color: chat.length >= kMaxChannels
+            ? Theme.of(context).disabledColor
+            : null,
+      ),
     );
   }
 

@@ -974,7 +974,7 @@ class _ChatBodyState extends State<ChatBody>
   /// A floating island runs loading around its outline. Edge to edge, a
   /// straight line between the field and the button row carries it instead.
   Widget _ringed({required _Layout layout, required Widget island}) {
-    if (layout.flush) return island;
+    if (layout.flush || layout.classic) return island;
     final busyListenable = widget.busyListenable;
     final isBusy = widget.isBusy;
     final progress = widget.progress;
@@ -1022,10 +1022,10 @@ class _ChatBodyState extends State<ChatBody>
   }
 
   /// Edge to edge, one line carries both: an upload's progress while it runs,
-  /// the busy motion otherwise. The classic field shades itself, so it has no
-  /// line, and a floating island rings its outline instead.
+  /// the busy motion otherwise. A floating island rings its outline instead;
+  /// classic keeps the line continuous and shades the field for progress.
   Widget? _busyLine(_Layout layout) {
-    if (!layout.flush) return null;
+    if (!layout.flush && !layout.classic) return null;
     final busyListenable = widget.busyListenable;
     final isBusy = widget.isBusy;
     final showsBusy = busyListenable != null && isBusy != null;

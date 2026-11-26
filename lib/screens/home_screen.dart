@@ -90,10 +90,9 @@ import '../services/foreground_task.dart';
 import '../widgets/design_tokens.dart';
 
 class HomeScreen extends ConsumerStatefulWidget {
-  // Test seam: when true the join ("+") button never shows its loading spinner.
-  // Tests that intentionally keep the app disconnected (un-faked TwitchChatApp)
-  // flip this so they can still reach the button during the permanent
-  // "connecting" state instead of hitting the gated spinner.
+  // Test seam: when true the join ("+") button stays tappable while chat is
+  // connecting. Tests that keep the app disconnected flip this so they can
+  // reach the button during the permanent "connecting" state.
   static bool disableJoinSpinner = false;
 
   final String? initialCurrentUserLogin;
@@ -304,7 +303,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
   // so this only covers emote work that doesn't move the connection phase.
   final ValueNotifier<bool> _networkBusy = ValueNotifier(false);
   // The composer pip shows one run at a time, an upload before an emote
-  // reload.
+  // reload. Channel loading uses the busy animation instead of a share.
   late final ActiveProgress _composerProgress = ActiveProgress([
     _uploadController.progress,
     _emotes.signals.progress,
@@ -2523,12 +2522,10 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
                   : null,
               islandFlush: spec.islandFlush,
               classic: spec.composer == ComposerStyle.classic,
-              busyListenable: spec.busyBar
-                  ? Listenable.merge([
-                      _chrome.joinBusyListenable,
-                      _mod.busyCount,
-                    ])
-                  : null,
+              busyListenable: Listenable.merge([
+                _chrome.joinBusyListenable,
+                _mod.busyCount,
+              ]),
               isBusy: () => _chrome.joinBusy() || _mod.busyCount.value > 0,
               progress: _composerProgress,
               notice: ChatNoticeBar(controller: _chatNotice),
