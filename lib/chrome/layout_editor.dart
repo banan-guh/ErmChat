@@ -118,6 +118,7 @@ extension on ChromeAction {
     ChromeAction.threads => Icons.forum_outlined,
     ChromeAction.settings => Icons.settings,
     ChromeAction.overflow => Icons.more_vert,
+    ChromeAction.history => Icons.history,
     ChromeAction.viewMenu => Icons.expand_more,
     ChromeAction.clear => Icons.close,
   };
@@ -128,6 +129,7 @@ extension on ChromeAction {
     ChromeAction.threads => l.threads,
     ChromeAction.settings => l.settingsTitle,
     ChromeAction.overflow => l.layoutActionOverflow,
+    ChromeAction.history => l.sentHistoryTitle,
     ChromeAction.viewMenu => l.layoutActionView,
     ChromeAction.clear => l.clearMessage,
   };

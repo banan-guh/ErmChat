@@ -17,7 +17,6 @@ void main() {
             child: SendHold(
               enabled: true,
               onRecall: () => calls.add('recall'),
-              onRecallUndo: () => calls.add('undo'),
               onSpamStart: () => calls.add('start'),
               onSpamStop: () => calls.add('stop'),
               child: const Icon(Icons.send, size: 48),
@@ -45,7 +44,7 @@ void main() {
     await tester.pump(const Duration(milliseconds: 400));
     expect(calls, ['recall'], reason: 'the button needs a full hold');
     await tester.pump(const Duration(milliseconds: 150));
-    expect(calls, ['recall', 'undo', 'start']);
+    expect(calls, ['recall', 'start']);
 
     await spam.up();
     await tester.pump();
@@ -55,6 +54,6 @@ void main() {
     await send.up();
     await tester.pumpAndSettle();
     expect(button, findsNothing);
-    expect(calls, ['recall', 'undo', 'start', 'stop']);
+    expect(calls, ['recall', 'start', 'stop']);
   });
 }

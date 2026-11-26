@@ -16,7 +16,6 @@ class MessageInput extends StatelessWidget {
   final FocusNode focusNode;
   final VoidCallback onSend;
   final VoidCallback? onSendLongPress;
-  final VoidCallback? onRecallUndo;
 
   // The send button's hold spam action; see [SendHold].
   final VoidCallback? onSpamStart;
@@ -72,7 +71,6 @@ class MessageInput extends StatelessWidget {
     this.onChanged,
     this.onSubmitted,
     this.onSendLongPress,
-    this.onRecallUndo,
     this.onSpamStart,
     this.onSpamStop,
     this.onEmoteToggle,
@@ -183,7 +181,6 @@ class MessageInput extends StatelessWidget {
               child: SendHold(
                 enabled: enabled,
                 onRecall: onSendLongPress,
-                onRecallUndo: onRecallUndo,
                 onSpamStart: onSpamStart,
                 onSpamStop: onSpamStop,
                 child: InkWell(

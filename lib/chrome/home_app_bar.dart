@@ -41,6 +41,7 @@ class HomeAppBar {
     required this.isMounted,
     required this.markDirty,
     required this.addChannelDialog,
+    required this.onHistory,
     required this.toggleFullscreen,
     required this.toggleInput,
     required this.toggleStream,
@@ -72,6 +73,7 @@ class HomeAppBar {
   final bool Function() isMounted;
   final VoidCallback markDirty;
   final VoidCallback addChannelDialog;
+  final VoidCallback onHistory;
   final VoidCallback toggleFullscreen;
   final VoidCallback toggleInput;
   final VoidCallback toggleStream;
@@ -150,6 +152,7 @@ class HomeAppBar {
     ChromeAction.threads => threadsButton(context),
     ChromeAction.settings => settingsButton(context),
     ChromeAction.overflow => overflowMenu(context),
+    ChromeAction.history => _historyButton(context),
     ChromeAction.viewMenu => chromeMenu(onCalendar: onCalendar),
     ChromeAction.clear => ClearMessageButton(controller: messageController),
   };
@@ -182,6 +185,12 @@ class HomeAppBar {
 
   Listenable get joinBusyListenable =>
       Listenable.merge([chatConn.connectionStateNotifier, networkBusy]);
+
+  Widget _historyButton(BuildContext context) => IconButton(
+    icon: const Icon(Icons.history),
+    tooltip: context.l10n.sentHistoryTitle,
+    onPressed: onHistory,
+  );
 
   Widget _joinButton() {
     return ListenableBuilder(

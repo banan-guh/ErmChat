@@ -911,6 +911,8 @@
   },
   "clear": "Clear",
   "clearMessage": "Clear message",
+  "sentHistoryTitle": "Sent messages",
+  "sentHistoryEmpty": "No sent messages yet.",
   "recentUploadsTitle": "Recent uploads",
   "clearAll": "Clear all",
   "noUploadsYet": "No uploads yet",

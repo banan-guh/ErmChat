@@ -17,16 +17,12 @@ class SendHold extends StatefulWidget {
     required this.enabled,
     required this.child,
     this.onRecall,
-    this.onRecallUndo,
     this.onSpamStart,
     this.onSpamStop,
   });
 
   final bool enabled;
   final VoidCallback? onRecall;
-
-  /// Reverts [onRecall] when spam starts, so it spams the draft.
-  final VoidCallback? onRecallUndo;
 
   /// Without these the hold only recalls and no spam button shows.
   final VoidCallback? onSpamStart;
@@ -75,7 +71,6 @@ class _SendHoldState extends State<SendHold> {
       _charging = false;
       _spamming = true;
       Haptics.major();
-      widget.onRecallUndo?.call();
       widget.onSpamStart!();
       if (mounted) setState(() {});
     });

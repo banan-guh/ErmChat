@@ -122,6 +122,12 @@ class ComposerController {
   final modesUnderSend = ValueNotifier<bool>(false);
 
   String? _lastSentText;
+
+  /// Recent sent texts, newest first. Kept in memory so chat text is never
+  /// written to disk. Consecutive repeats collapse, so spam stays one entry.
+  static const maxSentHistory = 50;
+  final sentHistory = ValueNotifier<List<String>>(const []);
+
   Timer? _cooldownTickTimer;
 
   // Repeat-send loop while a finger holds the send menu's spam action.
@@ -138,6 +144,7 @@ class ComposerController {
     messageController.dispose();
     focusNode.dispose();
     suggestions.dispose();
+    sentHistory.dispose();
     cooldownLabel.dispose();
     modeGap.dispose();
     modesUnderSend.dispose();
@@ -303,12 +310,12 @@ class ComposerController {
       final target = addressed?.group(1) ?? whisperTarget();
       final body = addressed?.group(2) ?? text;
       if (text.startsWith('/')) {
-        _lastSentText = text;
+        _remember(text);
         autocompleteRevert.clear();
         messageController.clear();
         chatConn.doSendMessage(text, channel);
       } else if (target != null) {
-        _lastSentText = text;
+        _remember(text);
         autocompleteRevert.clear();
         messageController.clear();
         unawaited(
@@ -338,7 +345,7 @@ class ComposerController {
     // Send gates are soft: the countdown shows as a hint but the message is
     // never held back. Twitch enforces the real block, a successful echo
     // heals a stale self-timeout gate, and a rejection NOTICE re-surfaces it.
-    _lastSentText = text;
+    _remember(text);
     autocompleteRevert.clear();
     messageController.clear();
 
@@ -407,7 +414,7 @@ class ComposerController {
       _spamTimer = Timer(wait, _spamTick);
       return;
     }
-    _lastSentText = text;
+    _remember(text);
     if (messageController.text.trim() == text) {
       autocompleteRevert.clear();
       messageController.clear();
@@ -437,30 +444,32 @@ class ComposerController {
 
   // Long-press send recalls the last sent text for quick re-send/edit.
   void recallLastSent() {
-    if (_lastSentText != null && _lastSentText!.isNotEmpty) {
-      _draftBeforeRecall = messageController.text;
-      autocompleteRevert.clear();
-      messageController.text = _lastSentText!;
-      messageController.selection = TextSelection.fromPosition(
-        TextPosition(offset: messageController.text.length),
-      );
-      focusNode.requestFocus();
-    }
+    final last = _lastSentText;
+    if (last == null || last.isEmpty) return;
+    _loadText(last);
   }
 
-  // The field's text before the last recall, for [undoRecall].
-  String? _draftBeforeRecall;
+  /// Loads a history entry into the field for editing. Nothing is sent.
+  void loadFromHistory(String text) => _loadText(text);
 
-  /// Puts back the draft a recall replaced, while the field still holds the
-  /// recalled text: swiping into the send menu after the hold spams the
-  /// draft, not the old message.
-  void undoRecall() {
-    final draft = _draftBeforeRecall;
-    _draftBeforeRecall = null;
-    if (draft == null || messageController.text != _lastSentText) return;
+  void _loadText(String text) {
     autocompleteRevert.clear();
-    messageController.text = draft;
-    messageController.selection = TextSelection.collapsed(offset: draft.length);
+    messageController.text = text;
+    messageController.selection = TextSelection.collapsed(offset: text.length);
+    focusNode.requestFocus();
+  }
+
+  void _remember(String text) {
+    _lastSentText = text;
+    final value = text.trim();
+    if (value.isEmpty) return;
+    final prior = sentHistory.value;
+    if (prior.isNotEmpty && prior.first == value) return;
+    final next = [value, ...prior];
+    if (next.length > maxSentHistory) {
+      next.removeRange(maxSentHistory, next.length);
+    }
+    sentHistory.value = List.unmodifiable(next);
   }
 
   // Emote picker tap: insert the code at the cursor plus a space.

@@ -201,6 +201,34 @@ void main() {
     spam.composer.dispose();
   });
 
+  test('sent history keeps newest first, collapses repeats, and caps', () {
+    final c = _spamComposer({});
+    void send(String text) {
+      c.composer.messageController.text = text;
+      c.composer.send();
+    }
+
+    send('one');
+    send('two');
+    send('two');
+    send('three');
+    expect(c.composer.sentHistory.value, ['three', 'two', 'one']);
+
+    for (var i = 0; i < ComposerController.maxSentHistory + 5; i++) {
+      send('m$i');
+    }
+    expect(
+      c.composer.sentHistory.value.length,
+      ComposerController.maxSentHistory,
+    );
+    expect(c.composer.sentHistory.value.first, 'm54');
+
+    c.composer.messageController.text = 'draft';
+    c.composer.loadFromHistory('two');
+    expect(c.composer.messageController.text, 'two');
+    c.composer.dispose();
+  });
+
   // Bare ChatBody harness: geometry and hit-testing without the whole app.
   Future<void> pumpBody(
     WidgetTester tester, {

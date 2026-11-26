@@ -84,18 +84,18 @@ void main() {
     }
   });
 
-  test('the field row holds two buttons, and compact keeps send in it', () {
+  test('the field row holds three buttons, and compact keeps send in it', () {
     final threads = FieldItem.action(ChromeAction.threads);
     final mentions = FieldItem.action(ChromeAction.mentions);
     final cases = <(String, ChromeThemeSpec, List<FieldItem>, List<FieldItem>)>[
       (
-        'three cut from the end, send falls out of the field',
+        'three fill the row and send stays in it',
         ChromeThemeSpec.blank.copyWith(
           fieldStart: [mentions, FieldItem.emote],
           fieldEnd: [FieldItem.send],
         ),
         [mentions, FieldItem.emote],
-        [],
+        [FieldItem.send],
       ),
       (
         'both on one side is fine',
@@ -107,13 +107,13 @@ void main() {
         [threads, FieldItem.send],
       ),
       (
-        'a cut action lands at the row end',
+        'three across two sides are fine',
         ChromeThemeSpec.blank.copyWith(
           fieldStart: [FieldItem.emote],
           fieldEnd: [threads, mentions],
         ),
         [FieldItem.emote],
-        [threads],
+        [threads, mentions],
       ),
       (
         'compact moves a row send to the field end',
@@ -140,7 +140,7 @@ void main() {
         [FieldItem.send],
       ),
       (
-        'compact makes room for send by cutting the last button',
+        'compact adds send when the row has room',
         ChromeThemeSpec.blank.copyWith(
           fieldStart: [threads],
           fieldEnd: [FieldItem.emote],
@@ -148,7 +148,7 @@ void main() {
           compact: true,
         ),
         [threads],
-        [FieldItem.send],
+        [FieldItem.emote, FieldItem.send],
       ),
     ];
     for (final (name, spec, start, end) in cases) {
@@ -162,10 +162,13 @@ void main() {
     }
     expect(
       ChromeThemeSpec.blank
-          .copyWith(fieldStart: [threads], fieldEnd: [FieldItem.send])
+          .copyWith(
+            fieldStart: [threads, FieldItem.emote],
+            fieldEnd: [FieldItem.send],
+          )
           .place(ChromeAction.mentions, LayoutSlot.fieldEnd)
           .fieldItems,
-      [threads, FieldItem.send],
+      [threads, FieldItem.emote, FieldItem.send],
       reason: 'a full field refuses another action',
     );
     final tight = ChromeThemeSpec.blank.copyWith(compact: true);

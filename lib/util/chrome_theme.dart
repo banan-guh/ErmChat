@@ -40,6 +40,9 @@ enum ChromeAction {
   /// The ⋮ menu: upload, reload emotes, reconnect.
   overflow('o'),
 
+  /// Sent message history.
+  history('h'),
+
   /// The view menu: fullscreen, input, stream, search.
   viewMenu('v'),
 
@@ -106,6 +109,7 @@ class FieldItem {
   static const emote = FieldItem.part(ComposerPart.emote);
   static const send = FieldItem.part(ComposerPart.send);
   static const clear = FieldItem.action(ChromeAction.clear);
+  static const history = FieldItem.action(ChromeAction.history);
 
   final ChromeAction? action;
   final ComposerPart? part;
@@ -172,13 +176,12 @@ class ChromeThemeSpec {
     this.rowStart = const [],
     this.rowEnd = const [],
     this.appBarActions = const [],
-    this.fieldStart = const [FieldItem.emote],
+    this.fieldStart = const [FieldItem.emote, FieldItem.history],
     this.fieldEnd = const [FieldItem.send],
     this.sendAside = SendPlace.column,
     this.compact = false,
     this.sendPulled = false,
     this.composer = ComposerStyle.island,
-    this.busyBar = false,
   });
 
   /// The theme's name; presets are named in the UI instead.
@@ -225,12 +228,8 @@ class ChromeThemeSpec {
   /// The island runs edge to edge under the nav bar, rounded only on top.
   bool get islandFlush => composer == ComposerStyle.flush;
 
-  /// Loading shows as a bar along the top of the button row instead of a
-  /// spinner in the join button.
-  final bool busyBar;
-
   /// Most buttons the field row holds, both sides together.
-  static const fieldCap = 2;
+  static const fieldCap = 3;
 
   /// The field row's buttons, start then end.
   List<FieldItem> get fieldItems => [...fieldStart, ...fieldEnd];
@@ -514,7 +513,6 @@ class ChromeThemeSpec {
     bool? compact,
     bool? sendPulled,
     ComposerStyle? composer,
-    bool? busyBar,
   }) => ChromeThemeSpec(
     name: name ?? this.name,
     header: header ?? this.header,
@@ -528,7 +526,6 @@ class ChromeThemeSpec {
     compact: compact ?? this.compact,
     sendPulled: sendPulled ?? this.sendPulled,
     composer: composer ?? this.composer,
-    busyBar: busyBar ?? this.busyBar,
   );
 
   /// Longest [name] a theme keeps.
@@ -544,7 +541,6 @@ class ChromeThemeSpec {
     final flags = [
       if (islandFlush) 'F',
       if (composer == ComposerStyle.classic) 'Q',
-      if (busyBar) 'B',
       if (sendPulled) 'P',
     ].join();
     return [
@@ -651,7 +647,6 @@ class ChromeThemeSpec {
           : flags.contains('Q')
           ? ComposerStyle.classic
           : ComposerStyle.island,
-      busyBar: flags.contains('B'),
       sendPulled: flags.contains('P'),
     ).fitted();
   }
@@ -678,8 +673,7 @@ class ChromeThemeSpec {
       other.compact == compact &&
       other.sendPulled == sendPulled &&
       (!sendPulled || other.sendAside == sendAside) &&
-      other.composer == composer &&
-      other.busyBar == busyBar;
+      other.composer == composer;
 
   @override
   int get hashCode => Object.hash(
@@ -696,7 +690,6 @@ class ChromeThemeSpec {
     sendPulled,
     sendPulled ? sendAside : null,
     composer,
-    busyBar,
   );
 }
 
@@ -715,7 +708,6 @@ enum ChromeTheme {
       // would pull it into the field, so the preset leaves compact off.
       fieldEnd: [],
       sendAside: SendPlace.column,
-      busyBar: true,
     ),
   ),
 
@@ -743,11 +735,10 @@ enum ChromeTheme {
         ChromeAction.overflow,
       ],
       rowEnd: [ChromeAction.viewMenu, ChromeAction.threads],
-      fieldStart: [],
+      fieldStart: [FieldItem.history],
       fieldEnd: [],
       sendAside: SendPlace.row,
       composer: ComposerStyle.flush,
-      busyBar: true,
     ),
   );
 

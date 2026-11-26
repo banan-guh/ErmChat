@@ -586,6 +586,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
     isMounted: () => mounted,
     markDirty: markDirty,
     addChannelDialog: _addChannelDialog,
+    onHistory: _showSentHistory,
     toggleFullscreen: _toggleFullscreen,
     toggleInput: _toggleInputVisibility,
     toggleStream: () => _stream.toggleStreamForSelected(),
@@ -1978,6 +1979,56 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
     controller.value = TextEditingValue(
       text: newText,
       selection: TextSelection.collapsed(offset: insertAt + text.length),
+    );
+  }
+
+  /// Opens recent sent messages. Tapping one loads it into the field for
+  /// editing; nothing is sent from here.
+  void _showSentHistory() {
+    showModalBottomSheet<void>(
+      context: context,
+      builder: (ctx) => SafeArea(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Padding(
+              padding: const EdgeInsets.fromLTRB(16, 12, 16, 8),
+              child: Text(
+                ctx.l10n.sentHistoryTitle,
+                style: Theme.of(ctx).textTheme.titleMedium,
+              ),
+            ),
+            Flexible(
+              child: ValueListenableBuilder<List<String>>(
+                valueListenable: _composer.sentHistory,
+                builder: (_, items, _) {
+                  if (items.isEmpty) {
+                    return Padding(
+                      padding: const EdgeInsets.all(24),
+                      child: Text(ctx.l10n.sentHistoryEmpty),
+                    );
+                  }
+                  return ListView.builder(
+                    shrinkWrap: true,
+                    itemCount: items.length,
+                    itemBuilder: (_, i) => ListTile(
+                      title: Text(
+                        items[i],
+                        maxLines: 2,
+                        overflow: TextOverflow.ellipsis,
+                      ),
+                      onTap: () {
+                        _composer.loadFromHistory(items[i]);
+                        Navigator.pop(ctx);
+                      },
+                    ),
+                  );
+                },
+              ),
+            ),
+          ],
+        ),
+      ),
     );
   }
 
