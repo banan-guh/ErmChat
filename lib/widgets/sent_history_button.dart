@@ -4,6 +4,7 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 
 import '../l10n/l10n.dart';
+import 'design_tokens.dart';
 
 /// Sent-message history anchored to its chrome button.
 class SentHistoryButton extends StatefulWidget {
@@ -65,6 +66,7 @@ class _SentHistoryButtonState extends State<SentHistoryButton> {
     final width = math.min(320.0, size.width - 16);
     final maxLeft = math.max(8.0, size.width - width - 8);
     final left = (anchor.center.dx - width / 2).clamp(8.0, maxLeft);
+    final showHeader = available >= 120;
 
     return SizedBox.expand(
       child: Stack(
@@ -81,39 +83,149 @@ class _SentHistoryButtonState extends State<SentHistoryButton> {
             top: openAbove ? null : belowTop,
             bottom: openAbove ? size.height - aboveBottom : null,
             width: width,
-            child: Material(
-              elevation: 6,
-              clipBehavior: Clip.antiAlias,
-              borderRadius: BorderRadius.circular(12),
-              color: Theme.of(context).colorScheme.surfaceContainerHigh,
-              child: ConstrainedBox(
-                constraints: BoxConstraints(
-                  maxHeight: math.min(available, 360),
+            child: TweenAnimationBuilder<double>(
+              tween: Tween(begin: 0, end: 1),
+              duration: Motion.fast,
+              curve: Motion.enter,
+              builder: (context, t, child) => Opacity(
+                opacity: t,
+                child: Transform.scale(
+                  scale: 0.98 + 0.02 * t,
+                  alignment: Alignment.bottomCenter,
+                  child: child,
                 ),
-                child: ValueListenableBuilder<List<String>>(
-                  valueListenable: widget.history,
-                  builder: (_, items, _) {
-                    if (items.isEmpty) {
-                      return Padding(
-                        padding: const EdgeInsets.all(20),
-                        child: Text(context.l10n.sentHistoryEmpty),
-                      );
-                    }
-                    return ListView.builder(
-                      primary: false,
-                      shrinkWrap: true,
-                      padding: const EdgeInsets.symmetric(vertical: 4),
-                      itemCount: items.length,
-                      itemBuilder: (_, i) => ListTile(
-                        title: Text(
-                          items[i],
-                          maxLines: 2,
-                          overflow: TextOverflow.ellipsis,
-                        ),
-                        onTap: () => _select(items[i]),
+              ),
+              child: Material(
+                elevation: 3,
+                clipBehavior: Clip.antiAlias,
+                borderRadius: BorderRadius.circular(Radii.medium),
+                color: Theme.of(context).colorScheme.surfaceContainerHigh,
+                child: DecoratedBox(
+                  decoration: BoxDecoration(
+                    borderRadius: BorderRadius.circular(Radii.medium),
+                    border: Border.all(
+                      color: Theme.of(
+                        context,
+                      ).colorScheme.outlineVariant.withValues(alpha: 0.45),
+                    ),
+                  ),
+                  child: ConstrainedBox(
+                    constraints: BoxConstraints(
+                      maxHeight: math.min(available, 360),
+                    ),
+                    child: ValueListenableBuilder<List<String>>(
+                      valueListenable: widget.history,
+                      builder: (_, items, _) => Column(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          if (showHeader) ...[
+                            Padding(
+                              padding: const EdgeInsets.fromLTRB(16, 12, 16, 8),
+                              child: Row(
+                                children: [
+                                  Icon(
+                                    Icons.history,
+                                    size: 18,
+                                    color: Theme.of(
+                                      context,
+                                    ).colorScheme.onSurfaceVariant,
+                                  ),
+                                  const SizedBox(width: 8),
+                                  Expanded(
+                                    child: Text(
+                                      context.l10n.sentHistoryTitle,
+                                      style: Theme.of(
+                                        context,
+                                      ).textTheme.titleSmall,
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            ),
+                            Divider(
+                              height: 1,
+                              color: Theme.of(context)
+                                  .colorScheme
+                                  .outlineVariant
+                                  .withValues(alpha: 0.35),
+                            ),
+                          ],
+                          if (items.isEmpty)
+                            Padding(
+                              padding: EdgeInsets.symmetric(
+                                horizontal: 20,
+                                vertical: showHeader ? 24 : 8,
+                              ),
+                              child: showHeader
+                                  ? Column(
+                                      mainAxisSize: MainAxisSize.min,
+                                      children: [
+                                        Icon(
+                                          Icons.history_outlined,
+                                          size: 24,
+                                          color: Theme.of(
+                                            context,
+                                          ).colorScheme.onSurfaceVariant,
+                                        ),
+                                        const SizedBox(height: 8),
+                                        Text(
+                                          context.l10n.sentHistoryEmpty,
+                                          textAlign: TextAlign.center,
+                                          style: Theme.of(
+                                            context,
+                                          ).textTheme.bodyMedium,
+                                        ),
+                                      ],
+                                    )
+                                  : Text(
+                                      context.l10n.sentHistoryEmpty,
+                                      textAlign: TextAlign.center,
+                                      style: Theme.of(
+                                        context,
+                                      ).textTheme.bodyMedium,
+                                    ),
+                            )
+                          else
+                            Flexible(
+                              child: ListView.builder(
+                                primary: false,
+                                shrinkWrap: true,
+                                padding: const EdgeInsets.fromLTRB(0, 4, 0, 8),
+                                itemCount: items.length,
+                                itemBuilder: (_, i) => Material(
+                                  type: MaterialType.transparency,
+                                  child: InkWell(
+                                    onTap: () => _select(items[i]),
+                                    child: ConstrainedBox(
+                                      constraints: const BoxConstraints(
+                                        minHeight: 44,
+                                      ),
+                                      child: Padding(
+                                        padding: const EdgeInsets.symmetric(
+                                          horizontal: 16,
+                                          vertical: 10,
+                                        ),
+                                        child: Align(
+                                          alignment: Alignment.centerLeft,
+                                          child: Text(
+                                            items[i],
+                                            style: Theme.of(
+                                              context,
+                                            ).textTheme.bodyMedium,
+                                            maxLines: 2,
+                                            overflow: TextOverflow.ellipsis,
+                                          ),
+                                        ),
+                                      ),
+                                    ),
+                                  ),
+                                ),
+                              ),
+                            ),
+                        ],
                       ),
-                    );
-                  },
+                    ),
+                  ),
                 ),
               ),
             ),

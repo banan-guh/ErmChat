@@ -220,6 +220,15 @@ void main() {
     expect(ChromeTheme.dankchat4.spec.compact, isFalse);
   });
 
+  test('dankchat4 puts history between view and threads', () {
+    expect(ChromeTheme.dankchat4.spec.rowEnd, [
+      ChromeAction.viewMenu,
+      ChromeAction.history,
+      ChromeAction.threads,
+    ]);
+    expect(ChromeTheme.dankchat4.spec.fieldStart, isEmpty);
+  });
+
   test('a mangled line decodes to null or something usable', () {
     for (final bad in ['', 'hello', 'ermchat-theme:1', 'ermchat-theme:2;h=s']) {
       expect(ChromeThemeSpec.decode(bad), isNull, reason: bad);
