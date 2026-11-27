@@ -13,6 +13,12 @@ const _payload =
     'display-name=User;color=#00FF00;emotes;badges;user-id=42 '
     ':user!user@user.tmi.twitch.tv PRIVMSG #test :hi"]}';
 
+const _stalePayload =
+    '{"messages":["@rm-received-ts=1700000000000;historical=1;id=m1;'
+    'display-name=User;color=#00FF00;emotes;badges;user-id=42 '
+    ':user!user@user.tmi.twitch.tv PRIVMSG #test :hi"],'
+    '"error":"not joined","error_code":"channel_not_joined"}';
+
 RecentMessagesService _service(MockClient client) => RecentMessagesService(
   client: client,
   config: RecentMessagesConfig(mode: RecentMessagesMode.robotty),
@@ -70,6 +76,32 @@ void main() {
       expect(calls, 2);
       expect(rows, isEmpty);
     });
+  });
+
+  test('a custom stale batch posts one recovery notice', () async {
+    var stale = true;
+    final notices = <RecentMessagesRecovery>[];
+    final service = RecentMessagesService(
+      config: RecentMessagesConfig(
+        mode: RecentMessagesMode.custom,
+        customUrl: 'https://history.example.com/api/v2/recent-messages',
+      ),
+      client: MockClient(
+        (_) async => http.Response(stale ? _stalePayload : _payload, 200),
+      ),
+    )..recoveryNotices.add(notices.add);
+
+    await service.fetchRecent('test');
+    await service.fetchRecent('test');
+    expect(notices, [
+      (channel: 'test', provider: 'history.example.com'),
+    ], reason: 'one notice per outage');
+
+    stale = false;
+    await service.fetchRecent('test');
+    stale = true;
+    await service.fetchRecent('test');
+    expect(notices, hasLength(2), reason: 'a new outage notifies again');
   });
 
   test('an empty stale mirror does not announce a fallback before retry', () {

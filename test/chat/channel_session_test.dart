@@ -556,6 +556,29 @@ void main() {
       );
     });
 
+    test('a provider recovery posts one channel history notice', () async {
+      SharedPreferences.setMockInitialValues({});
+      final chat = mergeChat();
+      addTearDown(chat.dispose);
+      final recent = _EmptyRecent();
+      final session = _channelSession(chat, recent: recent);
+      addTearDown(session.dispose);
+      await session.loadRecentMessagesConfig();
+
+      recent.recoveryNotices.emit((
+        channel: 'test',
+        provider: 'history.example.com',
+      ));
+
+      expect(
+        sysRows(
+          chat,
+          'history.example.com is recovering, so some messages may be missing.',
+        ),
+        1,
+      );
+    });
+
     test('refetch and live overlaps fold into one row', () {
       final chat = mergeChat();
       addTearDown(chat.dispose);

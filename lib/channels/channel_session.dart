@@ -97,6 +97,7 @@ class ChannelSession extends ChangeNotifier {
   late RecentMessagesService recentMessages;
   RecentMessagesConfig recentMessagesConfig = RecentMessagesConfig();
   void Function()? _removeRecentNotices;
+  void Function()? _removeRecentRecovery;
 
   /// Re-arm the once-per-login mention scan after an account switch.
   void rearmMentionScan() => _mentionScanDone = false;
@@ -107,6 +108,7 @@ class ChannelSession extends ChangeNotifier {
   void dispose() {
     _disposed = true;
     _removeRecentNotices?.call();
+    _removeRecentRecovery?.call();
     _startupBackfillTimer?.cancel();
     _startupBackfillQueue.clear();
     super.dispose();
@@ -496,6 +498,10 @@ class ChannelSession extends ChangeNotifier {
     _removeRecentNotices = recentMessages.fallbackNotices.add(
       _onRecentFallback,
     );
+    _removeRecentRecovery?.call();
+    _removeRecentRecovery = recentMessages.recoveryNotices.add(
+      _onRecentRecovery,
+    );
   }
 
   void _onRecentFallback(RecentMessagesFallback notice) {
@@ -503,6 +509,14 @@ class ChannelSession extends ChangeNotifier {
     _addSystemMessage(
       notice.channel,
       strings().historyProviderFallback(notice.provider),
+    );
+  }
+
+  void _onRecentRecovery(RecentMessagesRecovery notice) {
+    if (_disposed || !chat.contains(notice.channel)) return;
+    _addSystemMessage(
+      notice.channel,
+      strings().historyProviderRecovering(notice.provider),
     );
   }
 

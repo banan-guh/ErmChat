@@ -2866,6 +2866,14 @@
       }
     }
   },
+  "historyProviderRecovering": "{provider} is recovering, so some messages may be missing.",
+  "@historyProviderRecovering": {
+    "placeholders": {
+      "provider": {
+        "type": "String"
+      }
+    }
+  },
   "noChatHistory": "No chat history available",
   "modErrorMissingScope": "Missing required scope. Re-login with your account and try again.",
   "modErrorNoPermission": "You don't have permission to perform that action.",

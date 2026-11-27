@@ -41,6 +41,9 @@ typedef HistoryBatch = ({
 /// A channel whose history came from the fallback provider.
 typedef RecentMessagesFallback = ({String channel, String provider});
 
+/// A channel served stale history while its provider is not joined.
+typedef RecentMessagesRecovery = ({String channel, String provider});
+
 /// Recent-messages backend selector.
 enum RecentMessagesMode { auto, robotty, zneix, custom }
 
@@ -129,6 +132,10 @@ class RecentMessagesService {
   /// One notice per channel when the mirror supplies its history.
   final fallbackNotices = ChatSignal<RecentMessagesFallback>();
 
+  /// One notice per channel when no provider is joined and stale history is
+  /// served instead.
+  final recoveryNotices = ChatSignal<RecentMessagesRecovery>();
+
   /// The source setting; a change applies from the next fetch.
   set config(RecentMessagesConfig value) {
     _config = value;
@@ -137,6 +144,7 @@ class RecentMessagesService {
 
   void dispose() {
     fallbackNotices.clear();
+    recoveryNotices.clear();
     _degraded.clear();
   }
 
@@ -289,9 +297,7 @@ class RecentMessagesService {
     // No joined provider: serve the freshest stale batch if there is one.
     if (staleFallback != null) {
       if (staleFallback.isNotEmpty) {
-        if (staleProvider > 0) {
-          _noteFallback(channel, providers[staleProvider]);
-        }
+        _noteRecovery(channel, providers[staleProvider]);
         return staleFallback;
       }
       if (!retryUnjoined) return staleFallback;
@@ -315,8 +321,19 @@ class RecentMessagesService {
 
   void _noteFallback(String channel, String url) {
     if (!_degraded.add(channel)) return;
-    final provider = url == _mirrorBaseUrl ? 'Zneix' : 'Robotty';
-    fallbackNotices.emit((channel: channel, provider: provider));
+    fallbackNotices.emit((channel: channel, provider: _providerName(url)));
+  }
+
+  void _noteRecovery(String channel, String url) {
+    if (!_degraded.add(channel)) return;
+    recoveryNotices.emit((channel: channel, provider: _providerName(url)));
+  }
+
+  String _providerName(String url) {
+    if (url == _baseUrl) return 'Robotty';
+    if (url == _mirrorBaseUrl) return 'Zneix';
+    final host = Uri.tryParse(url)?.host;
+    return host == null || host.isEmpty ? 'Custom' : host;
   }
 
   /// True when [candidate] is newer than [current]. Non-empty beats empty,
