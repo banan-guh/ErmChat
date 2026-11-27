@@ -46,6 +46,11 @@ class MessageInput extends StatelessWidget {
   /// field from its start. Null while none runs.
   final ValueListenable<double?>? fillProgress;
 
+  /// Indeterminate loading drawn inside the classic field while no
+  /// determinate [fillProgress] is active.
+  final Listenable? busyListenable;
+  final bool Function()? isBusy;
+
   // slot replacements for search mode (close + filter buttons).
   final Widget? prefixOverride;
   final Widget? suffixOverride;
@@ -82,6 +87,8 @@ class MessageInput extends StatelessWidget {
     this.floatHint,
     this.borderless = false,
     this.fillProgress,
+    this.busyListenable,
+    this.isBusy,
     this.prefixOverride,
     this.suffixOverride,
     this.startItems = const [FieldItem.emote],
@@ -248,6 +255,37 @@ class MessageInput extends StatelessWidget {
                             ),
                           ),
                         ),
+                      ),
+                    ),
+                  ),
+                ),
+              if (busyListenable case final busy?)
+                Positioned.fill(
+                  child: IgnorePointer(
+                    child: ClipRRect(
+                      borderRadius: BorderRadius.circular(4),
+                      child: ListenableBuilder(
+                        listenable: Listenable.merge([busy, ?fillProgress]),
+                        builder: (context, _) {
+                          final show =
+                              (isBusy?.call() ?? false) &&
+                              fillProgress?.value == null;
+                          return AnimatedOpacity(
+                            key: const Key('classic_busy_fade'),
+                            opacity: show ? 1 : 0,
+                            duration: Motion.normal,
+                            child: TickerMode(
+                              enabled: show,
+                              child: LinearProgressIndicator(
+                                minHeight: 1,
+                                backgroundColor: Colors.transparent,
+                                color: Theme.of(
+                                  context,
+                                ).colorScheme.primary.withValues(alpha: 0.12),
+                              ),
+                            ),
+                          );
+                        },
                       ),
                     ),
                   ),

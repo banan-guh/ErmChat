@@ -48,6 +48,8 @@ class ComposerBar extends StatelessWidget {
     this.hideRowTyping = false,
     this.uploads,
     this.progress,
+    this.busyListenable,
+    this.isBusy,
   });
 
   final ComposerController controller;
@@ -61,6 +63,11 @@ class ComposerBar extends StatelessWidget {
   /// The share of the upload or emote reload running, for the classic
   /// field's shade.
   final ValueListenable<double?>? progress;
+
+  /// Classic fields draw the indeterminate loading animation inside the
+  /// input instead of using a separate busy strip.
+  final Listenable? busyListenable;
+  final bool Function()? isBusy;
 
   /// The island's button row shows, so room modes may ride it
   /// ([ComposerModeRow]) instead of the status.
@@ -199,6 +206,8 @@ class ComposerBar extends StatelessWidget {
                   // The classic field has no island to trace, so an upload
                   // or a full emote reload shades the field itself.
                   fillProgress: classic ? progress : null,
+                  busyListenable: classic ? busyListenable : null,
+                  isBusy: classic ? isBusy : null,
                   prefixOverride: startSlot,
                   suffixOverride: endSlot,
                   startItems: startItems,
@@ -518,9 +527,8 @@ class _ChannelListener extends StatelessWidget {
   );
 }
 
-/// The channel status line at the island's foot, under the button row, so
-/// it never splits the field from its buttons. Steps aside while search or
-/// block terms borrow the field.
+/// Channel status and failed-emote retry lines. ChatBody places them in the
+/// island's status slot, footer, or both.
 class ComposerStatusRow extends StatelessWidget {
   const ComposerStatusRow({
     super.key,
@@ -532,6 +540,7 @@ class ComposerStatusRow extends StatelessWidget {
     this.modeRow = false,
     this.classic = false,
     this.showStatus = true,
+    this.showFailed = true,
   });
 
   final ComposerController controller;
@@ -550,61 +559,26 @@ class ComposerStatusRow extends StatelessWidget {
   /// Hides the stream status when a theme floats it elsewhere.
   final bool showStatus;
 
-  @override
-  Widget build(BuildContext context) => ListenableBuilder(
-    listenable: _enabledInputs(controller, mod, dragTick),
-    builder: (context, _) {
-      if (composerStatusHidden(search)) return const SizedBox.shrink();
-      return _StatusRow(
-        controller: controller,
-        selectedTabIndex: selectedTabIndex,
-        modeRow: modeRow,
-        classic: classic,
-        showStatus: showStatus,
-      );
-    },
-  );
-}
-
-/// The stream status floated in the chat area by themes that do not keep it in
-/// the footer. Left aligned like DankChat's splash, without blocking touches.
-class ComposerStatusText extends StatelessWidget {
-  const ComposerStatusText({
-    super.key,
-    required this.controller,
-    required this.selectedTabIndex,
-    this.modeRow = false,
-  });
-
-  final ComposerController controller;
-  final ValueListenable<int> selectedTabIndex;
-  final bool modeRow;
+  /// Hides the failed-emote retry line when it belongs in another slot.
+  final bool showFailed;
 
   @override
-  Widget build(BuildContext context) => _ChannelListener(
-    controller: controller,
-    selectedTabIndex: selectedTabIndex,
-    builder: (context) {
-      final channel = controller.selectedChannel;
-      if (channel == null) return const SizedBox.shrink();
-      final lines = _statusLines(
-        context,
-        controller,
-        channel,
-        modeRow: modeRow,
-      );
-      if (lines.status.isEmpty) return const SizedBox.shrink();
-      return SizedBox(
-        width: double.infinity,
-        child: Text(
-          lines.status,
-          style: _statusStyle(context),
-          textAlign: TextAlign.left,
-          maxLines: 1,
-          overflow: TextOverflow.ellipsis,
-        ),
-      );
-    },
+  Widget build(BuildContext context) => SizedBox(
+    width: double.infinity,
+    child: ListenableBuilder(
+      listenable: _enabledInputs(controller, mod, dragTick),
+      builder: (context, _) {
+        if (composerStatusHidden(search)) return const SizedBox.shrink();
+        return _StatusRow(
+          controller: controller,
+          selectedTabIndex: selectedTabIndex,
+          modeRow: modeRow,
+          classic: classic,
+          showStatus: showStatus,
+          showFailed: showFailed,
+        );
+      },
+    ),
   );
 }
 
@@ -634,6 +608,7 @@ double composerStatusHeight(
   bool modeRow = false,
   bool hidden = false,
   bool showStatus = true,
+  bool showFailed = true,
 }) {
   if (hidden) return 0;
   final lines = _statusLines(
@@ -642,6 +617,7 @@ double composerStatusHeight(
     channel,
     modeRow: modeRow,
     showStatus: showStatus,
+    showFailed: showFailed,
   );
   return _statusRowHeight(lines, _statusLineHeight(context));
 }
@@ -655,13 +631,16 @@ double composerStatusHeight(
   String channel, {
   required bool modeRow,
   bool showStatus = true,
+  bool showFailed = true,
 }) {
   final portrait = MediaQuery.orientationOf(context) != Orientation.landscape;
   return (
     status: showStatus && portrait
         ? _footerStatus(context, controller, channel, modeRow: modeRow)
         : '',
-    failed: controller.chat.loadFailedChannels.value.contains(channel),
+    failed:
+        showFailed &&
+        controller.chat.loadFailedChannels.value.contains(channel),
   );
 }
 
@@ -713,6 +692,7 @@ class _StatusRow extends StatelessWidget {
     required this.modeRow,
     required this.classic,
     required this.showStatus,
+    required this.showFailed,
   });
 
   final ComposerController controller;
@@ -720,6 +700,7 @@ class _StatusRow extends StatelessWidget {
   final bool modeRow;
   final bool classic;
   final bool showStatus;
+  final bool showFailed;
 
   @override
   Widget build(BuildContext context) => _ChannelListener(
@@ -745,6 +726,7 @@ class _StatusRow extends StatelessWidget {
       channel,
       modeRow: modeRow,
       showStatus: showStatus,
+      showFailed: showFailed,
     );
     final lineH = _statusLineHeight(context);
     // Sized by the same numbers [composerStatusHeight] predicts, so a page
@@ -769,7 +751,7 @@ class _StatusRow extends StatelessWidget {
                 child: Text(
                   lines.status,
                   style: _statusStyle(context),
-                  textAlign: classic ? TextAlign.start : TextAlign.center,
+                  textAlign: classic ? TextAlign.left : TextAlign.center,
                   maxLines: 1,
                   overflow: TextOverflow.ellipsis,
                 ),

@@ -288,6 +288,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
     Settings.spamIntervalModMs,
     Settings.fastChannelSnap,
     Settings.showInput,
+    Settings.archiveEnabled,
     Settings.chromeTheme,
     Settings.customChromeThemes,
   ]);
@@ -601,6 +602,12 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
     editLayout: _startLayoutEdit,
     composer: _composer,
   );
+
+  late final Listenable _chromeBusy = Listenable.merge([
+    _chrome.joinBusyListenable,
+    _mod.busyCount,
+  ]);
+  bool get _chromeIsBusy => _chrome.joinBusy() || _mod.busyCount.value > 0;
 
   late final ChannelPanels _channels = ChannelPanels(
     chat: _chat,
@@ -1937,27 +1944,53 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
     setState(() => _replayingVod = replaying);
   }
 
-  /// The island footer [channel] shows, for its page's pre-placed clearance.
-  double _statusHeightFor(String channel) => composerStatusHeight(
-    context,
-    _composer,
-    channel,
-    modeRow: _modeRow,
-    hidden: composerStatusHidden(_search),
-    showStatus: !_centeredStatus,
-  );
+  /// The variable status height [channel] adds to the island, for its page's
+  /// pre-placed clearance.
+  double _statusHeightFor(String channel) {
+    final hidden = composerStatusHidden(_search);
+    if (!_statusInIsland) {
+      return composerStatusHeight(
+        context,
+        _composer,
+        channel,
+        modeRow: _modeRow,
+        hidden: hidden,
+      );
+    }
+    return composerStatusHeight(
+          context,
+          _composer,
+          channel,
+          modeRow: _modeRow,
+          hidden: hidden,
+          showFailed: false,
+        ) +
+        composerStatusHeight(
+          context,
+          _composer,
+          channel,
+          modeRow: _modeRow,
+          hidden: hidden,
+          showStatus: false,
+        );
+  }
 
   /// Whether room modes may ride the island's button row: the row shows.
   bool get _modeRow => _chromeTheme.hasRow && _showInput;
 
-  bool get _centeredStatus =>
-      (_layoutEdit?.draft ?? _chromeTheme).encode() ==
-      ChromeTheme.dankchat4.spec.encode();
+  bool get _dankchat4Layout {
+    final spec = _layoutEdit?.draft ?? _chromeTheme;
+    return spec.header == HeaderStyle.bubbles &&
+        spec.composer == ComposerStyle.flush &&
+        spec.sendAside == SendPlace.row;
+  }
 
-  bool get _leftAlignedStatus =>
-      _centeredStatus ||
-      (_layoutEdit?.draft ?? _chromeTheme).encode() ==
-          ChromeTheme.dankchat3.spec.encode();
+  bool get _statusInIsland => _dankchat4Layout && _showInput;
+
+  bool get _leftAlignedStatus {
+    final spec = _layoutEdit?.draft ?? _chromeTheme;
+    return _dankchat4Layout || spec.header == HeaderStyle.appBar;
+  }
 
   void _copyMessageToClipboard(TwitchMessage msg) {
     Clipboard.setData(ClipboardData(text: msg.text));
@@ -2440,7 +2473,9 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
                       actionBuilder: (a) => _chrome.action(
                         context,
                         a,
-                        onCalendar: _channels.openCalendar,
+                        onCalendar: Settings.archiveEnabled.value
+                            ? _channels.openCalendar
+                            : null,
                       ),
                       startSlot: edit == null
                           ? null
@@ -2460,6 +2495,8 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
                       hideRowTyping: spec.compact,
                       uploads: _uploadController,
                       progress: _composerProgress,
+                      busyListenable: _chromeBusy,
+                      isBusy: () => _chromeIsBusy,
                     )
                   : null,
               bottomBar: hasBottomBar && !rowless
@@ -2500,13 +2537,29 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
                               dragTick: _panelDragTick,
                             )
                           : null,
-                      onCalendar: _channels.openCalendar,
+                      onCalendar: Settings.archiveEnabled.value
+                          ? _channels.openCalendar
+                          : null,
                     )
                   : null,
               // The channel status line at the island's foot.
               islandFooterHeightFor: hasBottomBar ? _statusHeightFor : null,
+              islandStatus: _statusInIsland
+                  ? ComposerStatusRow(
+                      key: const ValueKey('island_status'),
+                      controller: _composer,
+                      selectedTabIndex: _selectedTabIndex,
+                      search: _search,
+                      mod: _mod,
+                      dragTick: _panelDragTick,
+                      modeRow: modeRow,
+                      classic: true,
+                      showFailed: false,
+                    )
+                  : null,
               islandFooter: hasBottomBar
                   ? ComposerStatusRow(
+                      key: const ValueKey('island_footer'),
                       controller: _composer,
                       selectedTabIndex: _selectedTabIndex,
                       search: _search,
@@ -2516,7 +2569,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
                       classic:
                           spec.composer == ComposerStyle.classic ||
                           _leftAlignedStatus,
-                      showStatus: !_centeredStatus,
+                      showStatus: !_statusInIsland,
                     )
                   : null,
               // Send runs down the island's side while the row stays up.
@@ -2529,25 +2582,17 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
                   ? _chrome.action(
                       context,
                       inputMenu,
-                      onCalendar: _channels.openCalendar,
+                      onCalendar: Settings.archiveEnabled.value
+                          ? _channels.openCalendar
+                          : null,
                     )
                   : null,
               islandFlush: spec.islandFlush,
               classic: spec.composer == ComposerStyle.classic,
-              busyListenable: Listenable.merge([
-                _chrome.joinBusyListenable,
-                _mod.busyCount,
-              ]),
-              isBusy: () => _chrome.joinBusy() || _mod.busyCount.value > 0,
+              busyListenable: _chromeBusy,
+              isBusy: () => _chromeIsBusy,
               progress: _composerProgress,
               notice: ChatNoticeBar(controller: _chatNotice),
-              centeredStatus: _centeredStatus && !_search.open
-                  ? ComposerStatusText(
-                      controller: _composer,
-                      selectedTabIndex: _selectedTabIndex,
-                      modeRow: modeRow,
-                    )
-                  : null,
               replyHeader: replyHeader,
               keyboardHidesButtons: spec.compact,
             ),

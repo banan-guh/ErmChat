@@ -87,8 +87,8 @@ class ChatBody extends StatefulWidget {
     this.loneAction,
     this.islandFooter,
     this.islandFooterHeightFor,
+    this.islandStatus,
     this.notice,
-    this.centeredStatus,
     this.replyHeader,
     this.isInPip = false,
     this.bodyReadsKeyboard = true,
@@ -126,6 +126,9 @@ class ChatBody extends StatefulWidget {
   /// A line at the island's foot across its full width, under the row and
   /// the side action (the channel status). Hides with the row.
   final Widget? islandFooter;
+
+  /// Status between the field and button row, above the busy line.
+  final Widget? islandStatus;
 
   /// The [islandFooter] height a given channel shows, so each chat page is
   /// laid out for its own island before the switch lands.
@@ -182,10 +185,6 @@ class ChatBody extends StatefulWidget {
   /// and composer height changes by layout instead of a frozen margin.
   final Widget? notice;
 
-  /// Status splash floated in the middle of the chat area. It never blocks
-  /// input or reserves layout space.
-  final Widget? centeredStatus;
-
   @override
   State<ChatBody> createState() => _ChatBodyState();
 }
@@ -228,6 +227,7 @@ class _ChatBodyState extends State<ChatBody>
   // animated slot, the footer, and the row under the field (written by the
   // row clip, read by the keyboard gate).
   final _flowH = _Slot();
+  final _statusH = _Slot();
   final _footerH = _Slot();
   final _rowH = _Slot();
 
@@ -550,23 +550,6 @@ class _ChatBodyState extends State<ChatBody>
             bottom: anchorBottom,
             child: widget.notice!,
           );
-    final centeredStatus = widget.centeredStatus == null
-        ? null
-        : Positioned(
-            key: const ValueKey('centered_status'),
-            left: anchor.left,
-            right: anchor.right,
-            top: 0,
-            bottom: 0,
-            child: IgnorePointer(
-              child: Center(
-                child: Padding(
-                  padding: const EdgeInsets.symmetric(horizontal: 24),
-                  child: widget.centeredStatus!,
-                ),
-              ),
-            ),
-          );
     // The composer field. One shared inputBarKey keeps the FocusNode alive
     // as the island moves between the docked and floating paths. The size
     // notifier re-measures when inner listenables resize it without a
@@ -601,18 +584,23 @@ class _ChatBodyState extends State<ChatBody>
     // One island: field and button row in one shell. Hidden mode shortens
     // the shell from below as the keyboard rises, so its rim and corners
     // reshape around what is left instead of being cut off.
-    // The footer resizes on its own (a channel switch swaps the status) and
-    // reports its height to the island's layout. It stays in the row so the
-    // keyboard retract clips it with the buttons from the island's real size.
+    // The variable status lines resize the island and report their combined
+    // height to its layout. They stay in the row so the keyboard retract
+    // clips them with the buttons from the island's real size.
     // With the keyboard up it is left out of the page clearance below, so no
     // channel carries a splash-driven offset.
     final hideFooter = _keyboardEngaged && widget.hideFooterOnKeyboard;
+    final status = _Report(
+      slot: _statusH,
+      child: widget.islandStatus ?? const SizedBox.shrink(),
+    );
     final footer = _Report(
       slot: _footerH,
       child: widget.islandFooter ?? const SizedBox.shrink(),
     );
-    // Edge to edge, one line carries the busy motion or an upload's progress.
-    final busyLine = _busyLine(layout);
+    // Classic layouts draw busy motion inside the field. Edge-to-edge keeps
+    // the separate line for uploads and channel loading.
+    final busyLine = layout.classic ? null : _busyLine(layout);
     final island = _outer(
       layout: layout,
       child: _islandShell(
@@ -629,6 +617,7 @@ class _ChatBodyState extends State<ChatBody>
               children: [
                 if (widget.sideAction == null) ...[
                   flowComposer,
+                  status,
                   ?busyLine,
                   ?widget.bottomBar,
                   footer,
@@ -652,6 +641,7 @@ class _ChatBodyState extends State<ChatBody>
                               mainAxisSize: MainAxisSize.min,
                               children: [
                                 flowComposer,
+                                status,
                                 ?busyLine,
                                 ?widget.bottomBar,
                               ],
@@ -798,9 +788,11 @@ class _ChatBodyState extends State<ChatBody>
                               footer: hideFooter || widget.islandFooter == null
                                   ? null
                                   : _footerH,
+                              status: hideFooter || widget.islandStatus == null
+                                  ? null
+                                  : _statusH,
                               children: [
                                 ComposerPaneScope(slot: paneSlot, child: body),
-                                ?centeredStatus,
                                 reply,
                                 widget.threadPanel,
                                 widget.mentionsPanel,
@@ -1418,6 +1410,7 @@ class _IslandStack extends Stack {
     required this.trim,
     required this.footerFor,
     required this.footer,
+    required this.status,
     super.children,
   }) : super(clipBehavior: Clip.hardEdge);
 
@@ -1432,6 +1425,9 @@ class _IslandStack extends Stack {
   /// The island footer's laid-out height, or null without a footer.
   final _Slot? footer;
 
+  /// The status line between the field and row, or null without one.
+  final _Slot? status;
+
   @override
   RenderStack createRenderObject(BuildContext context) => _RenderIslandStack(
     presence,
@@ -1439,6 +1435,7 @@ class _IslandStack extends Stack {
     footerFor,
     metrics: metrics,
     footer: footer,
+    status: status,
     textDirection: Directionality.of(context),
     clipBehavior: clipBehavior,
   );
@@ -1451,7 +1448,8 @@ class _IslandStack extends Stack {
       ..presence = presence
       ..trim = trim
       ..footerFor = footerFor
-      ..footer = footer;
+      ..footer = footer
+      ..status = status;
   }
 }
 
@@ -1462,12 +1460,14 @@ class _RenderIslandStack extends RenderStack {
     this._footerFor, {
     required this.metrics,
     required this.footer,
+    required this.status,
     super.textDirection,
     super.clipBehavior,
   });
 
   IslandMetrics metrics;
   _Slot? footer;
+  _Slot? status;
 
   // The last island top, which the lists ease away from once it is gone.
   double _lastTop = 0;
@@ -1527,7 +1527,9 @@ class _RenderIslandStack extends RenderStack {
       (_) => metrics.publish(
         top: top,
         height: islandH ?? 0,
-        footer: islandH == null ? 0 : footer?.value ?? 0,
+        footer: islandH == null
+            ? 0
+            : (footer?.value ?? 0) + (status?.value ?? 0),
         extra: extra,
         trim: _trim,
         footerFor: _footerFor,

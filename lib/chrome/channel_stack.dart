@@ -30,6 +30,7 @@ import '../util/chrome_theme.dart';
 import '../util/fake_history.dart';
 import '../util/haptics.dart';
 import '../util/history_timeline.dart';
+import '../util/settings.dart';
 import '../widgets/chat_rows.dart';
 import '../widgets/chat_view.dart';
 import '../widgets/history_view.dart';
@@ -207,6 +208,7 @@ class ChannelPanels {
 
   /// Opens the selected channel's days.
   void openCalendar() {
+    if (!Settings.archiveEnabled.value) return;
     final channel = selectedChannel();
     if (channel != null) _calendarFor(channel).value = true;
   }
@@ -1031,13 +1033,19 @@ class ChannelPanels {
                     stripBubbles:
                         homeAppBar.themeSpec().header == HeaderStyle.bubbles,
                     stripTrailing: merged || appBarHeader
-                        ? homeAppBar.stripTrailing(onCalendar: openCalendar)
+                        ? homeAppBar.stripTrailing(
+                            onCalendar: Settings.archiveEnabled.value
+                                ? openCalendar
+                                : null,
+                          )
                         : null,
                     fullscreenMenu: _menuFloats()
                         ? homeAppBar.action(
                             context,
                             ChromeAction.viewMenu,
-                            onCalendar: openCalendar,
+                            onCalendar: Settings.archiveEnabled.value
+                                ? openCalendar
+                                : null,
                           )
                         : null,
                     // A stream above the strip already sits at the top.

@@ -198,7 +198,7 @@ void main() {
     );
   });
 
-  testWidgets('dankchat4 centers the splash and aligns it left', (
+  testWidgets('dankchat4 puts the splash above the busy line and row', (
     tester,
   ) async {
     await pumpJoined(
@@ -208,22 +208,60 @@ void main() {
     );
     final home = tester.element(find.byType(HomeScreen));
     final chat = ProviderScope.containerOf(home).read(chatProvider);
+    final island = find.byKey(const ValueKey('composer_island'));
+    final emptyIslandHeight = tester.getSize(island).height;
     const status = 'Live with 42 viewers for 1h 2m';
+    void expectSplash() {
+      final text = find.text(status);
+      final statusRow = find.byKey(const ValueKey('island_status'));
+      expect(text, findsOneWidget);
+      expect(tester.widget<Text>(text).textAlign, TextAlign.left);
+      expect(find.ancestor(of: text, matching: statusRow), findsOneWidget);
+      expect(
+        find.ancestor(
+          of: text,
+          matching: find.byKey(const ValueKey('island_footer')),
+        ),
+        findsNothing,
+      );
+      expect(
+        tester.getSize(find.byKey(const ValueKey('island_footer'))).height,
+        0,
+      );
+      expect(
+        tester.getRect(statusRow).left,
+        closeTo(tester.getRect(island).left, 0.5),
+      );
+      expect(
+        tester.getRect(statusRow).width,
+        closeTo(tester.getRect(island).width, 0.5),
+      );
+      expect(
+        tester.getRect(text).left,
+        closeTo(tester.getRect(statusRow).left + 20, 0.5),
+      );
+      expect(
+        tester.getRect(find.byKey(inputBarKey)).bottom,
+        lessThanOrEqualTo(tester.getRect(text).top),
+      );
+      expect(
+        tester.getRect(text).bottom,
+        lessThanOrEqualTo(
+          tester.getRect(find.byKey(const Key('bottom_chrome_bar'))).top,
+        ),
+      );
+      expect(tester.getSize(island).height, greaterThan(emptyIslandHeight));
+    }
+
     chat.channelFor('testchannel')!.info.setStatus(status, live: true);
     await tester.pumpAndSettle();
+    expectSplash();
 
-    final text = find.text(status);
-    expect(text, findsOneWidget);
-    expect(tester.widget<Text>(text).textAlign, TextAlign.left);
-    expect(
-      find.ancestor(of: text, matching: find.byType(ComposerStatusRow)),
-      findsNothing,
-    );
-    expect(tester.getSize(find.byType(ComposerStatusRow)).height, 0);
-    expect(
-      tester.getCenter(text).dy,
-      closeTo(tester.getCenter(find.byType(ChatBody)).dy, 1),
-    );
+    final prefs = await Prefs.load();
+    await prefs.setCustomChromeThemes([ChromeTheme.dankchat4.spec]);
+    await prefs.setChromeThemeKey('${Prefs.customChromeThemePrefix}0');
+    await settlePrefs(tester);
+    expectSplash();
   });
 
   testWidgets('dankchat3 keeps the splash left in the footer', (tester) async {
@@ -234,16 +272,58 @@ void main() {
     );
     final home = tester.element(find.byType(HomeScreen));
     final chat = ProviderScope.containerOf(home).read(chatProvider);
+    final island = find.byKey(const ValueKey('composer_island'));
     const status = 'Live with 42 viewers for 1h 2m';
+    void expectSplash() {
+      final text = find.text(status);
+      final footer = find.byKey(const ValueKey('island_footer'));
+      expect(tester.widget<Text>(text).textAlign, TextAlign.left);
+      expect(find.ancestor(of: text, matching: footer), findsOneWidget);
+      expect(
+        tester.getRect(footer).left,
+        closeTo(tester.getRect(island).left, 0.5),
+      );
+      expect(
+        tester.getRect(footer).width,
+        closeTo(tester.getRect(island).width, 0.5),
+      );
+      expect(
+        tester.getRect(text).left,
+        closeTo(tester.getRect(footer).left + 20, 0.5),
+      );
+    }
+
     chat.channelFor('testchannel')!.info.setStatus(status, live: true);
     await tester.pumpAndSettle();
+    expectSplash();
 
-    final text = find.text(status);
-    expect(tester.widget<Text>(text).textAlign, TextAlign.start);
-    expect(
-      find.ancestor(of: text, matching: find.byType(ComposerStatusRow)),
-      findsOneWidget,
+    final prefs = await Prefs.load();
+    await prefs.setCustomChromeThemes([ChromeTheme.dankchat3.spec]);
+    await prefs.setChromeThemeKey('${Prefs.customChromeThemePrefix}0');
+    await settlePrefs(tester);
+    expectSplash();
+  });
+
+  testWidgets('calendar is hidden while the archive is off', (tester) async {
+    await pumpJoined(
+      tester,
+      density: LayoutDensity.full,
+      chromeTheme: ChromeTheme.dankchat4.name,
     );
+    await Settings.archiveEnabled.set(false);
+    await settlePrefs(tester);
+
+    await tester.tap(find.byIcon(Icons.expand_more));
+    await tester.pumpAndSettle();
+    expect(find.text('Calendar'), findsNothing);
+    await tester.binding.handlePopRoute();
+    await tester.pumpAndSettle();
+
+    await Settings.archiveEnabled.set(true);
+    await settlePrefs(tester);
+    await tester.tap(find.byIcon(Icons.expand_more));
+    await tester.pumpAndSettle();
+    expect(find.text('Calendar'), findsOneWidget);
   });
 
   // A softlock: with the view menu in the row or the field, hiding the input

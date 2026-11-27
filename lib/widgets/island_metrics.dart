@@ -73,9 +73,9 @@ class IslandMetrics {
           : kOpaqueComposerGap) +
       _extra;
 
-  /// Called by ChatBody's layout only. [footer] is the footer's laid-out
-  /// height, which [footerFor] predicts per channel; [trim] is empty room
-  /// above the island the lists may overlap.
+  /// Called by ChatBody's layout only. [footer] is the combined status and
+  /// footer height, which [footerFor] predicts per channel; [trim] is empty
+  /// room above the island the lists may overlap.
   void publish({
     required double top,
     required double height,
