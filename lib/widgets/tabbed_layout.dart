@@ -262,9 +262,10 @@ class TabbedLayoutState extends State<TabbedLayout>
 
   // Width of the fade where tabs meet the pinned strip actions.
   static const double _stripFade = 12;
-  static const double _bubbleArrowWidth = 48;
-  static const double _bubbleTabFade = 48;
-  static const double _bubbleArrowSpacer = _bubbleTabFade;
+  static const double _bubbleArrowWidth = 24;
+  static const double _bubbleArrowBackingWidth = _bubbleArrowWidth + 2;
+  static const double _bubbleFadeWidth = 48;
+  static const double _bubbleArrowSpacer = 0;
   static const _jumpDuration = Motion.slow;
   // Longest span animated in one go. Longer jumps land within this distance
   // first, so the flight only builds a few pages (as ViewPager2 does).
@@ -793,14 +794,56 @@ class TabbedLayoutState extends State<TabbedLayout>
                                         shaderCallback: (rect) {
                                           final fadeWidth = bubbles
                                               ? overflow
-                                                    ? _bubbleTabFade
+                                                    ? _bubbleFadeWidth
                                                     : 0
                                               : widget.stripTrailing == null
                                               ? 0
                                               : _stripFade;
-                                          final fadeStart = fadeWidth == 0
-                                              ? 1.0
-                                              : 1 - fadeWidth / rect.width;
+                                          if (fadeWidth == 0) {
+                                            return const LinearGradient(
+                                              colors: [
+                                                Colors.white,
+                                                Colors.white,
+                                              ],
+                                            ).createShader(
+                                              rect,
+                                              textDirection: Directionality.of(
+                                                context,
+                                              ),
+                                            );
+                                          }
+                                          final fadeStart =
+                                              (1 - fadeWidth / rect.width)
+                                                  .clamp(0.0, 1.0);
+                                          if (bubbles) {
+                                            final fadeEnd =
+                                                (1 -
+                                                        _bubbleArrowWidth /
+                                                            rect.width)
+                                                    .clamp(0.0, 1.0);
+                                            return LinearGradient(
+                                              begin: AlignmentDirectional
+                                                  .centerStart,
+                                              end: AlignmentDirectional
+                                                  .centerEnd,
+                                              colors: [
+                                                Colors.white,
+                                                Colors.white,
+                                                Colors.white.withValues(
+                                                  alpha: 0.35,
+                                                ),
+                                                Colors.white.withValues(
+                                                  alpha: 0.35,
+                                                ),
+                                              ],
+                                              stops: [0, fadeStart, fadeEnd, 1],
+                                            ).createShader(
+                                              rect,
+                                              textDirection: Directionality.of(
+                                                context,
+                                              ),
+                                            );
+                                          }
                                           return LinearGradient(
                                             begin: AlignmentDirectional
                                                 .centerStart,
@@ -936,68 +979,94 @@ class TabbedLayoutState extends State<TabbedLayout>
                                     end: 0,
                                     top: 0,
                                     bottom: 0,
-                                    width: _bubbleArrowWidth,
+                                    width: _bubbleArrowBackingWidth,
                                     child: IgnorePointer(
                                       ignoring: !overflow,
                                       child: ExcludeSemantics(
                                         excluding: !overflow,
-                                        child: DecoratedBox(
-                                          decoration: BoxDecoration(
-                                            color: theme
-                                                .colorScheme
-                                                .surfaceContainerHigh,
-                                          ),
-                                          child: AnimatedOpacity(
-                                            key: const Key(
-                                              'channel_arrow_fade',
-                                            ),
-                                            opacity: overflow ? 1 : 0,
-                                            duration: Motion.fast,
-                                            child: PopupMenuButton<int>(
-                                              tooltip:
-                                                  context.l10n.pageChannels,
-                                              onSelected: _onTabTap,
-                                              padding: EdgeInsets.zero,
-                                              // Opens on the current channel, scrolled to it.
-                                              initialValue: _lastReportedIndex,
-                                              // Six rows plus the menu's padding, then it scrolls.
-                                              constraints: const BoxConstraints(
-                                                maxHeight:
-                                                    6 * _channelRowH + 16,
+                                        child: AnimatedOpacity(
+                                          key: const Key('channel_arrow_fade'),
+                                          opacity: overflow ? 1 : 0,
+                                          duration: Motion.fast,
+                                          child: DecoratedBox(
+                                            decoration: BoxDecoration(
+                                              border: BorderDirectional(
+                                                end: BorderSide(
+                                                  color: theme
+                                                      .colorScheme
+                                                      .surfaceContainerHigh,
+                                                  width: 2,
+                                                ),
                                               ),
-                                              itemBuilder: (_) => [
-                                                for (
-                                                  var i = 0;
-                                                  i < tabs.length;
-                                                  i++
-                                                )
-                                                  PopupMenuItem(
-                                                    value: i,
-                                                    height: _channelRowH,
-                                                    child: Row(
-                                                      children: [
-                                                        SizedBox(
-                                                          width: 32,
-                                                          child:
-                                                              i ==
-                                                                  _lastReportedIndex
-                                                              ? const Icon(
-                                                                  Icons.done,
-                                                                  size: 20,
-                                                                )
-                                                              : null,
+                                            ),
+                                            child: Align(
+                                              alignment: AlignmentDirectional
+                                                  .centerEnd,
+                                              child: SizedBox(
+                                                width: _bubbleArrowWidth,
+                                                child: PopupMenuButton<int>(
+                                                  tooltip:
+                                                      context.l10n.pageChannels,
+                                                  onSelected: _onTabTap,
+                                                  padding: EdgeInsets.zero,
+                                                  style: const ButtonStyle(
+                                                    backgroundColor:
+                                                        WidgetStatePropertyAll(
+                                                          Colors.transparent,
                                                         ),
-                                                        Flexible(
-                                                          child: Text(tabs[i]),
+                                                  ),
+                                                  popUpAnimationStyle:
+                                                      const AnimationStyle(
+                                                        duration: Motion.fast,
+                                                      ),
+                                                  // Opens on the current channel, scrolled to it.
+                                                  initialValue:
+                                                      _lastReportedIndex,
+                                                  // Six rows plus the menu's padding, then it scrolls.
+                                                  constraints:
+                                                      const BoxConstraints(
+                                                        maxHeight:
+                                                            6 * _channelRowH +
+                                                            16,
+                                                      ),
+                                                  itemBuilder: (_) => [
+                                                    for (
+                                                      var i = 0;
+                                                      i < tabs.length;
+                                                      i++
+                                                    )
+                                                      PopupMenuItem(
+                                                        value: i,
+                                                        height: _channelRowH,
+                                                        child: Row(
+                                                          children: [
+                                                            SizedBox(
+                                                              width: 32,
+                                                              child:
+                                                                  i ==
+                                                                      _lastReportedIndex
+                                                                  ? const Icon(
+                                                                      Icons
+                                                                          .done,
+                                                                      size: 20,
+                                                                    )
+                                                                  : null,
+                                                            ),
+                                                            Flexible(
+                                                              child: Text(
+                                                                tabs[i],
+                                                              ),
+                                                            ),
+                                                          ],
                                                         ),
-                                                      ],
+                                                      ),
+                                                  ],
+                                                  child: const Center(
+                                                    child: Icon(
+                                                      Icons.arrow_drop_down,
+                                                      size: 20,
                                                     ),
                                                   ),
-                                              ],
-                                              child: const Center(
-                                                child: Icon(
-                                                  Icons.arrow_drop_down,
-                                                  size: 24,
                                                 ),
                                               ),
                                             ),
@@ -1028,7 +1097,10 @@ class TabbedLayoutState extends State<TabbedLayout>
                         tapTargetSize: MaterialTapTargetSize.shrinkWrap,
                       ),
                     ),
-                    child: trailing,
+                    child: SizedBox(
+                      height: TabbedLayout._bubbleH,
+                      child: trailing,
+                    ),
                   ),
                   key: const ValueKey('strip_bubble_actions'),
                   horizontal: 4,

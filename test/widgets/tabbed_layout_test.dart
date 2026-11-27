@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:ermchat/widgets/tab_drag_focus.dart';
 import 'package:ermchat/widgets/tabbed_layout.dart';
+import 'package:ermchat/widgets/design_tokens.dart';
 
 // Harness that lets a test trigger a TabbedLayout rebuild via setState while
 // keeping the same selection (an "unrelated" rebuild, e.g. a message send), or
@@ -842,6 +843,18 @@ void main() {
       ),
     );
 
+    testWidgets('bubble action pill matches the channel pill height', (
+      tester,
+    ) async {
+      await tester.pumpWidget(harness());
+      expect(
+        tester
+            .getSize(find.byKey(const ValueKey('strip_bubble_actions')))
+            .height,
+        tester.getSize(find.byKey(const ValueKey('strip_bubble_tabs'))).height,
+      );
+    });
+
     testWidgets('the channel arrow fades in only when tabs overflow', (
       tester,
     ) async {
@@ -873,6 +886,14 @@ void main() {
 
       final fade = find.byKey(const Key('channel_arrow_fade'));
       expect(tester.widget<AnimatedOpacity>(fade).opacity, 1);
+      expect(tester.getSize(find.byType(PopupMenuButton<int>)).width, 24);
+      expect(
+        tester
+            .widget<PopupMenuButton<int>>(find.byType(PopupMenuButton<int>))
+            .popUpAnimationStyle
+            ?.duration,
+        Motion.fast,
+      );
 
       await tester.tap(find.byIcon(Icons.arrow_drop_down));
       await tester.pumpAndSettle();
