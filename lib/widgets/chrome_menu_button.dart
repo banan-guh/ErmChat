@@ -167,7 +167,7 @@ class _ChromeMenuState extends State<ChromeMenu> {
     // Match the default IconButton foreground the chrome's other actions use.
     final style = IconButton.styleFrom(
       foregroundColor: Theme.of(context).colorScheme.onSurfaceVariant,
-    ).merge(widget.buttonStyle);
+    ).merge(IconButtonTheme.of(context).style).merge(widget.buttonStyle);
     return PopupMenuButton<int>(
       position: PopupMenuPosition.under,
       // Long labels ("Reload all emotes") used to set the width; cap it and

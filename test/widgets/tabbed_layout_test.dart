@@ -842,6 +842,49 @@ void main() {
       ),
     );
 
+    testWidgets('the channel arrow fades in only when tabs overflow', (
+      tester,
+    ) async {
+      tester.view.physicalSize = const Size(320, 700);
+      tester.view.devicePixelRatio = 1;
+      addTearDown(tester.view.resetPhysicalSize);
+      addTearDown(tester.view.resetDevicePixelRatio);
+      final tabs = ValueNotifier<List<String>>([
+        for (var i = 0; i < 20; i++) 'channel $i with a long name',
+      ]);
+      addTearDown(tabs.dispose);
+      await tester.pumpWidget(
+        MaterialApp(
+          home: Scaffold(
+            body: ValueListenableBuilder<List<String>>(
+              valueListenable: tabs,
+              builder: (_, items, _) => TabbedLayout(
+                tabs: items,
+                selectedIndex: 0,
+                stripBubbles: true,
+                onSelectedIndexChanged: (_) {},
+                pageBuilder: (_, _) => const SizedBox.expand(),
+              ),
+            ),
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      final fade = find.byKey(const Key('channel_arrow_fade'));
+      expect(tester.widget<AnimatedOpacity>(fade).opacity, 1);
+
+      await tester.tap(find.byIcon(Icons.arrow_drop_down));
+      await tester.pumpAndSettle();
+      expect(find.byType(PopupMenuItem<int>), findsWidgets);
+      await tester.tap(find.byType(PopupMenuItem<int>).first);
+      await tester.pumpAndSettle();
+
+      tabs.value = ['one'];
+      await tester.pumpAndSettle();
+      expect(tester.widget<AnimatedOpacity>(fade).opacity, 0);
+    });
+
     testWidgets('an overscroll on a short page does not retract the bubbles', (
       tester,
     ) async {

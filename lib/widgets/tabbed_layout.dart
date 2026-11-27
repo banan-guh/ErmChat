@@ -255,12 +255,15 @@ class TabbedLayoutState extends State<TabbedLayout>
   static const double _newestEps = 0.5;
   double _retractAccum = 0;
   final _stripRetracted = ValueNotifier<bool>(false);
+  final _stripOverflow = ValueNotifier<bool>(false);
   // The list whose history scroll hid the strip. A neighbor page or the other
   // split pane also sits at newest, and must not bring the chrome back.
   BuildContext? _retractContext;
 
   // Width of the fade where tabs meet the pinned strip actions.
   static const double _stripFade = 12;
+  static const double _bubbleArrowWidth = 44;
+  static const double _bubbleArrowSpacer = 18;
   static const _jumpDuration = Motion.slow;
   // Longest span animated in one go. Longer jumps land within this distance
   // first, so the flight only builds a few pages (as ViewPager2 does).
@@ -268,6 +271,7 @@ class TabbedLayoutState extends State<TabbedLayout>
 
   void _initControllers() {
     final len = widget.tabs.length;
+    _stripOverflow.value = false;
     _tabLength = len;
     _hasAddTab = widget.addTab != null;
     // Pages shift when channels change, so the old retracting list is gone.
@@ -327,7 +331,18 @@ class TabbedLayoutState extends State<TabbedLayout>
   double _glideFrom = 0;
   double _glideTo = 0;
 
+  void _updateStripOverflow(ScrollMetrics metrics) {
+    final overflows = metrics.maxScrollExtent > 0;
+    if (_stripOverflow.value != overflows) _stripOverflow.value = overflows;
+  }
+
+  bool _onStripMetrics(ScrollMetricsNotification n) {
+    _updateStripOverflow(n.metrics);
+    return false;
+  }
+
   bool _onStripNotification(ScrollNotification n) {
+    _updateStripOverflow(n.metrics);
     if (n is ScrollStartNotification && n.dragDetails != null) {
       final context = n.context;
       _stripPosition = context == null
@@ -553,7 +568,6 @@ class TabbedLayoutState extends State<TabbedLayout>
       painter.dispose();
     }
     if (_hasAddTab) width += 48;
-    width += 24; // channel dropdown
     width += 12; // pill horizontal padding
     return width + 8; // room for the scrollable TabBar's rounding
   }
@@ -695,6 +709,7 @@ class TabbedLayoutState extends State<TabbedLayout>
   void dispose() {
     _moving.dispose();
     _stripRetracted.dispose();
+    _stripOverflow.dispose();
     _stripCatchUp.dispose();
     _pageController?.dispose();
     _tabController?.dispose();
@@ -714,6 +729,9 @@ class TabbedLayoutState extends State<TabbedLayout>
     if (tabs.isEmpty) return const SizedBox.shrink();
 
     final theme = Theme.of(context);
+    final arrowScrim = theme.colorScheme.surfaceContainerHigh.withValues(
+      alpha: 0.6,
+    );
 
     // The OS back-gesture strip is exactly as wide as the platform reports.
     // Zero (iOS, three-button nav, desktop, web) leaves the edge to the pages.
@@ -722,7 +740,7 @@ class TabbedLayoutState extends State<TabbedLayout>
     // The Row stays put with or without trailing actions, so a layout flip
     // never remounts the TabBar.
     final bubbles = widget.stripBubbles;
-    Widget pill(Widget child, {Key? key}) => bubbles
+    Widget pill(Widget child, {Key? key, double horizontal = 6}) => bubbles
         // The stadium ends curve in, so the tab indicator would run past them
         // as a square otherwise.
         ? ClipPath(
@@ -734,7 +752,7 @@ class TabbedLayoutState extends State<TabbedLayout>
                 shape: const StadiumBorder(),
               ),
               child: Padding(
-                padding: const EdgeInsets.symmetric(horizontal: 6),
+                padding: EdgeInsets.symmetric(horizontal: horizontal),
                 child: child,
               ),
             ),
@@ -763,157 +781,244 @@ class TabbedLayoutState extends State<TabbedLayout>
                     Row(
                       children: [
                         Expanded(
-                          child:
-                              // Fades tabs out where they scroll under the pinned actions
-                              // instead of hard-cutting them. Always mounted (fully opaque
-                              // without actions) so a layout flip never remounts the TabBar.
-                              ShaderMask(
-                                blendMode: BlendMode.dstIn,
-                                shaderCallback: (rect) {
-                                  final fadeStart =
-                                      widget.stripTrailing == null || bubbles
-                                      ? 1.0
-                                      : 1 - _stripFade / rect.width;
-                                  return LinearGradient(
-                                    begin: AlignmentDirectional.centerStart,
-                                    end: AlignmentDirectional.centerEnd,
-                                    colors: const [
-                                      Colors.white,
-                                      Colors.white,
-                                      Colors.transparent,
-                                    ],
-                                    stops: [0, fadeStart, 1],
-                                  ).createShader(
-                                    rect,
-                                    textDirection: Directionality.of(context),
-                                  );
-                                },
-                                // TabBar disables the behavior-built overscroll indicator
-                                // for scrollable tabs, so install the stretch directly.
-                                child: StretchingOverscrollIndicator(
-                                  axisDirection:
-                                      Directionality.of(context) ==
-                                          TextDirection.rtl
-                                      ? AxisDirection.left
-                                      : AxisDirection.right,
-                                  child: ScrollConfiguration(
-                                    behavior: const _SwipeScrollBehavior(),
-                                    child: NotificationListener<ScrollNotification>(
-                                      onNotification: _onStripNotification,
-                                      child: TabBar(
-                                        controller: _tabController,
-                                        onTap: _onTabTap,
-                                        isScrollable: true,
-                                        tabAlignment: _resolveTabAlignment(),
-                                        // Lets the last tab scroll clear of the fade.
-                                        padding: EdgeInsetsDirectional.only(
-                                          end:
+                          child: ValueListenableBuilder<bool>(
+                            valueListenable: _stripOverflow,
+                            builder: (_, overflow, _) => Stack(
+                              children: [
+                                SizedBox.expand(
+                                  child:
+                                      // Fades tabs out where they scroll under the pinned actions
+                                      // instead of hard-cutting them. Always mounted (fully opaque
+                                      // without actions) so a layout flip never remounts the TabBar.
+                                      ShaderMask(
+                                        blendMode: BlendMode.dstIn,
+                                        shaderCallback: (rect) {
+                                          final fadeStart =
                                               widget.stripTrailing == null ||
                                                   bubbles
-                                              ? 0
-                                              : _stripFade,
-                                        ),
-                                        labelPadding: EdgeInsets.zero,
-                                        indicator: BoxDecoration(
-                                          border: Border(
-                                            bottom: BorderSide(
-                                              color: theme.colorScheme.primary,
-                                              width: 2,
+                                              ? 1.0
+                                              : 1 - _stripFade / rect.width;
+                                          return LinearGradient(
+                                            begin: AlignmentDirectional
+                                                .centerStart,
+                                            end: AlignmentDirectional.centerEnd,
+                                            colors: const [
+                                              Colors.white,
+                                              Colors.white,
+                                              Colors.transparent,
+                                            ],
+                                            stops: [0, fadeStart, 1],
+                                          ).createShader(
+                                            rect,
+                                            textDirection: Directionality.of(
+                                              context,
                                             ),
-                                          ),
-                                        ),
-                                        indicatorSize:
-                                            TabBarIndicatorSize.label,
-                                        // No full-width divider; the strip's tone separates it.
-                                        dividerHeight: 0,
-                                        tabs: [
-                                          for (var i = 0; i < tabs.length; i++)
-                                            Tab(
-                                              // The TabBar's own InkWell sits
-                                              // outside this one, so forwarding
-                                              // the tap keeps selection native.
-                                              // The padding lives inside so the
-                                              // whole tab, not just the label,
-                                              // takes the tap and hold.
-                                              child: SizedBox(
-                                                height: double.infinity,
-                                                child: InkWell(
-                                                  onTap: () => _onTabTap(i),
-                                                  onLongPress:
-                                                      widget.onTabLongPress ==
-                                                          null
-                                                      ? null
-                                                      : () => widget
-                                                            .onTabLongPress!(i),
-                                                  child: Padding(
-                                                    padding:
-                                                        const EdgeInsets.symmetric(
-                                                          horizontal: 12,
-                                                        ),
-                                                    child: Center(
-                                                      child:
-                                                          widget.tabBuilder
-                                                              ?.call(
-                                                                context,
-                                                                i,
-                                                              ) ??
-                                                          Text(tabs[i]),
+                                          );
+                                        },
+                                        // TabBar disables the behavior-built overscroll indicator
+                                        // for scrollable tabs, so install the stretch directly.
+                                        child: StretchingOverscrollIndicator(
+                                          axisDirection:
+                                              Directionality.of(context) ==
+                                                  TextDirection.rtl
+                                              ? AxisDirection.left
+                                              : AxisDirection.right,
+                                          child: ScrollConfiguration(
+                                            behavior:
+                                                const _SwipeScrollBehavior(),
+                                            child: NotificationListener<ScrollNotification>(
+                                              onNotification:
+                                                  _onStripNotification,
+                                              child: NotificationListener<ScrollMetricsNotification>(
+                                                onNotification: _onStripMetrics,
+                                                child: TabBar(
+                                                  controller: _tabController,
+                                                  onTap: _onTabTap,
+                                                  isScrollable: true,
+                                                  tabAlignment:
+                                                      _resolveTabAlignment(),
+                                                  // Lets the last tab scroll clear of the fade.
+                                                  padding: EdgeInsetsDirectional.only(
+                                                    end: bubbles
+                                                        ? overflow
+                                                              ? _bubbleArrowSpacer
+                                                              : 0
+                                                        : widget.stripTrailing ==
+                                                              null
+                                                        ? 0
+                                                        : _stripFade,
+                                                  ),
+                                                  labelPadding: EdgeInsets.zero,
+                                                  indicator: BoxDecoration(
+                                                    border: Border(
+                                                      bottom: BorderSide(
+                                                        color: theme
+                                                            .colorScheme
+                                                            .primary,
+                                                        width: 2,
+                                                      ),
                                                     ),
                                                   ),
+                                                  indicatorSize:
+                                                      TabBarIndicatorSize.label,
+                                                  // No full-width divider; the strip's tone separates it.
+                                                  dividerHeight: 0,
+                                                  tabs: [
+                                                    for (
+                                                      var i = 0;
+                                                      i < tabs.length;
+                                                      i++
+                                                    )
+                                                      Tab(
+                                                        // The TabBar's own InkWell sits
+                                                        // outside this one, so forwarding
+                                                        // the tap keeps selection native.
+                                                        // The padding lives inside so the
+                                                        // whole tab, not just the label,
+                                                        // takes the tap and hold.
+                                                        child: SizedBox(
+                                                          height:
+                                                              double.infinity,
+                                                          child: InkWell(
+                                                            onTap: () =>
+                                                                _onTabTap(i),
+                                                            onLongPress:
+                                                                widget.onTabLongPress ==
+                                                                    null
+                                                                ? null
+                                                                : () => widget
+                                                                      .onTabLongPress!(i),
+                                                            child: Padding(
+                                                              padding:
+                                                                  const EdgeInsets.symmetric(
+                                                                    horizontal:
+                                                                        12,
+                                                                  ),
+                                                              child: Center(
+                                                                child:
+                                                                    widget
+                                                                        .tabBuilder
+                                                                        ?.call(
+                                                                          context,
+                                                                          i,
+                                                                        ) ??
+                                                                    Text(
+                                                                      tabs[i],
+                                                                    ),
+                                                              ),
+                                                            ),
+                                                          ),
+                                                        ),
+                                                      ),
+                                                    if (_hasAddTab)
+                                                      Tab(
+                                                        child: Padding(
+                                                          padding:
+                                                              const EdgeInsets.symmetric(
+                                                                horizontal: 12,
+                                                              ),
+                                                          child: widget.addTab,
+                                                        ),
+                                                      ),
+                                                  ],
                                                 ),
                                               ),
                                             ),
-                                          if (_hasAddTab)
-                                            Tab(
-                                              child: Padding(
-                                                padding:
-                                                    const EdgeInsets.symmetric(
-                                                      horizontal: 12,
-                                                    ),
-                                                child: widget.addTab,
+                                          ),
+                                        ),
+                                      ),
+                                ),
+                                if (bubbles)
+                                  PositionedDirectional(
+                                    end: 0,
+                                    top: 0,
+                                    bottom: 0,
+                                    width: _bubbleArrowWidth,
+                                    child: IgnorePointer(
+                                      ignoring: !overflow,
+                                      child: ExcludeSemantics(
+                                        excluding: !overflow,
+                                        child: AnimatedOpacity(
+                                          key: const Key('channel_arrow_fade'),
+                                          opacity: overflow ? 1 : 0,
+                                          duration: Motion.fast,
+                                          child: DecoratedBox(
+                                            decoration: BoxDecoration(
+                                              gradient: LinearGradient(
+                                                begin: AlignmentDirectional
+                                                    .centerStart,
+                                                end: AlignmentDirectional
+                                                    .centerEnd,
+                                                colors: [
+                                                  Colors.transparent,
+                                                  arrowScrim,
+                                                  arrowScrim,
+                                                ],
+                                                stops: const [
+                                                  0,
+                                                  _stripFade /
+                                                      _bubbleArrowWidth,
+                                                  1,
+                                                ],
                                               ),
                                             ),
-                                        ],
+                                            child: PopupMenuButton<int>(
+                                              tooltip:
+                                                  context.l10n.pageChannels,
+                                              onSelected: _onTabTap,
+                                              padding: EdgeInsets.zero,
+                                              // Opens on the current channel, scrolled to it.
+                                              initialValue: _lastReportedIndex,
+                                              // Six rows plus the menu's padding, then it scrolls.
+                                              constraints: const BoxConstraints(
+                                                maxHeight:
+                                                    6 * _channelRowH + 16,
+                                              ),
+                                              itemBuilder: (_) => [
+                                                for (
+                                                  var i = 0;
+                                                  i < tabs.length;
+                                                  i++
+                                                )
+                                                  PopupMenuItem(
+                                                    value: i,
+                                                    height: _channelRowH,
+                                                    child: Row(
+                                                      children: [
+                                                        SizedBox(
+                                                          width: 32,
+                                                          child:
+                                                              i ==
+                                                                  _lastReportedIndex
+                                                              ? const Icon(
+                                                                  Icons.done,
+                                                                  size: 20,
+                                                                )
+                                                              : null,
+                                                        ),
+                                                        Flexible(
+                                                          child: Text(tabs[i]),
+                                                        ),
+                                                      ],
+                                                    ),
+                                                  ),
+                                              ],
+                                              child: const Center(
+                                                child: Icon(
+                                                  Icons.arrow_drop_down,
+                                                  size: 24,
+                                                ),
+                                              ),
+                                            ),
+                                          ),
+                                        ),
                                       ),
                                     ),
                                   ),
-                                ),
-                              ),
-                        ),
-                        // Every channel at a glance, for when the pill scrolls.
-                        if (bubbles)
-                          PopupMenuButton<int>(
-                            tooltip: context.l10n.pageChannels,
-                            onSelected: _onTabTap,
-                            // Opens on the current channel, scrolled to it.
-                            initialValue: _lastReportedIndex,
-                            // Six rows plus the menu's padding, then it scrolls.
-                            constraints: const BoxConstraints(
-                              maxHeight: 6 * _channelRowH + 16,
-                            ),
-                            itemBuilder: (_) => [
-                              for (var i = 0; i < tabs.length; i++)
-                                PopupMenuItem(
-                                  value: i,
-                                  height: _channelRowH,
-                                  child: Row(
-                                    children: [
-                                      SizedBox(
-                                        width: 32,
-                                        child: i == _lastReportedIndex
-                                            ? const Icon(Icons.done, size: 20)
-                                            : null,
-                                      ),
-                                      Flexible(child: Text(tabs[i])),
-                                    ],
-                                  ),
-                                ),
-                            ],
-                            child: const Padding(
-                              padding: EdgeInsets.symmetric(horizontal: 2),
-                              child: Icon(Icons.arrow_drop_down, size: 20),
+                              ],
                             ),
                           ),
+                        ),
                       ],
                     ),
                   ),
@@ -922,8 +1027,21 @@ class TabbedLayoutState extends State<TabbedLayout>
             ),
             if (widget.stripTrailing case final trailing?)
               if (bubbles) ...[
-                const SizedBox(width: 8),
-                pill(trailing, key: const ValueKey('strip_bubble_actions')),
+                const SizedBox(width: 6),
+                pill(
+                  IconButtonTheme(
+                    data: IconButtonThemeData(
+                      style: IconButton.styleFrom(
+                        minimumSize: const Size.square(40),
+                        padding: EdgeInsets.zero,
+                        tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                      ),
+                    ),
+                    child: trailing,
+                  ),
+                  key: const ValueKey('strip_bubble_actions'),
+                  horizontal: 4,
+                ),
               ] else
                 trailing,
           ],
