@@ -13,6 +13,7 @@ import '../util/prefs.dart';
 import '../util/settings.dart';
 import '../util/signal.dart';
 import 'archive.dart';
+import 'archive_reader.dart' show MinuteCount;
 import 'emote_manager.dart';
 import 'emote_store.dart';
 import 'gap_fill.dart';
@@ -77,6 +78,8 @@ class ChatHistoryController {
 
   final ChatMessagePolicy _policy;
   final _refetchingChannels = <String>{};
+  // A reconnect during the first backfill runs as soon as that load settles.
+  final _refetchPending = <String>{};
   // A reconnect during an in-flight fetch must run again with the
   // post-outage window, not be dropped as a duplicate.
   final _refetchQueued = <String>{};
@@ -155,11 +158,25 @@ class ChatHistoryController {
   /// [newest], the newest-first fetch, or a fetch reaching back to the last
   /// message held when [newest] falls short, dynamic fetch is on, and the
   /// whole gap likely fits robotty's buffer. What stays missing gets the
-  /// kernel's gap note on merge.
+  /// kernel's gap note on merge. [full] fetches the whole provider buffer when
+  /// a late archive restore left no reliable anchor.
   Future<List<TwitchMessage>> fillGap(
     String channel,
-    List<TwitchMessage> newest,
-  ) async {
+    List<TwitchMessage> newest, {
+    bool full = false,
+  }) async {
+    if (full) {
+      try {
+        await Prefs.load();
+        if (!Settings.dynamicFetchOn) return newest;
+        return await recentMessages.fetchRecent(channel, limit: robottyBuffer);
+      } catch (e) {
+        logDebug(
+          '[ChatHistoryController] full gap fill failed for $channel: $e',
+        );
+        return newest;
+      }
+    }
     DateTime? lastSeen;
     for (final m in chat.channelFor(channel)?.messages.items ?? const []) {
       if (!m.isSystem) {
@@ -212,7 +229,9 @@ class ChatHistoryController {
         );
       }
       DataUsageStats.I.recordGapFetch(filled: filled);
-      return gap;
+      // A second page that did not bridge cannot replace the first.
+      if (!filled) return newest;
+      return [...gap, ...newest];
     } catch (e) {
       logDebug('[ChatHistoryController] gap fill failed for $channel: $e');
       return newest;
@@ -225,11 +244,17 @@ class ChatHistoryController {
   Future<double?> _archiveRate(String channel, DateTime until) async {
     final reader = archive?.reader;
     if (reader == null) return null;
-    final counts = await reader.minuteCounts(
-      channel,
-      until.subtract(const Duration(days: 1)),
-      until,
-    );
+    final List<MinuteCount> counts;
+    try {
+      counts = await reader.minuteCounts(
+        channel,
+        until.subtract(const Duration(days: 1)),
+        until,
+      );
+    } catch (e) {
+      logDebug('[history] archive rate failed for $channel: $e');
+      return null;
+    }
     var rows = 0;
     for (final c in counts) {
       rows += c.count;
@@ -474,8 +499,18 @@ class ChatHistoryController {
     }
   }
 
+  /// Runs a reconnect refetch that arrived while the first history load was
+  /// still in flight.
+  void onHistoryLoaded(String channel) {
+    if (_refetchPending.remove(channel)) unawaited(refetchHistory(channel));
+  }
+
   Future<void> refetchHistory(String channel) async {
-    if (!(chat.channelFor(channel)?.info.historyLoaded ?? false)) return;
+    if (!chat.contains(channel)) return;
+    if (!(chat.channelFor(channel)?.info.historyLoaded ?? false)) {
+      _refetchPending.add(channel);
+      return;
+    }
     if (_refetchingChannels.contains(channel)) {
       _refetchQueued.add(channel);
       return;

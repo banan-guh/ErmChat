@@ -425,6 +425,43 @@ void main() {
     }
   });
 
+  test('an unbridged gap response keeps the newest page', () async {
+    final lastSeen = DateTime.utc(2026, 10, 19, 12);
+    TwitchMessage row(int second) => TwitchMessage(
+      login: 'alice',
+      text: 's$second',
+      messageId: 'r$second',
+      channel: 'ch',
+      timestamp: lastSeen.add(Duration(seconds: second)),
+    );
+    final newest = [for (var s = 200; s < 300; s++) row(s)];
+    final cases = [
+      ('empty', <TwitchMessage>[]),
+      ('newer only', [row(300)]),
+    ];
+    for (final (name, gap) in cases) {
+      SharedPreferences.setMockInitialValues({'history_gap_fill': 1});
+      final chat = Chat()..ensure('ch');
+      final emotes = EmoteManager();
+      final afters = <DateTime?>[];
+      final recent = _RecordingRecentMessages(afters, newest, gapRows: gap);
+      final controller = _controller(chat, emotes, recent: recent);
+      controller.mergeHistory('ch', [row(0)]);
+
+      final got = await controller.fillGap('ch', newest);
+
+      expect(afters, hasLength(1), reason: name);
+      expect(
+        got.map((m) => m.messageId),
+        newest.map((m) => m.messageId),
+        reason: '$name gap must not replace the first page',
+      );
+      controller.dispose();
+      emotes.dispose();
+      chat.dispose();
+    }
+  });
+
   test('a bridged gap note stays gone after a cold start', () async {
     sqfliteFfiInit();
     final dir = await Directory.systemTemp.createTemp('bridge');
@@ -538,6 +575,29 @@ void main() {
       reason: 'history must still show the gap after the buffer trims it',
     );
   });
+
+  test(
+    'a reconnect during the first load runs once history is ready',
+    () async {
+      final chat = Chat()..ensure('ch');
+      addTearDown(chat.dispose);
+      final emotes = EmoteManager();
+      addTearDown(emotes.dispose);
+      final afters = <DateTime?>[];
+      final recent = _RecordingRecentMessages(afters, []);
+      final controller = _controller(chat, emotes, recent: recent);
+      addTearDown(controller.dispose);
+
+      await controller.refetchHistory('ch');
+      expect(afters, isEmpty, reason: 'the first load still owns the fetch');
+
+      chat.channelFor('ch')!.setHistoryLoaded(true);
+      controller.onHistoryLoaded('ch');
+      await pumpEventQueue();
+
+      expect(afters, [null], reason: 'the reconnect refetch was lost');
+    },
+  );
 
   test('a refetch during an in-flight one runs again', () async {
     final chat = Chat();
@@ -682,10 +742,11 @@ void main() {
 /// Serves [rows] received after the requested time, newest [limit] of them,
 /// and records each `after`.
 class _RecordingRecentMessages extends RecentMessagesService {
-  _RecordingRecentMessages(this.afters, this.rows);
+  _RecordingRecentMessages(this.afters, this.rows, {this.gapRows});
 
   final List<DateTime?> afters;
   final List<TwitchMessage> rows;
+  final List<TwitchMessage>? gapRows;
 
   @override
   Future<List<TwitchMessage>> fetchRecent(
@@ -694,6 +755,7 @@ class _RecordingRecentMessages extends RecentMessagesService {
     DateTime? after,
   }) async {
     afters.add(after);
+    if (after != null && gapRows != null) return gapRows!;
     final kept = [
       for (final m in rows)
         if (after == null || m.timestamp.isAfter(after)) m,

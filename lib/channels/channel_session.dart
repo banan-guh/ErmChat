@@ -264,11 +264,13 @@ class ChannelSession extends ChangeNotifier {
       limit: recentMessagesLimit(),
     );
     if (history.archive == null) return fetch();
+    final generation = _generations[name] ?? 0;
     // Both start now; the network rows wait for the archived ones only so the
     // merge sees them, and so the gap fill knows the last row held.
     final sw = Stopwatch()..start();
     final network = fetch();
-    final both = Future.wait<Object?>([history.restoreOnce(name), network]);
+    final restore = history.restoreOnce(name);
+    final both = Future.wait<Object?>([restore, network]);
     // A stuck archive open (a lost platform reply on a hot restart) would
     // otherwise hold the first rows for the 30 s open timeout. Give the
     // restore a short grace, then show the network rows; it merges later.
@@ -287,13 +289,31 @@ class ChannelSession extends ChangeNotifier {
       timer.cancel();
     }
     final usedArchive = await reached.future;
-    if (!usedArchive) {
+    final newest = await network;
+    late final List<TwitchMessage> rows;
+    if (usedArchive) {
+      rows = await history.fillGap(name, newest);
+    } else {
+      rows = newest;
       logDebug(
         '[history] $name archive restore still running after '
         '${archiveGrace.inMilliseconds}ms, showing network rows',
       );
+      // The restore was too slow to anchor the first gap fill. Fill again once
+      // it lands, without holding the network rows behind the grace period.
+      unawaited(
+        restore
+            .then((_) async {
+              if (!_isCurrent(name, generation)) return;
+              final filled = await history.fillGap(name, newest, full: true);
+              if (!_isCurrent(name, generation) || filled.isEmpty) return;
+              history.mergeHistory(name, filled);
+            })
+            .catchError((e) {
+              logDebug('[history] $name late restore gap fill failed: $e');
+            }),
+      );
     }
-    final rows = await history.fillGap(name, await network);
     if (sw.elapsedMilliseconds >= 2000) {
       logDebug(
         '[history] $name ready ${sw.elapsedMilliseconds}ms '
@@ -304,6 +324,11 @@ class ChannelSession extends ChangeNotifier {
     return rows;
   }
 
+  bool _isCurrent(String name, int generation) =>
+      !_disposed &&
+      chat.contains(name) &&
+      (_generations[name] ?? 0) == generation;
+
   /// Backfills [name]'s history: merges the rows once they resolve, or notes
   /// the failure. [hasLoadingRow] says [name] shows a loading row that the
   /// result clears; only that caller repaints on failure.
@@ -312,9 +337,10 @@ class ChannelSession extends ChangeNotifier {
     required bool hasLoadingRow,
   }) {
     final at = history.now();
+    final generation = _generations[name] ?? 0;
     return _fetchHistory(name)
         .then((rows) {
-          if (_disposed || !chat.contains(name)) return;
+          if (!_isCurrent(name, generation)) return;
           chat.channelFor(name)?.setHistoryLoaded(true);
           if (hasLoadingRow) removeLoadingHistoryMessage(name);
           if (rows.isEmpty) {
@@ -322,11 +348,12 @@ class ChannelSession extends ChangeNotifier {
           } else {
             history.mergeHistory(name, rows);
           }
+          history.onHistoryLoaded(name);
           notifyListeners();
           maybeAddConnected(name);
         })
         .catchError((e) {
-          if (_disposed || !chat.contains(name)) return;
+          if (!_isCurrent(name, generation)) return;
           chat.channelFor(name)?.setHistoryLoaded(true);
           if (hasLoadingRow) removeLoadingHistoryMessage(name);
           history.noteFetchFailed(name, at);
@@ -336,6 +363,7 @@ class ChannelSession extends ChangeNotifier {
                 ? e.message
                 : strings().historyLoadFailed,
           );
+          history.onHistoryLoaded(name);
           // The load path's failure needs no repaint of its own; the add path
           // does, having just replaced its loading row.
           if (hasLoadingRow) notifyListeners();

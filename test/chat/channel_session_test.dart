@@ -3,6 +3,7 @@ import 'dart:async';
 import 'package:ermchat/channels/channel_session.dart';
 import 'package:ermchat/chat/chat.dart';
 import 'package:ermchat/client/session.dart';
+import 'package:ermchat/emotes/emote.dart';
 import 'package:ermchat/models/twitch_message.dart';
 import 'package:ermchat/services/analytics_service.dart';
 import 'package:ermchat/services/archive.dart';
@@ -55,6 +56,15 @@ class _FakeEmotes with _Unimplemented implements EmoteManager {
   void removePersonalSendersListener(void Function(Set<String>) listener) {}
 
   @override
+  List<EmoteToken>? parseMessageEmotes(
+    TwitchMessage msg, {
+    required String lookupChannel,
+  }) => const [];
+
+  @override
+  bool catalogComplete(String channel) => false;
+
+  @override
   Future<void> pruneStaleChannels(Set<String> channels) async {}
 }
 
@@ -75,6 +85,31 @@ class _EmptyRecent extends RecentMessagesService {
   }) async => const [];
 }
 
+class _RowsRecent extends RecentMessagesService {
+  _RowsRecent(this.newest, this.gap);
+
+  final List<TwitchMessage> newest;
+  final List<TwitchMessage> gap;
+  final limits = <int>[];
+
+  @override
+  Future<List<TwitchMessage>> fetchRecent(
+    String channel, {
+    int limit = 100,
+    DateTime? after,
+  }) async {
+    limits.add(limit);
+    if (limit >= 800) return gap;
+    return newest;
+  }
+
+  @override
+  Future<List<TwitchMessage>> fetchRecentPreferWarm(
+    String channel, {
+    int limit = 100,
+  }) => fetchRecent(channel, limit: limit);
+}
+
 /// Records the restore order and lets the test hold the visible channel's
 /// read open while the others are still waiting.
 class _GatedHistory extends ChatHistoryController {
@@ -90,17 +125,27 @@ class _GatedHistory extends ChatHistoryController {
     required super.maxMessages,
     required super.recentMessagesLimit,
     super.archive,
+    this.restoreRows = const {},
   });
 
   final started = <String>[];
   final gates = <String, Completer<void>>{};
+  final _runs = <String, Future<void>>{};
+  final Map<String, List<TwitchMessage>> restoreRows;
 
   @override
   Future<void> restoreOnce(String channel) {
-    final gate = gates[channel];
-    if (gate != null) return gate.future;
+    final running = _runs[channel];
+    if (running != null) return running;
     started.add(channel);
-    return (gates[channel] = Completer<void>()).future;
+    final entered = gates[channel] = Completer<void>();
+    final run = entered.future.then((_) {
+      for (final row in restoreRows[channel] ?? const <TwitchMessage>[]) {
+        mergeHistory(channel, [row]);
+      }
+    });
+    _runs[channel] = run;
+    return run.whenComplete(() => _runs.remove(channel));
   }
 }
 
@@ -167,15 +212,18 @@ void main() {
       Map<String, Object> prefs, {
       Duration archiveGrace = const Duration(seconds: 4),
       Duration startupBackfillStagger = Duration.zero,
+      RecentMessagesService? recent,
+      Map<String, List<TwitchMessage>> restoreRows = const {},
     }) {
       SharedPreferences.setMockInitialValues(prefs);
       final chat = Chat();
       addTearDown(chat.dispose);
       final conn = _FakeConn();
+      final service = recent ?? _EmptyRecent();
       final history = _GatedHistory(
         chat: chat,
         session: Session(),
-        recentMessages: _EmptyRecent(),
+        recentMessages: service,
         ignoreManager: IgnoreManager(),
         pingManager: PingManager(),
         userStore: UserStore(),
@@ -184,11 +232,12 @@ void main() {
         maxMessages: () => 500,
         recentMessagesLimit: () => 100,
         archive: Archive(Future<ArchiveStore?>.value(null)),
+        restoreRows: restoreRows,
       );
       final session = _channelSession(
         chat,
         history: history,
-        recent: _EmptyRecent(),
+        recent: service,
         conn: conn,
         archiveGrace: archiveGrace,
         startupBackfillStagger: startupBackfillStagger,
@@ -348,6 +397,58 @@ void main() {
 
       booted.history.gates['one']!.complete();
       await pumpEventQueue();
+    });
+
+    test('a late archive restore still fills the network gap', () async {
+      final lastSeen = DateTime.utc(2026, 10, 19, 12);
+      TwitchMessage row(int second) => TwitchMessage(
+        login: 'alice',
+        text: 's$second',
+        messageId: 'r$second',
+        channel: 'one',
+        timestamp: lastSeen.add(Duration(seconds: second)),
+      );
+      final recent = _RowsRecent(
+        [for (var s = 200; s < 300; s++) row(s)],
+        [row(100), row(0)],
+      );
+      final booted = boot(
+        {
+          'channels': ['one'],
+          'reopen_last_channel': true,
+          'last_channel': 'one',
+          'archive_enabled': true,
+          'history_gap_fill': 1,
+        },
+        archiveGrace: const Duration(milliseconds: 20),
+        recent: recent,
+        restoreRows: {
+          'one': [row(0)],
+        },
+      );
+      await booted.session.loadRecentMessagesConfig();
+      await booted.session.loadChannels();
+      await Future<void>.delayed(const Duration(milliseconds: 80));
+      expect(
+        booted.session.chat.channelFor('one')!.info.historyLoaded,
+        isTrue,
+        reason: 'network rows show before the slow restore',
+      );
+      expect(recent.limits, [100]);
+      booted.history.gates['one']!.complete();
+      await pumpEventQueue();
+
+      expect(
+        booted.session.chat.channelFor('one')!.messages.byId('r0'),
+        isNotNull,
+        reason: 'the held restore finished',
+      );
+      expect(recent.limits, [100, 800]);
+      expect(
+        booted.session.chat.channelFor('one')!.messages.byId('r100'),
+        isNotNull,
+        reason: 'the late restore must not skip gap recovery',
+      );
     });
 
     test('lazy mode joins and restores a channel on first show', () async {
