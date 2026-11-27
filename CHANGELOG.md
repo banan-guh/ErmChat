@@ -1,3 +1,5 @@
-- fix 7tv network and bottlenecks
-- user card repeat rows fixed
-- chat jump, top bar, expired threads fixed
+- sent msgs, img upload presets, general ux polish
+- made dankchat 3 and 4 presets more polished
+- faster startup and optimization
+- hardened networking
+- history fallback / reliability fixes
