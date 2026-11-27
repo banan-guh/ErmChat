@@ -531,6 +531,7 @@ class ComposerStatusRow extends StatelessWidget {
     required this.dragTick,
     this.modeRow = false,
     this.classic = false,
+    this.showStatus = true,
   });
 
   final ComposerController controller;
@@ -546,6 +547,9 @@ class ComposerStatusRow extends StatelessWidget {
   /// and eases in over a longer beat.
   final bool classic;
 
+  /// Hides the stream status when a theme floats it elsewhere.
+  final bool showStatus;
+
   @override
   Widget build(BuildContext context) => ListenableBuilder(
     listenable: _enabledInputs(controller, mod, dragTick),
@@ -556,6 +560,49 @@ class ComposerStatusRow extends StatelessWidget {
         selectedTabIndex: selectedTabIndex,
         modeRow: modeRow,
         classic: classic,
+        showStatus: showStatus,
+      );
+    },
+  );
+}
+
+/// The stream status floated in the chat area by themes that do not keep it in
+/// the footer. Left aligned like DankChat's splash, without blocking touches.
+class ComposerStatusText extends StatelessWidget {
+  const ComposerStatusText({
+    super.key,
+    required this.controller,
+    required this.selectedTabIndex,
+    this.modeRow = false,
+  });
+
+  final ComposerController controller;
+  final ValueListenable<int> selectedTabIndex;
+  final bool modeRow;
+
+  @override
+  Widget build(BuildContext context) => _ChannelListener(
+    controller: controller,
+    selectedTabIndex: selectedTabIndex,
+    builder: (context) {
+      final channel = controller.selectedChannel;
+      if (channel == null) return const SizedBox.shrink();
+      final lines = _statusLines(
+        context,
+        controller,
+        channel,
+        modeRow: modeRow,
+      );
+      if (lines.status.isEmpty) return const SizedBox.shrink();
+      return SizedBox(
+        width: double.infinity,
+        child: Text(
+          lines.status,
+          style: _statusStyle(context),
+          textAlign: TextAlign.left,
+          maxLines: 1,
+          overflow: TextOverflow.ellipsis,
+        ),
       );
     },
   );
@@ -586,9 +633,16 @@ double composerStatusHeight(
   String channel, {
   bool modeRow = false,
   bool hidden = false,
+  bool showStatus = true,
 }) {
   if (hidden) return 0;
-  final lines = _statusLines(context, controller, channel, modeRow: modeRow);
+  final lines = _statusLines(
+    context,
+    controller,
+    channel,
+    modeRow: modeRow,
+    showStatus: showStatus,
+  );
   return _statusRowHeight(lines, _statusLineHeight(context));
 }
 
@@ -600,10 +654,11 @@ double composerStatusHeight(
   ComposerController controller,
   String channel, {
   required bool modeRow,
+  bool showStatus = true,
 }) {
   final portrait = MediaQuery.orientationOf(context) != Orientation.landscape;
   return (
-    status: portrait
+    status: showStatus && portrait
         ? _footerStatus(context, controller, channel, modeRow: modeRow)
         : '',
     failed: controller.chat.loadFailedChannels.value.contains(channel),
@@ -657,12 +712,14 @@ class _StatusRow extends StatelessWidget {
     required this.selectedTabIndex,
     required this.modeRow,
     required this.classic,
+    required this.showStatus,
   });
 
   final ComposerController controller;
   final ValueListenable<int> selectedTabIndex;
   final bool modeRow;
   final bool classic;
+  final bool showStatus;
 
   @override
   Widget build(BuildContext context) => _ChannelListener(
@@ -682,7 +739,13 @@ class _StatusRow extends StatelessWidget {
   );
 
   Widget _lines(BuildContext context, String channel) {
-    final lines = _statusLines(context, controller, channel, modeRow: modeRow);
+    final lines = _statusLines(
+      context,
+      controller,
+      channel,
+      modeRow: modeRow,
+      showStatus: showStatus,
+    );
     final lineH = _statusLineHeight(context);
     // Sized by the same numbers [composerStatusHeight] predicts, so a page
     // placed for this island matches it exactly.

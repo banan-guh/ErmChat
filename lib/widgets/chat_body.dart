@@ -88,6 +88,7 @@ class ChatBody extends StatefulWidget {
     this.islandFooter,
     this.islandFooterHeightFor,
     this.notice,
+    this.centeredStatus,
     this.replyHeader,
     this.isInPip = false,
     this.bodyReadsKeyboard = true,
@@ -180,6 +181,10 @@ class ChatBody extends StatefulWidget {
   /// In the body stack (not the Scaffold overlay), so it tracks keyboard
   /// and composer height changes by layout instead of a frozen margin.
   final Widget? notice;
+
+  /// Status splash floated in the middle of the chat area. It never blocks
+  /// input or reserves layout space.
+  final Widget? centeredStatus;
 
   @override
   State<ChatBody> createState() => _ChatBodyState();
@@ -545,6 +550,23 @@ class _ChatBodyState extends State<ChatBody>
             bottom: anchorBottom,
             child: widget.notice!,
           );
+    final centeredStatus = widget.centeredStatus == null
+        ? null
+        : Positioned(
+            key: const ValueKey('centered_status'),
+            left: anchor.left,
+            right: anchor.right,
+            top: 0,
+            bottom: 0,
+            child: IgnorePointer(
+              child: Center(
+                child: Padding(
+                  padding: const EdgeInsets.symmetric(horizontal: 24),
+                  child: widget.centeredStatus!,
+                ),
+              ),
+            ),
+          );
     // The composer field. One shared inputBarKey keeps the FocusNode alive
     // as the island moves between the docked and floating paths. The size
     // notifier re-measures when inner listenables resize it without a
@@ -778,6 +800,7 @@ class _ChatBodyState extends State<ChatBody>
                                   : _footerH,
                               children: [
                                 ComposerPaneScope(slot: paneSlot, child: body),
+                                ?centeredStatus,
                                 reply,
                                 widget.threadPanel,
                                 widget.mentionsPanel,

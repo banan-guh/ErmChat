@@ -1945,10 +1945,20 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
     channel,
     modeRow: _modeRow,
     hidden: composerStatusHidden(_search),
+    showStatus: !_centeredStatus,
   );
 
   /// Whether room modes may ride the island's button row: the row shows.
   bool get _modeRow => _chromeTheme.hasRow && _showInput;
+
+  bool get _centeredStatus =>
+      (_layoutEdit?.draft ?? _chromeTheme).encode() ==
+      ChromeTheme.dankchat4.spec.encode();
+
+  bool get _leftAlignedStatus =>
+      _centeredStatus ||
+      (_layoutEdit?.draft ?? _chromeTheme).encode() ==
+          ChromeTheme.dankchat3.spec.encode();
 
   void _copyMessageToClipboard(TwitchMessage msg) {
     Clipboard.setData(ClipboardData(text: copyableChatText(msg.text)));
@@ -2504,7 +2514,10 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
                       mod: _mod,
                       dragTick: _panelDragTick,
                       modeRow: modeRow,
-                      classic: spec.composer == ComposerStyle.classic,
+                      classic:
+                          spec.composer == ComposerStyle.classic ||
+                          _leftAlignedStatus,
+                      showStatus: !_centeredStatus,
                     )
                   : null,
               // Send runs down the island's side while the row stays up.
@@ -2529,6 +2542,13 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
               isBusy: () => _chrome.joinBusy() || _mod.busyCount.value > 0,
               progress: _composerProgress,
               notice: ChatNoticeBar(controller: _chatNotice),
+              centeredStatus: _centeredStatus && !_search.open
+                  ? ComposerStatusText(
+                      controller: _composer,
+                      selectedTabIndex: _selectedTabIndex,
+                      modeRow: modeRow,
+                    )
+                  : null,
               replyHeader: replyHeader,
               keyboardHidesButtons: spec.compact,
             ),

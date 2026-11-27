@@ -198,6 +198,54 @@ void main() {
     );
   });
 
+  testWidgets('dankchat4 centers the splash and aligns it left', (
+    tester,
+  ) async {
+    await pumpJoined(
+      tester,
+      density: LayoutDensity.full,
+      chromeTheme: ChromeTheme.dankchat4.name,
+    );
+    final home = tester.element(find.byType(HomeScreen));
+    final chat = ProviderScope.containerOf(home).read(chatProvider);
+    const status = 'Live with 42 viewers for 1h 2m';
+    chat.channelFor('testchannel')!.info.setStatus(status, live: true);
+    await tester.pumpAndSettle();
+
+    final text = find.text(status);
+    expect(text, findsOneWidget);
+    expect(tester.widget<Text>(text).textAlign, TextAlign.left);
+    expect(
+      find.ancestor(of: text, matching: find.byType(ComposerStatusRow)),
+      findsNothing,
+    );
+    expect(tester.getSize(find.byType(ComposerStatusRow)).height, 0);
+    expect(
+      tester.getCenter(text).dy,
+      closeTo(tester.getCenter(find.byType(ChatBody)).dy, 1),
+    );
+  });
+
+  testWidgets('dankchat3 keeps the splash left in the footer', (tester) async {
+    await pumpJoined(
+      tester,
+      density: LayoutDensity.full,
+      chromeTheme: ChromeTheme.dankchat3.name,
+    );
+    final home = tester.element(find.byType(HomeScreen));
+    final chat = ProviderScope.containerOf(home).read(chatProvider);
+    const status = 'Live with 42 viewers for 1h 2m';
+    chat.channelFor('testchannel')!.info.setStatus(status, live: true);
+    await tester.pumpAndSettle();
+
+    final text = find.text(status);
+    expect(tester.widget<Text>(text).textAlign, TextAlign.start);
+    expect(
+      find.ancestor(of: text, matching: find.byType(ComposerStatusRow)),
+      findsOneWidget,
+    );
+  });
+
   // A softlock: with the view menu in the row or the field, hiding the input
   // took the menu with it, and the menu is the only way back.
   testWidgets('hiding the input never hides the view menu', (tester) async {
