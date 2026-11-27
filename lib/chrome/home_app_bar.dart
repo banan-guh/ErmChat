@@ -4,6 +4,7 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 
 import '../l10n/l10n.dart';
+import '../composer/composer_controller.dart';
 import '../panels/mentions.dart';
 import '../panels/mod_panel.dart';
 import '../panels/threads.dart';
@@ -20,6 +21,7 @@ import '../widgets/clear_message_button.dart';
 import '../widgets/island_metrics.dart' show kComposerIslandBottomInset;
 import '../widgets/media_upload_controller.dart';
 import '../widgets/panel_manager.dart';
+import '../widgets/sent_history_button.dart';
 
 // Top app bar, chrome menu arrow, and their toggle/menu verbs.
 class HomeAppBar {
@@ -41,7 +43,6 @@ class HomeAppBar {
     required this.isMounted,
     required this.markDirty,
     required this.addChannelDialog,
-    required this.onHistory,
     required this.toggleFullscreen,
     required this.toggleInput,
     required this.toggleStream,
@@ -53,7 +54,7 @@ class HomeAppBar {
     required this.themeSpec,
     required this.layoutEdit,
     required this.editLayout,
-    required this.messageController,
+    required this.composer,
   });
 
   final Chat chat;
@@ -73,7 +74,6 @@ class HomeAppBar {
   final bool Function() isMounted;
   final VoidCallback markDirty;
   final VoidCallback addChannelDialog;
-  final VoidCallback onHistory;
   final VoidCallback toggleFullscreen;
   final VoidCallback toggleInput;
   final VoidCallback toggleStream;
@@ -91,9 +91,8 @@ class HomeAppBar {
   final LayoutEditController? Function() layoutEdit;
   final VoidCallback editLayout;
 
-  /// The chat field's text, for the clear action when a theme places it
-  /// outside the field.
-  final TextEditingController messageController;
+  /// The composer owns the field text and sent-message history.
+  final ComposerController composer;
 
   bool _isChannelLive(String channel) =>
       chat.channelFor(channel)?.info.isLive ?? false;
@@ -152,9 +151,11 @@ class HomeAppBar {
     ChromeAction.threads => threadsButton(context),
     ChromeAction.settings => settingsButton(context),
     ChromeAction.overflow => overflowMenu(context),
-    ChromeAction.history => _historyButton(context),
+    ChromeAction.history => _historyButton(),
     ChromeAction.viewMenu => chromeMenu(onCalendar: onCalendar),
-    ChromeAction.clear => ClearMessageButton(controller: messageController),
+    ChromeAction.clear => ClearMessageButton(
+      controller: composer.messageController,
+    ),
   };
 
   /// The strip's end: the theme's strip actions.
@@ -186,10 +187,9 @@ class HomeAppBar {
   Listenable get joinBusyListenable =>
       Listenable.merge([chatConn.connectionStateNotifier, networkBusy]);
 
-  Widget _historyButton(BuildContext context) => IconButton(
-    icon: const Icon(Icons.history),
-    tooltip: context.l10n.sentHistoryTitle,
-    onPressed: onHistory,
+  Widget _historyButton() => SentHistoryButton(
+    history: composer.sentHistory,
+    onSelect: composer.loadFromHistory,
   );
 
   Widget _joinButton() {
