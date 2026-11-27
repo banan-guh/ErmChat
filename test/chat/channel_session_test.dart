@@ -536,6 +536,26 @@ void main() {
       return chat;
     }
 
+    test('a provider fallback posts one channel history notice', () async {
+      SharedPreferences.setMockInitialValues({});
+      final chat = mergeChat();
+      addTearDown(chat.dispose);
+      final recent = _EmptyRecent();
+      final session = _channelSession(chat, recent: recent);
+      addTearDown(session.dispose);
+      await session.loadRecentMessagesConfig();
+
+      recent.fallbackNotices.emit((channel: 'test', provider: 'Zneix'));
+
+      expect(
+        sysRows(
+          chat,
+          'Chat history is switching to Zneix. There may be gaps in message history.',
+        ),
+        1,
+      );
+    });
+
     test('refetch and live overlaps fold into one row', () {
       final chat = mergeChat();
       addTearDown(chat.dispose);

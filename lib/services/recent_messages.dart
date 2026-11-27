@@ -18,6 +18,7 @@ import '../irc/decode/copy.dart'
     show buildUserNoticeText, userNoticeAccent, userNoticeLabelId;
 import '../irc/message.dart' show IrcMessage, parseIrcMessage;
 import '../util/data_usage.dart';
+import '../util/signal.dart';
 
 /// Fetch failure. [definitive] = per-channel, no failover helps.
 class RecentMessagesException implements Exception {
@@ -36,6 +37,9 @@ typedef HistoryBatch = ({
   bool joined,
   String? note,
 });
+
+/// A channel whose history came from the fallback provider.
+typedef RecentMessagesFallback = ({String channel, String provider});
 
 /// Recent-messages backend selector.
 enum RecentMessagesMode { auto, robotty, zneix, custom }
@@ -120,9 +124,21 @@ class RecentMessagesService {
 
   final http.Client? _client;
   RecentMessagesConfig _config;
+  final _degraded = <String>{};
+
+  /// One notice per channel when the mirror supplies its history.
+  final fallbackNotices = ChatSignal<RecentMessagesFallback>();
 
   /// The source setting; a change applies from the next fetch.
-  set config(RecentMessagesConfig value) => _config = value;
+  set config(RecentMessagesConfig value) {
+    _config = value;
+    _degraded.clear();
+  }
+
+  void dispose() {
+    fallbackNotices.clear();
+    _degraded.clear();
+  }
 
   /// Launch-warmed response bodies (consumed once). Decoding waits for the
   /// consumer so ban lines use live strings and the signed-in login.
@@ -224,10 +240,18 @@ class RecentMessagesService {
     final providers = _config.providers;
     Object? lastError;
     List<TwitchMessage>? staleFallback;
+    var staleProvider = 0;
     for (var i = 0; i < providers.length; i++) {
       try {
         final result = await _fetchFrom('${providers[i]}$path', channel);
-        if (result.joined) return result.messages;
+        if (result.joined) {
+          if (i == 0) {
+            _degraded.remove(channel);
+          } else if (result.messages.isNotEmpty) {
+            _noteFallback(channel, providers[i]);
+          }
+          return result.messages;
+        }
         // Not joined: the bot serves stale history, so a mirror that is
         // joined may have the correct messages. Keep the freshest stale
         // batch in case no provider is joined.
@@ -238,6 +262,7 @@ class RecentMessagesService {
         if (staleFallback == null ||
             _isFresher(result.messages, staleFallback)) {
           staleFallback = result.messages;
+          staleProvider = i;
         }
       } on RecentMessagesException catch (e) {
         // Definitive: same API across providers, no failover.
@@ -263,7 +288,13 @@ class RecentMessagesService {
     }
     // No joined provider: serve the freshest stale batch if there is one.
     if (staleFallback != null) {
-      if (!retryUnjoined || staleFallback.isNotEmpty) return staleFallback;
+      if (staleFallback.isNotEmpty) {
+        if (staleProvider > 0) {
+          _noteFallback(channel, providers[staleProvider]);
+        }
+        return staleFallback;
+      }
+      if (!retryUnjoined) return staleFallback;
       await Future<void>.delayed(_unjoinedRetryDelay);
       try {
         return await _fetchRecent(
@@ -280,6 +311,12 @@ class RecentMessagesService {
     // All providers exhausted: surface last error or wrap.
     if (lastError is RecentMessagesException) throw lastError;
     throw RecentMessagesException(strings().historyLoadFailed);
+  }
+
+  void _noteFallback(String channel, String url) {
+    if (!_degraded.add(channel)) return;
+    final provider = url == _mirrorBaseUrl ? 'Zneix' : 'Robotty';
+    fallbackNotices.emit((channel: channel, provider: provider));
   }
 
   /// True when [candidate] is newer than [current]. Non-empty beats empty,

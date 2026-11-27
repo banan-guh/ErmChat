@@ -4189,6 +4189,7 @@ void main() {
 
       test('falls back to the mirror when the primary is not joined', () async {
         final calls = <Uri>[];
+        final notices = <RecentMessagesFallback>[];
         final service = RecentMessagesService(
           client: MockClient((request) async {
             calls.add(request.url);
@@ -4204,7 +4205,7 @@ void main() {
               200,
             );
           }),
-        );
+        )..fallbackNotices.add(notices.add);
 
         final messages = await service.fetchRecent('test');
 
@@ -4212,6 +4213,43 @@ void main() {
         expect(calls[0].host, contains('robotty'));
         expect(calls[1].host, contains('zneix'));
         expect(messages.single.text, 'fresh message');
+        expect(notices, [(channel: 'test', provider: 'Zneix')]);
+      });
+
+      test('fallback notice waits for recovery and does not repeat', () async {
+        var primaryHealthy = false;
+        final notices = <RecentMessagesFallback>[];
+        final service = RecentMessagesService(
+          client: MockClient((request) async {
+            if (request.url.host.contains('robotty')) {
+              return primaryHealthy ? okBody() : http.Response('down', 503);
+            }
+            return okBody();
+          }),
+        )..fallbackNotices.add(notices.add);
+
+        await service.fetchRecent('test');
+        await service.fetchRecent('test');
+        expect(notices, hasLength(1));
+
+        primaryHealthy = true;
+        await service.fetchRecent('test');
+        primaryHealthy = false;
+        await service.fetchRecent('test');
+        expect(notices, hasLength(2));
+      });
+
+      test('all providers failing posts no fallback notice', () async {
+        final notices = <RecentMessagesFallback>[];
+        final service = RecentMessagesService(
+          client: MockClient((_) async => http.Response('down', 503)),
+        )..fallbackNotices.add(notices.add);
+
+        await expectLater(
+          service.fetchRecent('test'),
+          throwsA(isA<RecentMessagesException>()),
+        );
+        expect(notices, isEmpty);
       });
 
       test('falls back to the mirror when the primary is empty', () async {

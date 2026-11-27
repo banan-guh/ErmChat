@@ -2858,6 +2858,14 @@
   "historyLoadFailed": "Failed to load chat history",
   "historyInvalidChannel": "Invalid channel name",
   "historyChannelExcluded": "History unavailable: channel excluded from the history service",
+  "historyProviderFallback": "Chat history is switching to {provider}. There may be gaps in message history.",
+  "@historyProviderFallback": {
+    "placeholders": {
+      "provider": {
+        "type": "String"
+      }
+    }
+  },
   "noChatHistory": "No chat history available",
   "modErrorMissingScope": "Missing required scope. Re-login with your account and try again.",
   "modErrorNoPermission": "You don't have permission to perform that action.",

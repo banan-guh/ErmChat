@@ -71,4 +71,28 @@ void main() {
       expect(rows, isEmpty);
     });
   });
+
+  test('an empty stale mirror does not announce a fallback before retry', () {
+    fakeAsync((async) {
+      var primaryCalls = 0;
+      final notices = <RecentMessagesFallback>[];
+      final service = RecentMessagesService(
+        client: MockClient((request) async {
+          if (request.url.host.contains('robotty')) {
+            primaryCalls++;
+            return http.Response(primaryCalls == 1 ? _unjoined : _payload, 200);
+          }
+          return http.Response(_unjoined, 200);
+        }),
+      )..fallbackNotices.add(notices.add);
+      List<TwitchMessage>? rows;
+      service.fetchRecent('test').then((r) => rows = r);
+      async.flushMicrotasks();
+      async.elapse(const Duration(seconds: 2));
+      async.flushMicrotasks();
+
+      expect(rows?.single.text, 'hi');
+      expect(notices, isEmpty);
+    });
+  });
 }
