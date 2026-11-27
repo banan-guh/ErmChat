@@ -127,10 +127,16 @@ class ArchiveWriter {
       } else if (c.dropped++ == 0) {
         logDebug('[ArchiveWriter] $channel parked $maxWaiting rows, dropping');
       }
-      c.loading ??= _loadGate.withPermit(() => _load(channel, c));
+      _armLoad(channel, c);
       return;
     }
     _append(channel, c, msg);
+  }
+
+  Future<void>? _armLoad(String channel, _Chan c) {
+    if (c.tables != null) return c.loading;
+    if (c.waiting.isEmpty && c.loading == null) return null;
+    return c.loading ??= _loadGate.withPermit(() => _load(channel, c));
   }
 
   /// Forgets [channel]: seals what it holds, then drops its user tables,
@@ -139,8 +145,14 @@ class ArchiveWriter {
   void forget(String channel) {
     final c = _chans.remove(channel);
     if (c == null) return;
-    _seal(channel, c);
-    final chain = c.chain;
+    final loading = _armLoad(channel, c);
+    final Future<void> chain;
+    if (loading == null) {
+      chain = _seal(channel, c);
+    } else {
+      final ready = c.chain.then((_) => loading);
+      chain = ready.then((_) => _seal(channel, c));
+    }
     _leaving[channel] = chain;
     chain.whenComplete(() {
       if (identical(_leaving[channel], chain)) _leaving.remove(channel);
@@ -308,11 +320,11 @@ class ArchiveWriter {
     }
   }
 
-  void _seal(String channel, _Chan c) {
+  Future<void> _seal(String channel, _Chan c) {
     c.timer?.cancel();
     c.timer = null;
     if (c.tail.isEmpty) {
-      return;
+      return Future.value();
     }
     final rows = List.of(c.tail);
     c.tail.clear();
@@ -333,6 +345,7 @@ class ArchiveWriter {
       }
       c.unsealed.removeRange(0, rows.length);
     });
+    return c.chain;
   }
 
   /// Messages of [channel] not yet readable from the store, oldest first:
@@ -407,8 +420,11 @@ class ArchiveWriter {
 
   /// Seals every tail now and waits for the writes.
   Future<void> flush() async {
-    for (final c in List.of(_chans.values)) {
-      await c.loading;
+    for (final e in List.of(_chans.entries)) {
+      await _armLoad(e.key, e.value);
+      if (e.value.tables == null && e.value.waiting.isNotEmpty) {
+        await _armLoad(e.key, e.value);
+      }
     }
     for (final e in _chans.entries) {
       _seal(e.key, e.value);

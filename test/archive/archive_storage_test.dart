@@ -70,6 +70,7 @@ class _StartupStore implements ArchiveStore {
   final _tables = <String, UserTables>{};
   final tableOrder = <String>[];
   final stateOrder = <String>[];
+  final appended = <String, int>{};
   var activeTables = 0;
   var activeStates = 0;
   var maxActiveTables = 0;
@@ -131,7 +132,9 @@ class _StartupStore implements ArchiveStore {
     Set<String>? words,
     Set<int>? senders,
     Set<int>? states,
-  }) async {}
+  }) async {
+    appended.update(channel, (n) => n + count, ifAbsent: () => count);
+  }
 
   @override
   Future<int> pruneIfDue() async => 0;
@@ -1221,6 +1224,51 @@ void main() {
       );
       await writer.dispose();
       expect(store.closed, isTrue);
+    },
+  );
+
+  test('flush retries a failed load without waiting for another row', () async {
+    final store = _StartupStore(failChannel: 'bad');
+    final writer = _startupWriter(store);
+    writer.add('bad', _msg(0, channel: 'bad'));
+    await writer.settled();
+    expect(store.appended['bad'], isNull);
+
+    store.failChannel = null;
+    await writer.flush();
+
+    expect(store.stateOrder, ['bad', 'bad']);
+    expect(store.appended['bad'], 1, reason: 'flush dropped the parked row');
+    await writer.dispose();
+  });
+
+  test(
+    'leaving during a load keeps tables until the parked row seals',
+    () async {
+      final store = _StartupStore(holdTables: true, holdState: true);
+      final writer = _startupWriter(store);
+      writer.add(_channel, _msg(0));
+      await store.tableStarted(_channel);
+
+      writer.forget(_channel);
+      expect(store.writing!(_channel), isTrue);
+      store.tableGate.complete();
+      await store.stateStarted(_channel);
+      expect(
+        store.writing!(_channel),
+        isTrue,
+        reason: 'load still owns the tables',
+      );
+      store.stateGate.complete();
+      await writer.settled();
+
+      expect(
+        store.appended[_channel],
+        1,
+        reason: 'leave dropped the parked row',
+      );
+      expect(store.writing!(_channel), isFalse);
+      await writer.dispose();
     },
   );
 
