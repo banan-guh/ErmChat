@@ -1,4 +1,4 @@
-// Chat text normalization, shared by rendering, copying, and sending.
+// Chat text normalization, shared by rendering and sending.
 
 /// Our duplicate-message bypass mark (also 7TV's): U+034F, invisible.
 const invisibleChar = '\u034F';
@@ -64,9 +64,6 @@ String cleanChatText(String text) {
       .replaceAll(_blanksRe, ' ')
       .replaceAll(_spaceRunRe, ' ');
 }
-
-/// What a copy puts on the clipboard: the displayed text, ends trimmed.
-String copyableChatText(String text) => cleanChatText(text).trim();
 
 /// Strips trailing invisible-char suffix and surrounding whitespace.
 String stripInvisibleSuffix(String s) {

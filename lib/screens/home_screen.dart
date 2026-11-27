@@ -17,7 +17,6 @@ import '../providers/ui_state_providers.dart';
 import '../emotes/emote.dart';
 import '../l10n/l10n.dart';
 import '../models/twitch_message.dart';
-import '../util/chat_text.dart';
 import '../util/chrome_theme.dart';
 import '../services/app_updates.dart';
 import '../services/twitch_api.dart';
@@ -1961,7 +1960,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
           ChromeTheme.dankchat3.spec.encode();
 
   void _copyMessageToClipboard(TwitchMessage msg) {
-    Clipboard.setData(ClipboardData(text: copyableChatText(msg.text)));
+    Clipboard.setData(ClipboardData(text: msg.text));
     _chatNotice.show(
       context.l10n.messageCopied,
       actionLabel: context.l10n.paste,

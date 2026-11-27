@@ -5,7 +5,6 @@ import 'package:flutter/services.dart';
 
 import '../l10n/l10n.dart';
 import '../models/twitch_message.dart';
-import '../util/chat_text.dart';
 import '../util/haptics.dart';
 import '../util/settings.dart';
 import '../util/timestamp_formatter.dart';
@@ -66,9 +65,7 @@ class MessageMenus {
                 leading: const Icon(Icons.copy),
                 title: Text(ctx.l10n.copyMessage),
                 onTap: () {
-                  Clipboard.setData(
-                    ClipboardData(text: copyableChatText(msg.text)),
-                  );
+                  Clipboard.setData(ClipboardData(text: msg.text));
                   Navigator.pop(ctx);
                 },
               ),
@@ -117,9 +114,7 @@ class MessageMenus {
                 leading: const Icon(Icons.copy),
                 title: Text(ctx.l10n.copyMessage),
                 onTap: () {
-                  Clipboard.setData(
-                    ClipboardData(text: copyableChatText(msg.text)),
-                  );
+                  Clipboard.setData(ClipboardData(text: msg.text));
                   Navigator.pop(ctx);
                 },
               ),
