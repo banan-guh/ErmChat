@@ -262,8 +262,9 @@ class TabbedLayoutState extends State<TabbedLayout>
 
   // Width of the fade where tabs meet the pinned strip actions.
   static const double _stripFade = 12;
-  static const double _bubbleArrowWidth = 44;
-  static const double _bubbleArrowSpacer = 18;
+  static const double _bubbleArrowWidth = 48;
+  static const double _bubbleTabFade = 48;
+  static const double _bubbleArrowSpacer = _bubbleTabFade;
   static const _jumpDuration = Motion.slow;
   // Longest span animated in one go. Longer jumps land within this distance
   // first, so the flight only builds a few pages (as ViewPager2 does).
@@ -729,9 +730,6 @@ class TabbedLayoutState extends State<TabbedLayout>
     if (tabs.isEmpty) return const SizedBox.shrink();
 
     final theme = Theme.of(context);
-    final arrowScrim = theme.colorScheme.surfaceContainerHigh.withValues(
-      alpha: 0.6,
-    );
 
     // The OS back-gesture strip is exactly as wide as the platform reports.
     // Zero (iOS, three-button nav, desktop, web) leaves the edge to the pages.
@@ -793,11 +791,16 @@ class TabbedLayoutState extends State<TabbedLayout>
                                       ShaderMask(
                                         blendMode: BlendMode.dstIn,
                                         shaderCallback: (rect) {
-                                          final fadeStart =
-                                              widget.stripTrailing == null ||
-                                                  bubbles
+                                          final fadeWidth = bubbles
+                                              ? overflow
+                                                    ? _bubbleTabFade
+                                                    : 0
+                                              : widget.stripTrailing == null
+                                              ? 0
+                                              : _stripFade;
+                                          final fadeStart = fadeWidth == 0
                                               ? 1.0
-                                              : 1 - _stripFade / rect.width;
+                                              : 1 - fadeWidth / rect.width;
                                           return LinearGradient(
                                             begin: AlignmentDirectional
                                                 .centerStart,
@@ -938,30 +941,18 @@ class TabbedLayoutState extends State<TabbedLayout>
                                       ignoring: !overflow,
                                       child: ExcludeSemantics(
                                         excluding: !overflow,
-                                        child: AnimatedOpacity(
-                                          key: const Key('channel_arrow_fade'),
-                                          opacity: overflow ? 1 : 0,
-                                          duration: Motion.fast,
-                                          child: DecoratedBox(
-                                            decoration: BoxDecoration(
-                                              gradient: LinearGradient(
-                                                begin: AlignmentDirectional
-                                                    .centerStart,
-                                                end: AlignmentDirectional
-                                                    .centerEnd,
-                                                colors: [
-                                                  Colors.transparent,
-                                                  arrowScrim,
-                                                  arrowScrim,
-                                                ],
-                                                stops: const [
-                                                  0,
-                                                  _stripFade /
-                                                      _bubbleArrowWidth,
-                                                  1,
-                                                ],
-                                              ),
+                                        child: DecoratedBox(
+                                          decoration: BoxDecoration(
+                                            color: theme
+                                                .colorScheme
+                                                .surfaceContainerHigh,
+                                          ),
+                                          child: AnimatedOpacity(
+                                            key: const Key(
+                                              'channel_arrow_fade',
                                             ),
+                                            opacity: overflow ? 1 : 0,
+                                            duration: Motion.fast,
                                             child: PopupMenuButton<int>(
                                               tooltip:
                                                   context.l10n.pageChannels,
