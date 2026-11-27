@@ -30,6 +30,16 @@ void main() {
       ),
     );
 
+    final theme = Theme.of(tester.element(find.byType(SentHistoryButton)));
+    final button = tester.widget<PopupMenuButton<String>>(
+      find.byType(PopupMenuButton<String>),
+    );
+    expect(
+      button.style?.foregroundColor?.resolve({}),
+      theme.colorScheme.onSurfaceVariant,
+      reason: 'matches the chrome actions beside it',
+    );
+
     await tester.tap(find.byType(PopupMenuButton<String>));
     await tester.pumpAndSettle();
 
@@ -55,5 +65,29 @@ void main() {
     await tester.pumpAndSettle();
     expect(selected, 'message 49');
     expect(find.byType(PopupMenuItem<String>), findsNothing);
+  });
+
+  testWidgets('history menu caps its width', (tester) async {
+    final history = ValueNotifier<List<String>>([
+      List.filled(12, 'a long sent message').join(' '),
+    ]);
+    addTearDown(history.dispose);
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Scaffold(
+          body: Center(
+            child: SentHistoryButton(history: history, onSelect: (_) {}),
+          ),
+        ),
+      ),
+    );
+
+    await tester.tap(find.byType(PopupMenuButton<String>));
+    await tester.pumpAndSettle();
+
+    expect(
+      tester.getSize(find.byType(PopupMenuItem<String>)).width,
+      lessThanOrEqualTo(240.5),
+    );
   });
 }

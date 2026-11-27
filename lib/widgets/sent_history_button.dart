@@ -40,14 +40,15 @@ class _SentHistoryButtonState extends State<SentHistoryButton> {
     popUpAnimationStyle: const AnimationStyle(duration: Motion.fast),
     constraints: const BoxConstraints(
       minWidth: 200,
-      maxWidth: 320,
+      maxWidth: 240,
       maxHeight: 360,
     ),
     style: IconButton.styleFrom(
+      foregroundColor: Theme.of(context).colorScheme.onSurfaceVariant,
       minimumSize: const Size.square(40),
       padding: EdgeInsets.zero,
       tapTargetSize: MaterialTapTargetSize.shrinkWrap,
-    ),
+    ).merge(IconButtonTheme.of(context).style),
     icon: const Icon(Icons.history),
     onOpened: _scrollToLatest,
     itemBuilder: (_) {
@@ -65,13 +66,10 @@ class _SentHistoryButtonState extends State<SentHistoryButton> {
           PopupMenuItem<String>(
             key: i == items.length - 1 ? _latestKey : null,
             value: items[items.length - 1 - i],
-            child: ConstrainedBox(
-              constraints: const BoxConstraints(maxWidth: 280),
-              child: Text(
-                items[items.length - 1 - i],
-                maxLines: 2,
-                overflow: TextOverflow.ellipsis,
-              ),
+            child: Text(
+              items[items.length - 1 - i],
+              maxLines: 2,
+              overflow: TextOverflow.ellipsis,
             ),
           ),
       ];
