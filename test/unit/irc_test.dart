@@ -4233,6 +4233,45 @@ void main() {
         expect((await service.fetchRecent('test')).single.text, 'hello world');
       });
 
+      test('falls back when a 200 response has no messages list', () async {
+        final calls = <Uri>[];
+        final service = RecentMessagesService(
+          client: MockClient((request) async {
+            calls.add(request.url);
+            if (request.url.host.contains('robotty')) {
+              return http.Response('{}', 200);
+            }
+            return okBody();
+          }),
+        );
+
+        final messages = await service.fetchRecent('test');
+
+        expect(calls, hasLength(2));
+        expect(calls[1].host, contains('zneix'));
+        expect(messages.single.text, 'hello world');
+      });
+
+      test('skips junk entries without dropping the history batch', () async {
+        final service = RecentMessagesService(
+          config: RecentMessagesConfig(mode: RecentMessagesMode.robotty),
+          client: MockClient(
+            (_) async => http.Response(
+              jsonEncode({
+                'messages': [privmsgLine, 42, freshLine],
+                'error': null,
+                'error_code': null,
+              }),
+              200,
+            ),
+          ),
+        );
+
+        final messages = await service.fetchRecent('test');
+
+        expect(messages.map((m) => m.text), ['hello world', 'fresh message']);
+      });
+
       test(
         'returns the freshest stale history when no provider is joined',
         () async {
@@ -4267,6 +4306,31 @@ void main() {
           );
         },
       );
+
+      test('keeps the longer stale batch when newest times tie', () async {
+        String line(int i) =>
+            '@rm-received-ts=1766417979914;historical=1;id=${i.toString().padLeft(8, '0')};'
+            'display-name=Alice;color=#9ACD32;user-id=42239452 '
+            ':alice!alice@alice.tmi.twitch.tv PRIVMSG #test :stale $i';
+        final service = RecentMessagesService(
+          client: MockClient((request) async {
+            final count = request.url.host.contains('robotty') ? 20 : 80;
+            return http.Response(
+              jsonEncode({
+                'messages': [for (var i = 0; i < count; i++) line(i)],
+                'error': 'not joined',
+                'error_code': 'channel_not_joined',
+              }),
+              200,
+            );
+          }),
+        );
+
+        final messages = await service.fetchRecent('test');
+
+        expect(messages, hasLength(80));
+        expect(messages.any((m) => m.text == 'stale 79'), isTrue);
+      });
 
       test('skips the mirror when the primary is joined', () async {
         final calls = <Uri>[];

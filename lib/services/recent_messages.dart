@@ -283,14 +283,20 @@ class RecentMessagesService {
   }
 
   /// True when [candidate] is newer than [current]. Non-empty beats empty,
-  /// otherwise the latest timestamp wins. Both lists are timestamp-sorted.
+  /// otherwise the latest timestamp wins and an equally fresh longer batch
+  /// keeps more history. Both lists are timestamp-sorted.
   static bool _isFresher(
     List<TwitchMessage> candidate,
     List<TwitchMessage> current,
   ) {
     if (current.isEmpty) return candidate.isNotEmpty;
     if (candidate.isEmpty) return false;
-    return candidate.last.timestamp.isAfter(current.last.timestamp);
+    final byTime = candidate.last.timestamp.compareTo(current.last.timestamp);
+    if (byTime != 0) return byTime > 0;
+    if (candidate.length != current.length) {
+      return candidate.length > current.length;
+    }
+    return candidate.first.timestamp.isBefore(current.first.timestamp);
   }
 
   Future<({List<TwitchMessage> messages, bool joined})> _fetchFrom(
@@ -400,16 +406,25 @@ class RecentMessagesService {
     final note = body['error_code'] is String
         ? '${body['error']} (${body['error_code']})'
         : null;
-    final rawMessages = body['messages'] as List<dynamic>?;
-    if (rawMessages == null || rawMessages.isEmpty) {
+    final rawMessages = body['messages'];
+    if (rawMessages == null) {
+      if (joined) {
+        throw const FormatException('Recent-messages response has no messages');
+      }
+      return (messages: <TwitchMessage>[], joined: joined, note: note);
+    }
+    if (rawMessages is! List) {
+      throw const FormatException('Recent-messages messages must be a list');
+    }
+    if (rawMessages.isEmpty) {
       return (messages: <TwitchMessage>[], joined: joined, note: note);
     }
 
     final messages = <TwitchMessage>[];
     final clearMsgTargets = <String>{};
     for (final raw in rawMessages) {
-      final rawLine = raw as String;
-      final msg = parseIrcMessage(rawLine);
+      if (raw is! String) continue;
+      final msg = parseIrcMessage(raw);
       if (msg == null) continue;
       // CLEARMSG: mark target deleted (applied after batch).
       if (msg.command == 'CLEARMSG') {
