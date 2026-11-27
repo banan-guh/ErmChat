@@ -220,13 +220,15 @@ void main() {
     expect(ChromeTheme.dankchat4.spec.compact, isFalse);
   });
 
-  test('dankchat4 puts history between view and threads', () {
+  test('only dankchat4 places history in the button row', () {
+    expect(ChromeTheme.ermchat.spec.fieldStart, [FieldItem.emote]);
+    expect(ChromeTheme.dankchat3.spec.fieldStart, [FieldItem.emote]);
+    expect(ChromeTheme.dankchat4.spec.fieldStart, isEmpty);
     expect(ChromeTheme.dankchat4.spec.rowEnd, [
       ChromeAction.viewMenu,
       ChromeAction.history,
       ChromeAction.threads,
     ]);
-    expect(ChromeTheme.dankchat4.spec.fieldStart, isEmpty);
   });
 
   test('a mangled line decodes to null or something usable', () {

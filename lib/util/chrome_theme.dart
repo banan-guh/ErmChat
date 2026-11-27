@@ -176,7 +176,7 @@ class ChromeThemeSpec {
     this.rowStart = const [],
     this.rowEnd = const [],
     this.appBarActions = const [],
-    this.fieldStart = const [FieldItem.emote, FieldItem.history],
+    this.fieldStart = const [FieldItem.emote],
     this.fieldEnd = const [FieldItem.send],
     this.sendAside = SendPlace.column,
     this.compact = false,
